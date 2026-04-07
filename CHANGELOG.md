@@ -10,11 +10,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo export` — task report export in JSON and text formats
 - `duo cleanup` — clean completed/failed tasks with journal preservation option
 - `duo version` — show installed version
+- `duo audit` — Premium Request consumption audit per task and global
+- PR budget system: `pr_budget` config key, auto-escalate when exceeded
 - Premium Request zero-cost safety: `send_bootstrap` one-time lock, `send_prompt` BANNED, `safe_enter` prompt guard, `is_in_dialog_stable` double-check
+- `wait_for_dialog()` before all dialog interactions (eliminates race conditions)
+- `_BOOTSTRAP_DONE` cleared on session restart (fixes deadlock)
 - Deep code review fixes: retry init, bounds check, tmux error handling, age() type safety
 - Complete docstrings for all modules
-- Updated README covering all 17 commands
+- Updated README covering all 18 commands
 - Updated `install.sh` with `--check`, `--force`, verification, summary table
+- Ruff linting integrated (unused imports, f-strings cleaned)
+- Integration tests simulating full task lifecycle
 
 ## [0.4.0] — 2025-07-15
 

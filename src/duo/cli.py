@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from duo.protocol import (
-    DUO_DIR,
+    DUO_DIR,  # noqa: F401 — used by test monkeypatching
     Task,
     TASKS_DIR,
     TaskStatus,
@@ -612,24 +612,24 @@ def inspect(name: str) -> None:
     # Heartbeat
     hb = read_heartbeat(task)
     if hb:
-        click.echo(f"\nHeartbeat:")
+        click.echo("\nHeartbeat:")
         click.echo(f"  Timestamp:     {hb.ts}")
         click.echo(f"  Status:        {hb.status}")
         click.echo(f"  Current file:  {hb.current_file}")
         click.echo(f"  Incarnation:   {hb.incarnation}")
     else:
-        click.echo(f"\nHeartbeat:       (none)")
+        click.echo("\nHeartbeat:       (none)")
 
     # Latest ack/result
     ack = read_ack_for_step(task, task.current_step, task.current_attempt)
     if ack:
-        click.echo(f"\nAck:")
+        click.echo("\nAck:")
         click.echo(f"  Acked at:      {ack.acked_at}")
         click.echo(f"  Prompt hash:   {ack.prompt_hash}")
 
     result = read_result_for_step(task, task.current_step, task.current_attempt)
     if result:
-        click.echo(f"\nResult:")
+        click.echo("\nResult:")
         click.echo(f"  Status:        {result.status}")
         click.echo(f"  Summary:       {result.summary}")
         if result.files_changed:
@@ -662,7 +662,7 @@ def config() -> None:
 @click.argument("key")
 def config_get(key: str) -> None:
     """Get a config value."""
-    from duo.config import get_config, DEFAULTS
+    from duo.config import get_config
     value = get_config(key)
     if value is None:
         click.echo(f"Unknown key: {key}", err=True)

@@ -16,6 +16,7 @@ from duo.poller import (
     PollResult,
     age,
 )
+from duo import protocol
 from duo.protocol import (
     Subtask,
     create_task,
@@ -43,7 +44,7 @@ def _make_subtask(step_id: int = 1) -> Subtask:
     )
 
 
-def _make_task(tmp_path: Path, **overrides) -> "duo.protocol.Task":
+def _make_task(tmp_path: Path, **overrides) -> "protocol.Task":
     """Create a real Task rooted under *tmp_path*."""
     return create_task(
         task_id=overrides.pop("task_id", "test-task"),

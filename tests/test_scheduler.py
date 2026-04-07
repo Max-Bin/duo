@@ -12,9 +12,7 @@ from duo.protocol import (
     Task,
     TaskStatus,
     create_task,
-    list_tasks,
     save_task,
-    transition,
 )
 from duo.scheduler import (
     ACTIVE_STATUSES,

@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import subprocess
 import time
-from pathlib import Path
 
 import click
 
@@ -34,7 +33,6 @@ from duo.transport import (
     diagnose_pane,
     is_process_alive,
     name_pane,
-    read_pane,
     select_dialog_option,
     send_bootstrap,
     send_shell_command,

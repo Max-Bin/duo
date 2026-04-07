@@ -12,7 +12,6 @@ import pytest
 from duo.protocol import (
     TRANSITIONS,
     Subtask,
-    Task,
     TaskStatus,
     append_event,
     create_task,
@@ -252,7 +251,7 @@ class TestTaskCRUD:
         assert task.step_dir(2).is_dir()
 
     def test_security_policy_round_trip(self):
-        task = create_task("sec-test", "d", "/w", "b", "c", [_make_subtask()])
+        create_task("sec-test", "d", "/w", "b", "c", [_make_subtask()])
         loaded = load_task("sec-test")
         assert loaded is not None
         assert loaded.security_policy.allow_network is False
