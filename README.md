@@ -2,7 +2,8 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-305%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-465%20passed-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander directs, Executor delivers**
 
@@ -356,14 +357,41 @@ Poll results:
 |----------|---------|-------------|
 | `DUO_COPILOT_MODEL` | `claude-opus-4.6` | Overrides `copilot_model` from config |
 
+## Security
+
+Duo enforces multiple layers of security:
+
+- **Path traversal protection** — Changed files are validated against `writable_paths` allowlists using `fnmatch`; any file outside the declared scope is a hard rejection
+- **Label sanitization** — Pane labels and task names are validated against strict regex (`^[a-zA-Z0-9_.-]+$`) to prevent shell injection
+- **Secret detection** — Diffs are scanned for sensitive patterns (`API_KEY=`, `password=`, `token=`) before accepting results
+- **PR safety** — Premium Request budgets (`pr_budget`) cap per-task resource consumption
+- **`shell=False` everywhere** — All `subprocess.run` calls use list-form arguments; commands are split with `shlex.split()` to prevent shell injection
+
 ## Development
 
 ```bash
 bash install.sh              # Install
-python -m pytest tests/ -v   # Run tests
+make check                   # Run all checks (lint + format + type-check + coverage)
+make coverage                # Run tests with coverage (fail_under=95)
+make format                  # Auto-format code with ruff
+make lint                    # Lint with ruff
+make type-check              # Type-check with mypy (strict)
+make test                    # Run tests (pytest)
 duo --help                   # View commands
+```
 
-# Run individual module tests
+### Pre-commit Setup
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Configured hooks: **ruff** (lint + fix), **ruff-format**, **mypy** (strict type checking).
+
+### Running Individual Module Tests
+
+```bash
 python -m pytest tests/test_protocol.py -v
 python -m pytest tests/test_verifier.py -v
 python -m pytest tests/test_poller.py -v
@@ -373,6 +401,7 @@ python -m pytest tests/test_config.py -v
 python -m pytest tests/test_scheduler.py -v
 python -m pytest tests/test_dashboard.py -v
 python -m pytest tests/test_transport.py -v
+python -m pytest tests/test_integration.py -v
 ```
 
 ## Project Structure

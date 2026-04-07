@@ -8,11 +8,11 @@ Duo is an Agent Orchestration Runtime. Commander (Python CLI) orchestrates Execu
 
 ```bash
 uv sync                              # install dependencies
-python -m pytest tests/ -v           # run all tests (157 tests)
+make check                           # run ALL checks (lint + format + type-check + coverage)
+make coverage                        # run tests with coverage (fail_under=95)
+make test                            # run tests (465 tests)
+python -m pytest tests/ -v           # run all tests verbosely
 python -m pytest tests/test_protocol.py -v   # run specific module tests
-python -m pytest tests/test_verifier.py -v
-python -m pytest tests/test_poller.py -v
-python -m pytest tests/test_commander.py -v
 duo --help                           # see CLI commands
 duo config list                      # list all config values
 duo config set copilot_model <model> # change config value
@@ -28,8 +28,24 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — thin Click CLI entry point (9 commands + config subcommands: start/send/status/list/monitor/recover/merge/kill/config)
+└── cli.py         — thin Click CLI entry point (18 commands: start/send/status/list/monitor/recover/merge/kill/batch/queue/dashboard/logs/inspect/export/cleanup/config/version/audit)
 ```
+
+### transport.py — Protocol Classes
+
+Three `typing.Protocol` classes define the transport abstraction:
+- `TransportBridge` — execute tmux-bridge commands
+- `PaneReader` — read tmux pane content
+- `DialogDetector` — detect dialog state in a pane
+
+These allow easy mocking in tests and future transport backends.
+
+### Security Guards
+
+- **Path traversal protection** — verifier rejects changes outside `writable_paths` (fnmatch)
+- **Label sanitization** — `_validate_label()` in transport.py enforces `^[a-zA-Z0-9_.-]+$`; `_validate_task_name()` in cli.py enforces `^[a-zA-Z0-9_-]+$`
+- **Secret detection** — verifier scans diffs for sensitive patterns
+- **`shell=False`** — all subprocess calls use list-form arguments
 
 ### Key data flow
 
@@ -43,7 +59,7 @@ Commander sends prompt (via transport)
   → Correction: retry with feedback (max 3 attempts, then escalate)
 ```
 
-### FSM States (11)
+### FSM States (13)
 
 CREATED → SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING → COMPLETED
 
@@ -84,11 +100,12 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 157 tests across 4 test files
+- 465 tests across 10 test files — **100% test coverage required**
+- CI enforces `fail_under=95` via `make coverage` (pytest-cov)
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
 - Fixture `_isolate_tasks_dir` monkeypatches `TASKS_DIR` to `tmp_path` for isolation
-- Every new feature needs tests
+- Every new feature needs tests — coverage must not drop
 - Tests are organized by class per function/component under test
 
 ## Environment Variables

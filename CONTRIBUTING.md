@@ -37,11 +37,20 @@ uv pip install -e .
 
 ## 测试
 
+- 提交前请运行 `make check`，确保 lint、格式化、类型检查和覆盖率全部通过
+- 覆盖率不得低于 95%（CI 通过 `make coverage` 强制执行）
 - 每个新功能需要对应的测试
 - 使用 `tmp_path` fixture 隔离文件操作
 - 使用 `monkeypatch` 覆盖 `TASKS_DIR`，避免污染 `~/.duo`
 - Mock subprocess.run 用于 git/tmux-bridge 调用
 - CLI 测试使用 `click.testing.CliRunner`
+
+## 安全
+
+- **禁止使用 `shell=True`** — 所有 subprocess 调用必须使用列表形式参数
+- **验证所有用户输入** — 任务名、pane label 等必须通过正则校验
+- 不要在代码中硬编码密钥或 token
+- 变更文件必须在 `writable_paths` 白名单内
 
 ## 模块结构
 

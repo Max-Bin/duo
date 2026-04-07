@@ -1,8 +1,11 @@
 # Duo
 
+> ⚠️ **注意：** 中文版文档可能不是最新版本。最新内容请参阅 [README.md](README.md)。
+
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-305%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-465%20passed-brightgreen.svg)]()
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander 指挥，Executor 执行**
 
