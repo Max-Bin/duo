@@ -112,6 +112,16 @@ class TestGitDiff:
         mock_run.return_value = _mock_proc("diff --git a/f b/f\n+hello\n")
         assert git_diff("/w") == "diff --git a/f b/f\n+hello\n"
 
+    @patch("duo.verifier.subprocess.run")
+    def test_raises_on_failure(self, mock_run):
+        """git_diff raises RuntimeError when git diff fails (line 62)."""
+        proc = _mock_proc("")
+        proc.returncode = 1
+        proc.stderr = "fatal: bad revision"
+        mock_run.return_value = proc
+        with pytest.raises(RuntimeError, match="git diff failed"):
+            git_diff("/w")
+
 
 class TestGitUntracked:
     @patch("duo.verifier.subprocess.run")
@@ -123,6 +133,16 @@ class TestGitUntracked:
     def test_empty(self, mock_run):
         mock_run.return_value = _mock_proc("")
         assert git_untracked("/w") == []
+
+    @patch("duo.verifier.subprocess.run")
+    def test_raises_on_failure(self, mock_run):
+        """git_untracked raises RuntimeError when git ls-files fails (line 75)."""
+        proc = _mock_proc("")
+        proc.returncode = 1
+        proc.stderr = "fatal: not a git repository"
+        mock_run.return_value = proc
+        with pytest.raises(RuntimeError, match="git ls-files failed"):
+            git_untracked("/w")
 
 
 # ---------------------------------------------------------------------------

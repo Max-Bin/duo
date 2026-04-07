@@ -619,3 +619,56 @@ class TestReadResultForStep:
         step_dir.mkdir(parents=True, exist_ok=True)
         task.result_path(1, 1).write_text("corrupt data!!!")
         assert read_result_for_step(task, 1, 1) is None
+
+
+# ---------------------------------------------------------------------------
+# write_json OSError handling (lines 207-209)
+# ---------------------------------------------------------------------------
+
+
+class TestWriteJsonOSError:
+    def test_oserror_cleans_tmp_and_reraises(self, tmp_path: Path):
+        """write_json removes temp file on OSError and re-raises (lines 207-209)."""
+        path = tmp_path / "target.json"
+        # Make target a directory so rename raises IsADirectoryError (subclass of OSError)
+        path.mkdir()
+
+        with pytest.raises(OSError):
+            write_json(path, {"key": "value"})
+
+        # No leftover temp files
+        tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+        assert len(tmp_files) == 0
+
+
+# ---------------------------------------------------------------------------
+# replay_state malformed events (lines 509-510)
+# ---------------------------------------------------------------------------
+
+
+class TestReplayStateMalformed:
+    def test_missing_data_key(self):
+        """replay_state handles status_changed event with no 'data' key (line 509)."""
+        task = create_task("replay-nodata", "d", "/w", "b", "c", [_make_subtask()])
+        with open(task.journal_path, "a") as f:
+            f.write(json.dumps({"event": "status_changed"}) + "\n")
+        assert replay_state(task) == TaskStatus.CREATED
+
+    def test_missing_to_key(self):
+        """replay_state handles status_changed event with no 'to' key (line 509)."""
+        task = create_task("replay-noto", "d", "/w", "b", "c", [_make_subtask()])
+        with open(task.journal_path, "a") as f:
+            f.write(json.dumps({"event": "status_changed", "data": {}}) + "\n")
+        assert replay_state(task) == TaskStatus.CREATED
+
+    def test_invalid_status_value(self):
+        """replay_state handles invalid status value (line 510)."""
+        task = create_task("replay-badval", "d", "/w", "b", "c", [_make_subtask()])
+        with open(task.journal_path, "a") as f:
+            f.write(
+                json.dumps(
+                    {"event": "status_changed", "data": {"to": "bogus_status"}}
+                )
+                + "\n"
+            )
+        assert replay_state(task) == TaskStatus.CREATED

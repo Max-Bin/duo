@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
+
 import pytest
 
 import duo.protocol
-from duo.protocol import Subtask, TaskStatus, append_event, create_task
+from duo.protocol import Subtask, TaskStatus, append_event, create_task, write_json
 
 
 @pytest.fixture(autouse=True)
@@ -140,3 +143,128 @@ class TestTaskRowStatuses:
             tasks.append(task)
         table = _build_tasks_table(tasks)
         assert table.row_count == len(TaskStatus)
+
+
+def _write_heartbeat(task, seconds_ago):
+    """Write a heartbeat file with a timestamp N seconds in the past."""
+    ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
+    write_json(task.heartbeat_path, {
+        "ts": ts,
+        "incarnation": task.incarnation_id,
+        "step": task.current_step,
+        "status": "working",
+        "current_file": "test.py",
+    })
+
+
+class TestTasksTableHeartbeat:
+    def test_tasks_table_heartbeat_fresh(self):
+        """Heartbeat age < 30s shows green styling."""
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("hb-fresh")
+        _write_heartbeat(task, seconds_ago=10)
+        table = _build_tasks_table([task])
+        hb_cell = table.columns[4]._cells[0]
+        assert hb_cell.style == "green"
+        assert "ago" in str(hb_cell)
+
+    def test_tasks_table_heartbeat_stale(self):
+        """Heartbeat age 30-90s shows yellow styling."""
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("hb-stale")
+        _write_heartbeat(task, seconds_ago=60)
+        table = _build_tasks_table([task])
+        hb_cell = table.columns[4]._cells[0]
+        assert hb_cell.style == "yellow"
+        assert "ago" in str(hb_cell)
+
+    def test_tasks_table_heartbeat_old(self):
+        """Heartbeat age > 90s shows red styling."""
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("hb-old")
+        _write_heartbeat(task, seconds_ago=120)
+        table = _build_tasks_table([task])
+        hb_cell = table.columns[4]._cells[0]
+        assert hb_cell.style == "red"
+        assert "ago" in str(hb_cell)
+
+    def test_tasks_table_heartbeat_missing(self):
+        """Task without heartbeat shows '—'."""
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("hb-missing")
+        table = _build_tasks_table([task])
+        hb_cell = table.columns[4]._cells[0]
+        assert str(hb_cell) == "—"
+        assert hb_cell.style == "dim"
+
+
+class TestEventsPanelColoring:
+    def test_events_panel_error_coloring(self):
+        """Events with 'error' or 'failed' show red markup."""
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("err-task")
+        append_event(task, "step_error")
+        append_event(task, "task_failed")
+        panel = _build_events_panel([task])
+        content = panel.renderable
+        assert "[red]step_error[/]" in content
+        assert "[red]task_failed[/]" in content
+
+    def test_events_panel_completed_coloring(self):
+        """Events with 'completed' or 'passed' show green markup."""
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("ok-task")
+        append_event(task, "task_completed")
+        append_event(task, "tests_passed")
+        panel = _build_events_panel([task])
+        content = panel.renderable
+        assert "[green]task_completed[/]" in content
+        assert "[green]tests_passed[/]" in content
+
+    def test_events_panel_normal_coloring(self):
+        """Regular events show white markup."""
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("norm-task")
+        append_event(task, "status_changed")
+        panel = _build_events_panel([task])
+        content = panel.renderable
+        assert "[white]status_changed[/]" in content
+
+
+class TestRunDashboard:
+    @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
+    @patch("duo.dashboard.Console")
+    @patch("duo.dashboard.Live")
+    def test_run_dashboard_exits_on_keyboard_interrupt(
+        self, mock_live, mock_console, mock_sleep
+    ):
+        """run_dashboard exits cleanly on KeyboardInterrupt."""
+        from duo.dashboard import run_dashboard
+
+        mock_live.return_value.__enter__ = lambda s: s
+        mock_live.return_value.__exit__ = lambda s, *a: False
+        # Should not raise
+        run_dashboard()
+
+    @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
+    @patch("duo.dashboard.Console")
+    @patch("duo.dashboard.Live")
+    def test_run_dashboard_filters_tasks(
+        self, mock_live, mock_console, mock_sleep
+    ):
+        """run_dashboard filters tasks by task_ids."""
+        from duo.dashboard import run_dashboard
+
+        mock_live.return_value.__enter__ = lambda s: s
+        mock_live.return_value.__exit__ = lambda s, *a: False
+        _make_task("keep-me")
+        _make_task("skip-me")
+        # Should not raise; only "keep-me" would be displayed
+        run_dashboard(task_ids=["keep-me"])

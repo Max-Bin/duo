@@ -325,6 +325,7 @@ def merge(name: str) -> None:
         sys.exit(1)
 
     # Get parent repo from worktree
+    main_worktree: str | None = None
     r = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
         capture_output=True,

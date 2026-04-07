@@ -1148,3 +1148,68 @@ class TestLogMonitor:
         assert "task-1" in captured.out
         assert "result_ready" in captured.out
         assert "[duo]" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# monitor poll result branch coverage (lines 634, 636)
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorPollResultBranches:
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.HEARTBEAT_TIMEOUT)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_heartbeat_timeout_logging(
+        self, mock_list, mock_promote, mock_poll, mock_sleep, capsys
+    ):
+        """Monitor logs ⚠ heartbeat_timeout (line 634)."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 1,
+                    "queued_count": 0,
+                    "max_parallel": 2,
+                },
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        captured = capsys.readouterr()
+        assert "⚠" in captured.out
+        assert "heartbeat_timeout" in captured.out
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.UNKNOWN)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_unknown_state_logging(
+        self, mock_list, mock_promote, mock_poll, mock_sleep, capsys
+    ):
+        """Monitor logs ? unknown state (line 636)."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 1,
+                    "queued_count": 0,
+                    "max_parallel": 2,
+                },
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        captured = capsys.readouterr()
+        assert "?" in captured.out
+        assert "unknown state" in captured.out

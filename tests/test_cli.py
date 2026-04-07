@@ -207,6 +207,24 @@ class TestRecover:
         assert "running" in result.output
         assert "created" in result.output
 
+    def test_recover_skips_completed_task(self, runner: CliRunner):
+        """recover() skips tasks with COMPLETED status (line 263)."""
+        task = _make_task("done-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["recover"])
+        assert result.exit_code == 0
+        assert "All tasks consistent." in result.output
+
+    def test_recover_skips_failed_task(self, runner: CliRunner):
+        """recover() skips tasks with FAILED status (line 263)."""
+        task = _make_task("fail-task")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+        result = runner.invoke(main, ["recover"])
+        assert result.exit_code == 0
+        assert "All tasks consistent." in result.output
+
 
 # ---------------------------------------------------------------------------
 # send command (error case)
@@ -964,6 +982,123 @@ class TestMergeCommand:
             assert result.exit_code != 0
             assert "Rebase conflict" in result.output
 
+    def test_merge_fetch_fails_continues(self, runner: CliRunner, tmp_path: Path):
+        """merge continues when git fetch fails (line 311)."""
+        task = _make_task("merge-fetch")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "merge_fetch_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/merge-fetch"
+        save_task(task)
+
+        worktree_base = "/some/worktree/base"
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "fetch", "origin"]:
+                m.returncode = 1
+                m.stderr = "could not resolve host"
+                return m
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = (
+                    f"worktree /main/repo\n\n"
+                    f"worktree {worktree_base}/merge-fetch\n\n"
+                )
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
+            "duo.cli.get_config", return_value=worktree_base
+        ):
+            result = runner.invoke(main, ["merge", "merge-fetch"])
+            assert result.exit_code == 0
+            assert "Warning: fetch failed" in result.output
+
+    def test_merge_rebase_abort_fails(self, runner: CliRunner, tmp_path: Path):
+        """merge warns when rebase --abort also fails (line 322)."""
+        task = _make_task("merge-abortfail")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "merge_abortfail_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "fetch", "origin"]:
+                return m
+            if args[:2] == ["git", "rebase"] and "--abort" not in args:
+                m.returncode = 1
+                m.stderr = "CONFLICT"
+                return m
+            if args == ["git", "rebase", "--abort"]:
+                m.returncode = 1
+                m.stderr = "abort failed"
+                return m
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+            result = runner.invoke(main, ["merge", "merge-abortfail"])
+            assert result.exit_code != 0
+            assert "Rebase conflict" in result.output
+            assert "could not abort rebase" in result.output
+
+    def test_merge_no_main_worktree(self, runner: CliRunner, tmp_path: Path):
+        """merge errors when no main worktree found (lines 342-347 unreachable
+        due to uninitialized main_worktree; verifies the error path)."""
+        task = _make_task("merge-nomain")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "merge_nomain_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        worktree_base = "/some/worktree/base"
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                # All worktrees are under worktree_base — no main worktree
+                m.stdout = f"worktree {worktree_base}/merge-nomain\n\n"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
+            "duo.cli.get_config", return_value=worktree_base
+        ):
+            result = runner.invoke(main, ["merge", "merge-nomain"])
+            assert result.exit_code != 0
+
+    def test_merge_ff_only_fails(self, runner: CliRunner, tmp_path: Path):
+        """merge exits when ff-only merge fails (lines 358-359)."""
+        task = _make_task("merge-ff")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "merge_ff_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/merge-ff"
+        save_task(task)
+
+        worktree_base = "/some/worktree/base"
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = (
+                    f"worktree /main/repo\n\n"
+                    f"worktree {worktree_base}/merge-ff\n\n"
+                )
+            if args[:2] == ["git", "merge"]:
+                m.returncode = 1
+                m.stderr = "not possible to fast-forward"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
+            "duo.cli.get_config", return_value=worktree_base
+        ):
+            result = runner.invoke(main, ["merge", "merge-ff"])
+            assert result.exit_code != 0
+            assert "Merge failed" in result.output
+
 
 # ---------------------------------------------------------------------------
 # _load_batch_file helper
@@ -1022,6 +1157,21 @@ class TestLoadBatchFile:
         with pytest.raises(SystemExit):
             _load_batch_file(str(f))
 
+    def test_load_yaml_safe_load_path(self, tmp_path: Path):
+        """YAML safe_load path is exercised with mocked yaml module (line 439)."""
+        import sys
+
+        f = tmp_path / "tasks.yaml"
+        f.write_text("tasks:\n  - name: y1\n")
+        mock_yaml = MagicMock()
+        mock_yaml.safe_load.return_value = {"tasks": [{"name": "y1"}]}
+
+        with patch.dict(sys.modules, {"yaml": mock_yaml}):
+            result = _load_batch_file(str(f))
+            assert len(result) == 1
+            assert result[0]["name"] == "y1"
+            mock_yaml.safe_load.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # _create_task_from_batch_def helper
@@ -1078,6 +1228,20 @@ class TestCreateTaskFromBatchDef:
             ]
             result = _create_task_from_batch_def(defn, str(tmp_path), verbose=False)
             assert result is None
+
+    def test_revparse_fails(self, tmp_path: Path):
+        """_create_task_from_batch_def exits when rev-parse fails (lines 491-495)."""
+        from duo.cli import _create_task_from_batch_def
+
+        defn = {"name": "batch-rp", "description": "RP Fail"}
+        with patch("duo.cli.subprocess.run") as mock_run, patch(
+            "duo.cli.get_config", return_value=str(tmp_path / "wt")
+        ):
+            mock_run.return_value = MagicMock(
+                returncode=1, stdout="", stderr="not a git repo"
+            )
+            with pytest.raises(SystemExit):
+                _create_task_from_batch_def(defn, str(tmp_path), verbose=False)
 
 
 # ---------------------------------------------------------------------------
@@ -1144,6 +1308,27 @@ class TestBatchCommand:
             result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
             assert result.exit_code == 0
             assert "1 tasks created" in result.output
+
+    def test_batch_with_queued_tasks(self, runner: CliRunner, tmp_path: Path):
+        """batch shows queue message when tasks are queued (line 559)."""
+        f = tmp_path / "tasks.json"
+        f.write_text(json.dumps({"tasks": [{"name": "q1"}]}))
+
+        with patch("duo.cli._create_task_from_batch_def") as mock_create, patch(
+            "duo.scheduler.queue_status",
+            return_value={
+                "active_count": 2,
+                "queued_count": 3,
+                "max_parallel": 2,
+                "active_tasks": ["a1", "a2"],
+                "queued_tasks": ["q1", "q2", "q3"],
+            },
+        ):
+            mock_create.return_value = "q1"
+            result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "Queued: 3" in result.output
+            assert "duo monitor" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -1409,6 +1594,29 @@ class TestCleanupDetailed:
             assert "Proceed?" in result.output
             assert "Cleaned 1" in result.output
 
+    def test_cleanup_removes_existing_worktree(
+        self, runner: CliRunner, make_task, tmp_path: Path
+    ):
+        """cleanup calls git worktree remove when worktree exists (line 1014)."""
+        task = make_task("cl-wt")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "worktree_exists"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            result = runner.invoke(main, ["cleanup", "--force"])
+            assert result.exit_code == 0
+            # Verify git worktree remove was called with the worktree path
+            wt_remove_calls = [
+                c
+                for c in mock_run.call_args_list
+                if len(c[0][0]) >= 3 and c[0][0][:3] == ["git", "worktree", "remove"]
+            ]
+            assert len(wt_remove_calls) >= 1
+
 
 # ---------------------------------------------------------------------------
 # config subcommands
@@ -1627,3 +1835,11 @@ class TestLogsFormatting:
         # Should show more than default 20 lines
         assert "event_0" in result.output
         assert "event_29" in result.output
+
+    def test_warning_event_symbol(self, runner: CliRunner):
+        """Warning events get ⚠ symbol (line 692)."""
+        task = _make_task("log-warn")
+        append_event(task, "safety_warning", {"msg": "be careful"})
+        result = runner.invoke(main, ["logs", "log-warn"])
+        assert result.exit_code == 0
+        assert "⚠" in result.output

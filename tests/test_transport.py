@@ -10,6 +10,7 @@ import duo.transport
 from duo.transport import (
     PaneInfo,
     _find_bridge,
+    _is_at_main_prompt,
     _retry,
     bridge,
     cancel_current,
@@ -507,6 +508,26 @@ class TestPRAudit:
         set_pr_callback(None)  # cleanup
 
 
+# ── _is_at_main_prompt ───────────────────────────────────────────────
+
+
+class TestIsAtMainPrompt:
+    def test_skips_remaining_reqs_line(self):
+        """Lines with 'Remaining reqs' are skipped to find prompt (line 231)."""
+        content = "Remaining reqs: 42\n❯ Type @ to mention files"
+        assert _is_at_main_prompt(content) is True
+
+    def test_skips_shift_tab_line(self):
+        """Lines with 'shift+tab' are skipped to find prompt (line 231)."""
+        content = "Press shift+tab for options\n❯"
+        assert _is_at_main_prompt(content) is True
+
+    def test_remaining_reqs_without_prompt(self):
+        """'Remaining reqs' line alone, no prompt below → False."""
+        content = "some output\nRemaining reqs: 10"
+        assert _is_at_main_prompt(content) is False
+
+
 # ── is_in_dialog ─────────────────────────────────────────────────────
 
 
@@ -583,6 +604,16 @@ class TestIsInDialogStable:
         mock_dialog.side_effect = [True, False]
         assert is_in_dialog_stable("test-pane") is False
 
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    def test_first_check_false_returns_immediately(self, mock_dialog, mock_time):
+        """First is_in_dialog False → immediate False, no sleep (line 253)."""
+        mock_time.sleep = MagicMock()
+        mock_dialog.return_value = False
+        assert is_in_dialog_stable("test-pane") is False
+        mock_dialog.assert_called_once()
+        mock_time.sleep.assert_not_called()
+
 
 # ── wait_for_dialog ──────────────────────────────────────────────────
 
@@ -632,3 +663,10 @@ class TestSelectDialogOption:
         assert len(log) == initial_count + 1
         assert log[-1]["action"] == "dialog_option"
         assert log[-1]["label"] == "test-pane"
+
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_select_dialog_not_stable_raises(self, mock_stable):
+        """select_dialog_option refuses when not in stable dialog (line 301)."""
+        mock_stable.return_value = False
+        with pytest.raises(RuntimeError, match="SAFETY"):
+            select_dialog_option("test-pane", "1")
