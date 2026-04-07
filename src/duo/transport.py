@@ -64,7 +64,15 @@ def _retry(max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0) -> C
 
 @_retry()
 def bridge(cmd: list[str], *, check: bool = True) -> str:
-    """Call tmux-bridge, return stdout."""
+    """Execute a tmux-bridge sub-command and return its stdout.
+
+    All pane communication flows through this function.  Failures are
+    retried automatically by the ``@_retry`` decorator.
+
+    Args:
+        cmd: Arguments passed to the tmux-bridge binary (e.g. ``["read", "my-label", "50"]``).
+        check: If *True* (default), raise ``RuntimeError`` on non-zero exit.
+    """
     result = subprocess.run(
         [_bridge_bin(), *cmd],
         capture_output=True,
@@ -99,12 +107,24 @@ def name_pane(target: str, label: str) -> None:
 
 
 def resolve_label(label: str) -> str:
-    """Resolve label to pane ID."""
+    """Resolve a human-readable pane label to its tmux pane ID.
+
+    Labels are assigned via :func:`name_pane` and stored in the tmux
+    environment.  This function queries tmux-bridge to translate a label
+    (e.g. ``"task-fix-auth"``) into the underlying pane target
+    (e.g. ``"%42"``).
+
+    Raises ``RuntimeError`` if the label cannot be resolved.
+    """
     return bridge(["resolve", label]).strip()
 
 
 def get_pane_id() -> str:
-    """Get current pane's ID."""
+    """Return the tmux pane ID of the *current* pane (the one running this process).
+
+    Useful for self-identification when the orchestrator needs to know
+    which pane it is executing in (e.g. to avoid sending commands to itself).
+    """
     return bridge(["id"]).strip()
 
 
@@ -212,7 +232,10 @@ def is_in_dialog_stable(label: str) -> bool:
 
 
 def wait_for_idle(label: str, timeout: float = 30.0, poll_interval: float = 1.0) -> bool:
-    """Wait until pane output stabilizes."""
+    """Wait until pane output stabilizes (two consecutive reads are identical).
+
+    Returns *True* if output stabilised within *timeout* seconds, *False* otherwise.
+    """
     previous = ""
     elapsed = 0.0
     while elapsed < timeout:
@@ -294,7 +317,12 @@ def send_prompt(label: str, prompt: str) -> None:
 
 
 def send_message(label: str, text: str) -> None:
-    """Send via smux message protocol (auto sender header)."""
+    """Send a message to a pane using the smux message protocol.
+
+    Adds an automatic sender header so the receiving pane can identify
+    the origin.  Unlike :func:`send_bootstrap`, this does not consume a
+    Premium Request.
+    """
     read_pane(label, 5)
     bridge(["message", label, text])
     read_pane(label, 5)

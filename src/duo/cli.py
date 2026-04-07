@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 import click
 
+from duo.config import get_config
 from duo.protocol import (
     DUO_DIR,  # noqa: F401 — used by test monkeypatching
     Task,
@@ -23,6 +25,14 @@ from duo.protocol import (
 )
 
 
+def _validate_task_name(name: str) -> None:
+    """Validate that a task name contains only safe characters."""
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        raise click.BadParameter(
+            f"Task name must contain only letters, numbers, dashes, underscores. Got: '{name}'"
+        )
+
+
 @click.group()
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.pass_context
@@ -31,6 +41,34 @@ def main(ctx: click.Context, verbose: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _create_worktree(name: str, repo: str) -> tuple[str, str]:
+    """Create git worktree for task. Returns (worktree_path, base_commit)."""
+    worktree_base = get_config("worktree_base_path")
+    worktree = os.path.join(worktree_base, name)
+    branch = f"duo/{name}"
+
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True, text=True, cwd=repo,
+    )
+    if result.returncode != 0:
+        click.echo(f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.", err=True)
+        sys.exit(1)
+    base_commit = result.stdout.strip()
+
+    result = subprocess.run(
+        ["git", "worktree", "add", worktree, "-b", branch],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        click.echo(f"Error: failed to create worktree: {result.stderr.strip()}. Ensure the repo exists and you have write permissions.", err=True)
+        sys.exit(1)
+
+    return worktree, base_commit
 
 
 @main.command()
@@ -53,6 +91,7 @@ def start(name: str, repo: str, desc: str) -> None:
     """Create a task with worktree + Copilot session."""
     from duo.commander import start_session
 
+    _validate_task_name(name)
     repo = os.path.abspath(repo)
 
     # Check for duplicate task
@@ -61,29 +100,8 @@ def start(name: str, repo: str, desc: str) -> None:
         click.echo(f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.", err=True)
         sys.exit(1)
 
-    worktree = f"/tmp/duo-worktrees/{name}"
+    worktree, base_commit = _create_worktree(name, repo)
     branch = f"duo/{name}"
-
-    # Get base commit
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True, text=True, cwd=repo,
-    )
-    if result.returncode != 0:
-        click.echo(f"Error: '{repo}' is not a git repository. Run 'git init' first or specify --repo.", err=True)
-        sys.exit(1)
-    base_commit = result.stdout.strip()
-
-    # Create worktree
-    result = subprocess.run(
-        ["git", "worktree", "add", worktree, "-b", branch],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        click.echo(f"Error: failed to create worktree: {result.stderr.strip()}", err=True)
-        sys.exit(1)
 
     # Create task with a placeholder subtask (user will send actual tasks)
     task = create_task(
@@ -131,6 +149,7 @@ def send(name: str, prompt: str) -> None:
     """Send a prompt to a task's Copilot session."""
     from duo.commander import send_task_prompt
 
+    _validate_task_name(name)
     task = load_task(name)
     if task is None:
         click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
@@ -260,15 +279,13 @@ def merge(name: str) -> None:
         ["git", "worktree", "list", "--porcelain"],
         capture_output=True, text=True, cwd=worktree,
     )
-    # Find the main worktree
-    main_worktree = None
     for line in r.stdout.split("\n"):
-        if line.startswith("worktree ") and "/tmp/duo-worktrees" not in line:
+        if line.startswith("worktree ") and get_config("worktree_base_path") not in line:
             main_worktree = line.split(" ", 1)[1]
             break
 
     if main_worktree is None:
-        click.echo("Error: cannot find main worktree", err=True)
+        click.echo("Error: cannot find main worktree. Ensure the task's worktree was created from a valid git repository.", err=True)
         sys.exit(1)
 
     # ff-only merge
@@ -313,7 +330,7 @@ def kill(name: str) -> None:
         capture_output=True, text=True, cwd=task.worktree if os.path.exists(task.worktree) else ".",
     )
     for line in r.stdout.split("\n"):
-        if line.startswith("worktree ") and "/tmp/duo-worktrees" not in line:
+        if line.startswith("worktree ") and get_config("worktree_base_path") not in line:
             main_worktree = line.split(" ", 1)[1]
             break
     repo_cwd = main_worktree or "."
@@ -376,7 +393,7 @@ def batch(file: str, repo: str) -> None:
         capture_output=True, text=True, cwd=repo,
     )
     if result.returncode != 0:
-        click.echo(f"Error: '{repo}' is not a git repository. Run 'git init' first or specify --repo.", err=True)
+        click.echo(f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.", err=True)
         sys.exit(1)
     base_commit = result.stdout.strip()
 
@@ -387,10 +404,10 @@ def batch(file: str, repo: str) -> None:
         target_files = task_def.get("target_files", [])
         writable = task_def.get("writable_paths", ["*"])
 
-        worktree = f"/tmp/duo-worktrees/{name}"
+        worktree_base = get_config("worktree_base_path")
+        worktree = os.path.join(worktree_base, name)
         branch = f"duo/{name}"
 
-        # Create worktree
         r = subprocess.run(
             ["git", "worktree", "add", worktree, "-b", branch],
             cwd=repo,
@@ -706,98 +723,101 @@ def config_reset(key: str | None = None) -> None:
         click.echo("All config reset to defaults.")
 
 
+def _export_as_json(task: Task) -> str:
+    """Generate a JSON export string for the given task."""
+    from duo.protocol import read_jsonl, read_result_for_step
+
+    events = read_jsonl(task.journal_path)
+    report: dict[str, object] = {
+        "task_id": task.id,
+        "description": task.description,
+        "status": task.status.value,
+        "branch": task.branch,
+        "worktree": task.worktree,
+        "incarnation": task.incarnation_id,
+        "created_at": task.created_at,
+        "steps": task.current_step,
+        "total_steps": len(task.subtasks),
+        "attempt": task.current_attempt,
+        "subtasks": [
+            {
+                "step_id": s.step_id,
+                "description": s.description,
+                "target_files": s.target_files,
+            }
+            for s in task.subtasks
+        ],
+        "events": events,
+    }
+    results = []
+    for s in task.subtasks:
+        if s.step_id == task.current_step:
+            attempt_list = list(range(1, task.current_attempt + 1))
+        else:
+            step_dir = task.step_dir(s.step_id)
+            attempt_list = sorted(
+                int(p.stem.split("-")[-1])
+                for p in step_dir.glob("result-attempt-*.json")
+            ) if step_dir.is_dir() else []
+        for attempt in attempt_list:
+            result = read_result_for_step(task, s.step_id, attempt)
+            if result:
+                results.append({
+                    "step": result.step,
+                    "attempt": result.attempt,
+                    "status": result.status,
+                    "summary": result.summary,
+                    "files_changed": result.files_changed,
+                })
+    report["results"] = results
+    return json.dumps(report, ensure_ascii=False, indent=2)
+
+
+def _export_as_text(task: Task) -> str:
+    """Generate a plain-text export string for the given task."""
+    from duo.protocol import read_jsonl
+
+    events = read_jsonl(task.journal_path)
+    lines: list[str] = []
+    lines.append(f"Task Report: {task.id}")
+    lines.append(f"{'=' * 40}")
+    lines.append(f"Description: {task.description}")
+    lines.append(f"Status:      {task.status.value}")
+    lines.append(f"Branch:      {task.branch}")
+    lines.append(f"Created:     {task.created_at}")
+    lines.append(f"Step:        {task.current_step}/{len(task.subtasks)}")
+    lines.append(f"Attempt:     {task.current_attempt}")
+    lines.append("")
+
+    lines.append("Steps:")
+    for s in task.subtasks:
+        lines.append(f"  {s.step_id}. {s.description}")
+        if s.target_files:
+            lines.append(f"     Files: {', '.join(s.target_files)}")
+    lines.append("")
+
+    lines.append(f"Events ({len(events)} total):")
+    for ev in events[-20:]:
+        ts = ev.get("ts", "?")
+        if "T" in ts:
+            ts = ts.split("T", 1)[1][:8]
+        lines.append(f"  {ts} {ev.get('event', '?')}")
+
+    return "\n".join(lines)
+
+
 @main.command()
 @click.argument("name")
 @click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="text", help="Output format")
 @click.option("-o", "--output", "outfile", type=click.Path(), help="Write to file instead of stdout")
 def export(name: str, fmt: str, outfile: str | None) -> None:
     """Export task report (events, files changed, summary)."""
-    from duo.protocol import read_jsonl, read_result_for_step
-
     task = load_task(name)
     if task is None:
         click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
 
-    events = read_jsonl(task.journal_path)
-
-    if fmt == "json":
-        report: dict[str, object] = {
-            "task_id": task.id,
-            "description": task.description,
-            "status": task.status.value,
-            "branch": task.branch,
-            "worktree": task.worktree,
-            "incarnation": task.incarnation_id,
-            "created_at": task.created_at,
-            "steps": task.current_step,
-            "total_steps": len(task.subtasks),
-            "attempt": task.current_attempt,
-            "subtasks": [
-                {
-                    "step_id": s.step_id,
-                    "description": s.description,
-                    "target_files": s.target_files,
-                }
-                for s in task.subtasks
-            ],
-            "events": events,
-        }
-        # Collect results for each step
-        results = []
-        for s in task.subtasks:
-            if s.step_id == task.current_step:
-                attempt_list = list(range(1, task.current_attempt + 1))
-            else:
-                # Scan for all result files in completed steps
-                step_dir = task.step_dir(s.step_id)
-                attempt_list = sorted(
-                    int(p.stem.split("-")[-1])
-                    for p in step_dir.glob("result-attempt-*.json")
-                ) if step_dir.is_dir() else []
-            for attempt in attempt_list:
-                result = read_result_for_step(task, s.step_id, attempt)
-                if result:
-                    results.append({
-                        "step": result.step,
-                        "attempt": result.attempt,
-                        "status": result.status,
-                        "summary": result.summary,
-                        "files_changed": result.files_changed,
-                    })
-        report["results"] = results
-
-        output = json.dumps(report, ensure_ascii=False, indent=2)
-    else:
-        # Text format
-        lines = []
-        lines.append(f"Task Report: {task.id}")
-        lines.append(f"{'=' * 40}")
-        lines.append(f"Description: {task.description}")
-        lines.append(f"Status:      {task.status.value}")
-        lines.append(f"Branch:      {task.branch}")
-        lines.append(f"Created:     {task.created_at}")
-        lines.append(f"Step:        {task.current_step}/{len(task.subtasks)}")
-        lines.append(f"Attempt:     {task.current_attempt}")
-        lines.append("")
-
-        # Steps
-        lines.append("Steps:")
-        for s in task.subtasks:
-            lines.append(f"  {s.step_id}. {s.description}")
-            if s.target_files:
-                lines.append(f"     Files: {', '.join(s.target_files)}")
-        lines.append("")
-
-        # Events summary
-        lines.append(f"Events ({len(events)} total):")
-        for ev in events[-20:]:
-            ts = ev.get("ts", "?")
-            if "T" in ts:
-                ts = ts.split("T", 1)[1][:8]
-            lines.append(f"  {ts} {ev.get('event', '?')}")
-
-        output = "\n".join(lines)
+    output = _export_as_json(task) if fmt == "json" else _export_as_text(task)
 
     if outfile:
         Path(outfile).write_text(output + "\n")

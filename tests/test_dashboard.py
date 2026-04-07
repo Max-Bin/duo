@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import duo.protocol
-from duo.protocol import create_task, Subtask, TaskStatus
+from duo.protocol import append_event, create_task, Subtask, TaskStatus
 
 
 @pytest.fixture(autouse=True)
@@ -67,6 +67,39 @@ class TestBuildEventsPanel:
         panel = _build_events_panel([task])
         assert panel is not None
 
+    def test_build_events_panel_empty_events(self):
+        """Task with empty journal produces 'No events' content."""
+        from duo.dashboard import _build_events_panel
+        task = _make_task("empty-journal")
+        task.journal_path.write_text("")  # overwrite journal to be empty
+        panel = _build_events_panel([task])
+        assert panel.renderable == "[dim]No events[/]"
+
+    def test_build_events_panel_max_events(self):
+        """Only max_events events appear when exceeding limit."""
+        import time as _t
+        from duo.dashboard import _build_events_panel
+        task = _make_task("max-ev-task")
+        for i in range(15):
+            append_event(task, f"evt_{i:02d}")
+            _t.sleep(0.01)
+        panel = _build_events_panel([task], max_events=3)
+        content = panel.renderable
+        lines = [l for l in content.split("\n") if l.strip()]
+        assert len(lines) == 3
+
+    def test_build_events_panel_event_ordering(self):
+        """Events are in reverse chronological order."""
+        import time as _t
+        from duo.dashboard import _build_events_panel
+        task = _make_task("order-task")
+        for name in ["alpha", "beta", "gamma"]:
+            append_event(task, name)
+            _t.sleep(0.02)
+        panel = _build_events_panel([task], max_events=10)
+        content = panel.renderable
+        assert content.index("gamma") < content.index("beta") < content.index("alpha")
+
 
 class TestStatusText:
     def test_all_statuses(self):
@@ -74,3 +107,16 @@ class TestStatusText:
         for status in TaskStatus:
             text = _status_text(status)
             assert str(text) == status.value
+
+
+class TestTaskRowStatuses:
+    def test_task_row_with_all_statuses(self):
+        """Build table row for every TaskStatus without error."""
+        from duo.dashboard import _build_tasks_table
+        tasks = []
+        for status in TaskStatus:
+            task = _make_task(f"st-{status.value}", f"Task {status.value}")
+            task.status = status
+            tasks.append(task)
+        table = _build_tasks_table(tasks)
+        assert table.row_count == len(TaskStatus)

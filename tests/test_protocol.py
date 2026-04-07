@@ -196,12 +196,64 @@ class TestTaskStatusTransitions:
         invalid_events = [e for e in events if e["event"] == "invalid_transition"]
         assert len(invalid_events) == 1
 
+    def test_transition_from_every_terminal_state_raises(self):
+        """COMPLETED rejects all transitions; FAILED and ESCALATED reject invalid ones."""
+        # COMPLETED has empty transition set — truly terminal
+        task_c = create_task("term-completed", "d", "/w", "b", "c", [_make_subtask()])
+        task_c.status = TaskStatus.COMPLETED
+        save_task(task_c)
+        for target in TaskStatus:
+            if target == TaskStatus.COMPLETED:
+                continue
+            transition(task_c, target)
+            assert task_c.status == TaskStatus.COMPLETED
+
+        # FAILED rejects everything except SESSION_STARTING
+        task_f = create_task("term-failed", "d", "/w", "b", "c", [_make_subtask()])
+        task_f.status = TaskStatus.FAILED
+        save_task(task_f)
+        transition(task_f, TaskStatus.COMPLETED)
+        assert task_f.status == TaskStatus.FAILED
+        transition(task_f, TaskStatus.RUNNING)
+        assert task_f.status == TaskStatus.FAILED
+
+        # ESCALATED rejects everything except PROMPT_SENT and FAILED
+        task_e = create_task("term-escalated", "d", "/w", "b", "c", [_make_subtask()])
+        task_e.status = TaskStatus.ESCALATED
+        save_task(task_e)
+        transition(task_e, TaskStatus.COMPLETED)
+        assert task_e.status == TaskStatus.ESCALATED
+        transition(task_e, TaskStatus.RUNNING)
+        assert task_e.status == TaskStatus.ESCALATED
+
+    def test_transition_all_valid_paths(self):
+        """Every transition defined in TRANSITIONS dict succeeds."""
+        for src, dsts in TRANSITIONS.items():
+            for dst in dsts:
+                tid = f"vp-{src.value}-to-{dst.value}"
+                task = create_task(tid, "d", "/w", "b", "c", [_make_subtask()])
+                task.status = src
+                save_task(task)
+                transition(task, dst)
+                assert task.status == dst, f"{src} → {dst} should be valid"
+
 
 # ---------------------------------------------------------------------------
 # create_task / save_task / load_task
 # ---------------------------------------------------------------------------
 
 class TestTaskCRUD:
+    def test_create_task_empty_subtasks_raises(self):
+        with pytest.raises(ValueError, match="Task must have at least one subtask"):
+            create_task(
+                task_id="empty-sub",
+                description="No subtasks",
+                worktree="/work",
+                branch="feature",
+                base_commit="deadbeef",
+                subtasks=[],
+            )
+
     def test_create_and_load_roundtrip(self):
         subtasks = [_make_subtask(1), _make_subtask(2)]
         task = create_task(
@@ -310,3 +362,21 @@ class TestReplayState:
         transition(task, TaskStatus.SESSION_STARTING)
         transition(task, TaskStatus.PROMPT_SENT)
         assert replay_state(task) == task.status
+
+    def test_replay_state_empty_journal(self):
+        """replay_state with missing journal file returns CREATED."""
+        task = create_task("replay-nojrnl", "d", "/w", "b", "c", [_make_subtask()])
+        task.journal_path.unlink()
+        assert replay_state(task) == TaskStatus.CREATED
+
+    def test_replay_state_with_events(self):
+        """replay_state correctly reconstructs task state from journal."""
+        task = create_task("replay-recon", "d", "/w", "b", "c", [_make_subtask()])
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+
+        reconstructed = replay_state(task)
+        assert reconstructed == TaskStatus.RUNNING
+        assert reconstructed == task.status

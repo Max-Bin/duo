@@ -419,6 +419,51 @@ class TestRetry:
             fn()
         assert call_count == 1
 
+    def test_retry_succeeds_on_second_attempt(self):
+        """Function fails once then succeeds on second call."""
+        call_count = 0
+
+        @_retry(max_attempts=3, delay=0.01)
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("transient")
+            return "recovered"
+
+        assert fn() == "recovered"
+        assert call_count == 2
+
+    def test_retry_exhausts_all_attempts(self):
+        """Function fails max_attempts times, raises the last error."""
+        call_count = 0
+
+        @_retry(max_attempts=4, delay=0.01)
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError(f"fail-{call_count}")
+
+        with pytest.raises(RuntimeError, match="fail-4"):
+            fn()
+        assert call_count == 4
+
+    @patch("duo.transport._time")
+    def test_retry_backoff_timing(self, mock_time):
+        """Verify exponential backoff delays between retries."""
+        mock_time.sleep = MagicMock()
+
+        @_retry(max_attempts=4, delay=1.0, backoff=2.0)
+        def fn():
+            raise RuntimeError("fail")
+
+        with pytest.raises(RuntimeError):
+            fn()
+
+        assert mock_time.sleep.call_count == 3
+        delays = [c[0][0] for c in mock_time.sleep.call_args_list]
+        assert delays == [1.0, 2.0, 4.0]
+
 
 # ── PR audit ──────────────────────────────────────────────────────────
 

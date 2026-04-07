@@ -112,6 +112,14 @@ class TestSetConfig:
         with pytest.raises(ValueError, match="Cannot convert 'xyz' to float"):
             config_mod.set_config("poll_base_interval", "xyz")
 
+    def test_set_unknown_key_warns(self, capsys):
+        """Setting an unknown key should still work but emit a warning to stderr."""
+        result = config_mod.set_config("totally_unknown", "val")
+        assert result == "val"
+        assert config_mod.get_config("totally_unknown") == "val"
+        captured = capsys.readouterr()
+        assert "[duo] Warning: 'totally_unknown' is not a known config key" in captured.err
+
 
 class TestResetConfig:
     def test_reset_single_key(self):

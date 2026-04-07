@@ -41,6 +41,10 @@ from duo.transport import (
 )
 from duo.verifier import Correction, Pass, verify_step
 
+# Named constants for sleep durations (seconds)
+_SESSION_SPLIT_WAIT = 0.5
+_SESSION_CD_WAIT = 0.3
+
 
 def _get_copilot_model() -> str:
     """Get copilot model from config, env var override, or default."""
@@ -203,9 +207,9 @@ def start_session(task: Task) -> None:
     subprocess.run(["tmux", "select-layout", "tiled"], capture_output=True)
 
     # cd to worktree, then start copilot (no -C flag available)
-    time.sleep(0.5)
+    time.sleep(_SESSION_SPLIT_WAIT)
     send_shell_command(task.pane_label, f"cd {task.worktree}")
-    time.sleep(0.3)
+    time.sleep(_SESSION_CD_WAIT)
     copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
     send_shell_command(task.pane_label, copilot_cmd)
 

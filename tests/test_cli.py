@@ -210,6 +210,11 @@ class TestSend:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    def test_send_invalid_task_name(self, runner: CliRunner):
+        result = runner.invoke(main, ["send", "bad name!", "hello"])
+        assert result.exit_code != 0
+        assert "Task name must contain only" in result.output
+
 
 # ---------------------------------------------------------------------------
 # start command (error case)
@@ -223,6 +228,19 @@ class TestStart:
         result = runner.invoke(main, ["start", "fail-task", "--repo", str(not_a_repo)])
         assert result.exit_code != 0
         assert "not a git repo" in result.output
+
+    def test_start_invalid_task_name(self, runner: CliRunner, tmp_path: Path):
+        result = runner.invoke(main, ["start", "my task!", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "Task name must contain only" in result.output
+
+    def test_start_valid_task_name_chars(self, runner: CliRunner, tmp_path: Path):
+        """Names with letters, digits, dashes, underscores are accepted (repo check runs next)."""
+        not_a_repo = tmp_path / "no-repo"
+        not_a_repo.mkdir()
+        result = runner.invoke(main, ["start", "ok-name_1", "--repo", str(not_a_repo)])
+        # Should get past validation and fail on git check instead
+        assert "Task name must contain only" not in result.output
 
 
 # ---------------------------------------------------------------------------

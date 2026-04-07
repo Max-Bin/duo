@@ -19,6 +19,7 @@ DEFAULTS: dict[str, Any] = {
     "auto_allow_all": True,
     "max_parallel": 3,
     "pr_budget": 0,  # 0 = unlimited, >0 = max PR per task
+    "worktree_base_path": "/tmp/duo-worktrees",
 }
 
 
@@ -69,6 +70,9 @@ def set_config(key: str, value: str) -> Any:
                 raise ValueError(
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
                 )
+    if key not in DEFAULTS:
+        import sys as _sys
+        print(f"[duo] Warning: '{key}' is not a known config key", file=_sys.stderr)
     config[key] = coerced
     save_config(config)
     return coerced

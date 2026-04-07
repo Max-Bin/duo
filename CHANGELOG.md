@@ -22,6 +22,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Ruff linting integrated (unused imports, f-strings cleaned)
 - Integration tests simulating full task lifecycle
 
+### Improved
+- Refactored `export()` into `_export_as_json()` / `_export_as_text()` helpers
+- Extracted `_create_worktree()` helper from `start()` command
+- Configurable worktree base path via `worktree_base_path` config key
+- Public API exported from `duo.__init__` with `__all__`
+- Task name validation (alphanumeric + dash/underscore only)
+- Error messages now include actionable suggestions
+- Magic sleep values extracted to named constants in commander.py
+- Warning on unknown config keys in `set_config()`
+- `create_task()` validates non-empty subtasks
+- Enhanced docstrings in transport.py (`bridge`, `resolve_label`, `get_pane_id`, etc.)
+- SECURITY.md, CODE_OF_CONDUCT.md, GitHub issue/PR templates
+- CI uses `ruff check` + `ruff format --check` (replaces py_compile)
+- 305 tests (was 287), including 13 new edge case tests
+
 ### Security
 - Fix command injection: `run_in_worktree` now uses `shlex.split()` + `shell=False`
 - Fix export off-by-one: completed steps now scan all result files (not just attempt 1)

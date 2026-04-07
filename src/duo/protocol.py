@@ -241,6 +241,8 @@ def create_task(
     subtasks: list[Subtask],
 ) -> Task:
     """Create a new task with initial state."""
+    if not subtasks:
+        raise ValueError("Task must have at least one subtask")
     task = Task(
         id=task_id,
         description=description,
