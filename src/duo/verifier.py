@@ -12,8 +12,7 @@ import shlex
 import subprocess
 from dataclasses import dataclass
 
-from duo.protocol import Task, Subtask, StepResult, append_event
-
+from duo.protocol import StepResult, Subtask, Task, append_event
 
 # === Result types ===
 

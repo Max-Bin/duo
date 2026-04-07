@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -26,7 +26,6 @@ from duo.protocol import (
     transition,
     write_json,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -62,7 +61,7 @@ class TestNowIso:
     def test_timestamp_is_utc(self):
         ts = now_iso()
         dt = datetime.fromisoformat(ts)
-        assert dt.tzinfo == timezone.utc
+        assert dt.tzinfo == UTC
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +446,7 @@ class TestAppendEventEdgeCases:
 class TestListTasksEdgeCases:
     def test_list_tasks_empty_dir(self):
         """list_tasks when TASKS_DIR is empty returns empty list."""
-        from duo.protocol import list_tasks, TASKS_DIR
+        from duo.protocol import TASKS_DIR, list_tasks
 
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
         assert list_tasks() == []

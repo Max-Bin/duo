@@ -17,7 +17,6 @@ from duo.protocol import (
     transition,
 )
 
-
 # Active statuses (consuming a slot)
 ACTIVE_STATUSES = {
     TaskStatus.SESSION_STARTING,
@@ -55,18 +54,17 @@ def enqueue_or_start(task: Task) -> str:
     """
     if has_slot():
         return "started"
-    else:
-        transition(task, TaskStatus.QUEUED)
-        append_event(
-            task,
-            "task_queued",
-            {
-                "position": _queue_position(task),
-                "active": active_count(),
-                "max": max_parallel(),
-            },
-        )
-        return "queued"
+    transition(task, TaskStatus.QUEUED)
+    append_event(
+        task,
+        "task_queued",
+        {
+            "position": _queue_position(task),
+            "active": active_count(),
+            "max": max_parallel(),
+        },
+    )
+    return "queued"
 
 
 def promote_queued() -> list[Task]:

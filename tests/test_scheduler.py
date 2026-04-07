@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import duo.config as config_mod
 import duo.protocol as protocol_mod
 from duo.protocol import (
     Subtask,
@@ -16,16 +17,15 @@ from duo.protocol import (
 )
 from duo.scheduler import (
     ACTIVE_STATUSES,
+    _next_queued,
+    _queue_position,
     active_count,
     enqueue_or_start,
     has_slot,
     max_parallel,
     promote_queued,
     queue_status,
-    _next_queued,
-    _queue_position,
 )
-import duo.config as config_mod
 
 
 @pytest.fixture(autouse=True)

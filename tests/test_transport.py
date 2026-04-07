@@ -484,7 +484,7 @@ class TestRetry:
 
 class TestPRAudit:
     def test_get_pr_log(self):
-        from duo.transport import get_pr_log, _record_pr
+        from duo.transport import _record_pr, get_pr_log
 
         initial = len(get_pr_log())
         _record_pr("test-pane", "test_action", "ctx")
@@ -494,7 +494,7 @@ class TestPRAudit:
         assert log[-1]["label"] == "test-pane"
 
     def test_pr_callback(self):
-        from duo.transport import set_pr_callback, _record_pr
+        from duo.transport import _record_pr, set_pr_callback
 
         calls: list[tuple[str, str, str]] = []
         set_pr_callback(lambda l, a, c: calls.append((l, a, c)))

@@ -9,18 +9,18 @@ try:
 except Exception:  # pragma: no cover – editable install may not have metadata yet
     __version__ = "0.0.0-dev"
 
+from duo.config import get_config, load_config, set_config
 from duo.protocol import (
-    Task,
-    Subtask,
     SecurityPolicy,
+    Subtask,
+    Task,
     TaskStatus,
     create_task,
-    load_task,
     list_tasks,
+    load_task,
     save_task,
     transition,
 )
-from duo.config import get_config, set_config, load_config
 
 __all__ = [
     "__version__",

@@ -6,18 +6,18 @@ from pathlib import Path
 
 import pytest
 
+import duo.protocol
 from duo.protocol import (
-    TaskStatus,
     Subtask,
+    TaskStatus,
+    append_event,
     create_task,
-    load_task,
     list_tasks,
+    load_task,
+    read_jsonl,
     save_task,
     transition,
-    append_event,
-    read_jsonl,
 )
-import duo.protocol
 
 
 @pytest.fixture(autouse=True)

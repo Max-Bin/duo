@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from duo import protocol
 from duo.poller import (
     BASE_INTERVAL,
     HEARTBEAT_TIMEOUT,
@@ -16,13 +17,11 @@ from duo.poller import (
     PollResult,
     age,
 )
-from duo import protocol
 from duo.protocol import (
     Subtask,
     create_task,
     write_json,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -44,7 +43,7 @@ def _make_subtask(step_id: int = 1) -> Subtask:
     )
 
 
-def _make_task(tmp_path: Path, **overrides) -> "protocol.Task":
+def _make_task(tmp_path: Path, **overrides) -> protocol.Task:
     """Create a real Task rooted under *tmp_path*."""
     return create_task(
         task_id=overrides.pop("task_id", "test-task"),
@@ -57,11 +56,11 @@ def _make_task(tmp_path: Path, **overrides) -> "protocol.Task":
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _ago_iso(seconds: float) -> str:
-    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+    return (datetime.now(UTC) - timedelta(seconds=seconds)).isoformat()
 
 
 # ===================================================================
@@ -87,7 +86,7 @@ class TestAge:
         assert age(None) == float("inf")
 
     def test_timezone_naive_treated_as_utc(self):
-        naive = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        naive = datetime.now(UTC).replace(tzinfo=None).isoformat()
         result = age(naive)
         assert 0 <= result < 5
 

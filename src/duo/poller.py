@@ -6,11 +6,10 @@ Resets to fast polling when state changes or timeouts occur.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 
 from duo.protocol import Task, read_heartbeat, read_result_for_step
-
 
 # === Constants ===
 
@@ -23,7 +22,7 @@ HEARTBEAT_TIMEOUT = 90.0  # seconds without heartbeat before declaring timeout
 # === Poll result enum ===
 
 
-class PollResult(str, Enum):
+class PollResult(StrEnum):
     """Outcome of a single poll cycle for a task."""
 
     RESULT_READY = "result_ready"
@@ -42,8 +41,8 @@ def age(iso_ts: str | None) -> float:
     try:
         dt = datetime.fromisoformat(iso_ts)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - dt).total_seconds()
+            dt = dt.replace(tzinfo=UTC)
+        return (datetime.now(UTC) - dt).total_seconds()
     except ValueError:
         return float("inf")
 

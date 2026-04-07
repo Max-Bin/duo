@@ -3,30 +3,29 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from duo.protocol import (
-    Subtask,
     StepResult,
+    Subtask,
     create_task,
 )
 from duo.verifier import (
-    Pass,
     Correction,
-    git_diff_names,
-    git_diff,
-    git_untracked,
-    run_in_worktree,
+    Pass,
+    _check_acceptance,
+    _check_secret_leak,
     _check_security_scope,
     _check_task_scope,
-    _check_secret_leak,
     _check_untracked,
-    _check_acceptance,
+    git_diff,
+    git_diff_names,
+    git_untracked,
+    run_in_worktree,
     verify_step,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

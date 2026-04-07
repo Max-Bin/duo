@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 import duo.protocol
-from duo.protocol import append_event, create_task, Subtask, TaskStatus
+from duo.protocol import Subtask, TaskStatus, append_event, create_task
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +92,7 @@ class TestBuildEventsPanel:
     def test_build_events_panel_max_events(self):
         """Only max_events events appear when exceeding limit."""
         import time as _t
+
         from duo.dashboard import _build_events_panel
 
         task = _make_task("max-ev-task")
@@ -106,6 +107,7 @@ class TestBuildEventsPanel:
     def test_build_events_panel_event_ordering(self):
         """Events are in reverse chronological order."""
         import time as _t
+
         from duo.dashboard import _build_events_panel
 
         task = _make_task("order-task")

@@ -188,7 +188,7 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
     import datetime as _dt
 
     entry = {
-        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "ts": _dt.datetime.now(_dt.UTC).isoformat(),
         "label": label,
         "action": action,
         "context": context,

@@ -16,14 +16,14 @@ import click
 from duo.config import get_config
 from duo.protocol import (
     DUO_DIR,  # noqa: F401 — used by test monkeypatching
-    Task,
     TASKS_DIR,
+    Subtask,
+    Task,
     TaskStatus,
     create_task,
     list_tasks,
     load_task,
     replay_state,
-    Subtask,
 )
 
 
@@ -460,7 +460,9 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
     return list(tasks_data["tasks"])
 
 
-def _create_task_from_batch_def(defn: dict[str, Any], repo: str, verbose: bool) -> str | None:
+def _create_task_from_batch_def(
+    defn: dict[str, Any], repo: str, verbose: bool
+) -> str | None:
     """Create a single task from a batch definition dict.
 
     Returns task name on success, None on failure (prints error).
@@ -712,10 +714,10 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
 def inspect(name: str) -> None:
     """Show detailed task information."""
     from duo.protocol import (
-        read_jsonl,
-        read_heartbeat,
-        read_result_for_step,
         read_ack_for_step,
+        read_heartbeat,
+        read_jsonl,
+        read_result_for_step,
     )
 
     task = load_task(name)
@@ -814,7 +816,7 @@ def config_get(key: str) -> None:
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
     """Set a config value."""
-    from duo.config import set_config, DEFAULTS
+    from duo.config import DEFAULTS, set_config
 
     if key not in DEFAULTS:
         click.echo(f"Warning: '{key}' is not a known config key", err=True)
@@ -825,7 +827,7 @@ def config_set(key: str, value: str) -> None:
 @config.command("list")
 def config_list() -> None:
     """List all config values."""
-    from duo.config import load_config, DEFAULTS
+    from duo.config import DEFAULTS, load_config
 
     config = load_config()
     for key in sorted(DEFAULTS):

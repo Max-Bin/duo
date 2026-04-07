@@ -11,11 +11,10 @@ import json
 import os
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
-
 
 # === Constants ===
 
@@ -26,7 +25,7 @@ TASKS_DIR = DUO_DIR / "tasks"
 # === FSM State Enum ===
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """FSM states for a task's lifecycle."""
 
     CREATED = "created"
@@ -173,7 +172,7 @@ class Task:
 
 def now_iso() -> str:
     """Return current UTC time as ISO 8601 timestamp."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def new_incarnation() -> str:

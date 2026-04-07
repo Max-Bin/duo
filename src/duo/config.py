@@ -59,17 +59,17 @@ def set_config(key: str, value: str) -> Any:
         elif default_type is int:
             try:
                 coerced = int(value)
-            except ValueError:
+            except ValueError as err:
                 raise ValueError(
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
-                )
+                ) from err
         elif default_type is float:
             try:
                 coerced = float(value)
-            except ValueError:
+            except ValueError as err:
                 raise ValueError(
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
-                )
+                ) from err
     if key not in DEFAULTS:
         import sys as _sys
 

@@ -58,5 +58,5 @@ warn_unused_ignores = true
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I"]
-ignore = ["E501"]  # line length handled by formatter
+select = ["F", "E", "W", "I", "UP", "B", "RET"]
+ignore = ["E501", "E741", "E402", "RET504"]  # line length (formatter), ambiguous vars, conditional imports, unnecessary assign
