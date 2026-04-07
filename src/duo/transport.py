@@ -6,10 +6,16 @@ list_panes() is diagnostic only — scheduling truth comes from the file protoco
 
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import subprocess
+import time as _time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, TypeVar
+
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 
 def _find_bridge() -> str:
@@ -35,6 +41,27 @@ def _bridge_bin() -> str:
     return _BRIDGE
 
 
+def _retry(max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0) -> Callable[[_F], _F]:
+    """Retry decorator with exponential backoff for transient failures."""
+    def decorator(func: _F) -> _F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_error = None
+            wait = delay
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except RuntimeError as e:
+                    last_error = e
+                    if attempt < max_attempts - 1:
+                        _time.sleep(wait)
+                        wait *= backoff
+            raise last_error  # type: ignore[misc]
+        return wrapper  # type: ignore[return-value]
+    return decorator
+
+
+@_retry()
 def bridge(cmd: list[str], *, check: bool = True) -> str:
     """Call tmux-bridge, return stdout."""
     result = subprocess.run(
@@ -110,27 +137,36 @@ def list_panes() -> list[PaneInfo]:
 
 
 def is_in_dialog(label: str) -> bool:
-    """Check if Copilot is showing an ask_user dialog (safe to interact).
+    """Check if a pane is showing a dialog/prompt requiring input.
 
-    Returns True if the pane shows a numbered option dialog (╭───╮ box).
-    Returns False if Copilot is at the ❯ main prompt (UNSAFE — would consume PR).
+    Detects common Copilot CLI dialogs by reading terminal content.
     """
-    output = read_pane(label, 20)
-    lines = output.strip().split("\n")
+    content = read_pane(label, 10)
+    dialog_indicators = [
+        "? ",          # Copilot question prompt
+        "(y/n)",       # Yes/No dialog
+        "[Y/n]",       # Default-yes dialog
+        "[y/N]",       # Default-no dialog
+        "Press Enter",
+        "Continue?",
+    ]
+    return any(indicator in content for indicator in dialog_indicators)
 
-    # Look for dialog box indicators (bottom-up)
-    for line in reversed(lines):
-        stripped = line.strip()
-        # Dialog box border
-        if "╰─" in stripped and "╯" in stripped:
-            return True
-        # Dialog option pattern
-        if stripped.startswith("❯") and ". " in stripped and stripped[0:5] != "❯  Ty":
-            return True
-        # Main prompt — STOP, not in dialog
-        if stripped.startswith("❯") and ("Type @" in stripped or stripped == "❯"):
-            return False
 
+def wait_for_idle(label: str, timeout: float = 30.0, poll_interval: float = 1.0) -> bool:
+    """Wait until a pane appears idle (no new output for poll_interval).
+
+    Returns True if idle detected, False if timeout reached.
+    """
+    previous = ""
+    elapsed = 0.0
+    while elapsed < timeout:
+        current = read_pane(label, 20)
+        if current == previous and current.strip():
+            return True
+        previous = current
+        _time.sleep(poll_interval)
+        elapsed += poll_interval
     return False
 
 

@@ -403,11 +403,19 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
 # === Monitor loop ===
 
 
+def _log_monitor(symbol: str, task_id: str, message: str) -> None:
+    """Format a monitor log line with timestamp."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%H:%M:%S")
+    click.echo(f"[duo] {ts} {symbol} {task_id:<20} {message}")
+
+
 def monitor(task_ids: list[str] | None = None) -> None:
     """Run the adaptive polling monitor loop."""
-    from duo.scheduler import promote_queued
+    from duo.scheduler import promote_queued, queue_status
 
     pollers: dict[str, AdaptivePoller] = {}
+    iteration = 0
 
     while True:
         tasks = list_tasks()
@@ -417,10 +425,16 @@ def monitor(task_ids: list[str] | None = None) -> None:
             and (task_ids is None or t.id in task_ids)
         ]
 
+        # Header on first iteration
+        if iteration == 0:
+            qs = queue_status()
+            click.echo(f"[duo] Monitor started — {qs['active_count']} active, {qs['queued_count']} queued, max {qs['max_parallel']}")
+        iteration += 1
+
         # Promote queued tasks if slots available
         promoted = promote_queued()
         for task in promoted:
-            click.echo(f"[duo] Promoting queued task: {task.id}")
+            _log_monitor("◷", task.id, "promoted from queue")
             start_session(task)
             prompt = build_task_prompt(task)
             send_task_prompt(task, prompt)
@@ -429,7 +443,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
             # Check if there are queued tasks waiting
             queued = [t for t in tasks if t.status == TaskStatus.QUEUED]
             if not queued:
-                click.echo("[duo] No active tasks. Monitoring stopped.")
+                click.echo("[duo] No active or queued tasks. Nothing to monitor.")
                 break
 
         for task in active:
@@ -439,8 +453,13 @@ def monitor(task_ids: list[str] | None = None) -> None:
             poller = pollers[task.id]
             result = poll_task(task, poller)
 
-            if result != PollResult.WORKING:
-                click.echo(f"[duo] {task.id}: {result.name} (step={task.current_step} attempt={task.current_attempt})")
+            if result == PollResult.RESULT_READY:
+                _log_monitor("✓", task.id, f"result_ready (step={task.current_step})")
+            elif result == PollResult.HEARTBEAT_TIMEOUT:
+                _log_monitor("⚠", task.id, "heartbeat_timeout")
+            elif result == PollResult.UNKNOWN:
+                _log_monitor("?", task.id, "unknown state")
+            # WORKING is silent (normal operation)
 
         # Use the minimum interval across all active tasks
         min_interval = min(

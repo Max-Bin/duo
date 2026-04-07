@@ -10,11 +10,13 @@ import duo.transport
 from duo.transport import (
     PaneInfo,
     _find_bridge,
+    _retry,
     bridge,
     cancel_current,
     diagnose_pane,
     doctor,
     get_pane_id,
+    is_in_dialog,
     is_process_alive,
     list_panes,
     name_pane,
@@ -25,6 +27,7 @@ from duo.transport import (
     send_message,
     send_prompt,
     type_text,
+    wait_for_idle,
 )
 
 BRIDGE = "/usr/local/bin/tmux-bridge"
@@ -313,3 +316,97 @@ class TestIsProcessAlive:
             "HEADER\n%1 main:0 80x24 copilot other /home\n"
         )
         assert is_process_alive("missing") is False
+
+
+# ── Retry decorator ──────────────────────────────────────────────────
+
+
+class TestRetry:
+    def test_succeeds_first_try(self):
+        call_count = 0
+
+        @_retry(max_attempts=3, delay=0.01)
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            return "ok"
+
+        assert fn() == "ok"
+        assert call_count == 1
+
+    def test_succeeds_after_retries(self):
+        call_count = 0
+
+        @_retry(max_attempts=3, delay=0.01)
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise RuntimeError("transient")
+            return "ok"
+
+        assert fn() == "ok"
+        assert call_count == 3
+
+    def test_exhausts_retries(self):
+        @_retry(max_attempts=2, delay=0.01)
+        def fn():
+            raise RuntimeError("permanent")
+
+        with pytest.raises(RuntimeError, match="permanent"):
+            fn()
+
+    def test_non_runtime_error_not_retried(self):
+        call_count = 0
+
+        @_retry(max_attempts=3, delay=0.01)
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("not retried")
+
+        with pytest.raises(ValueError):
+            fn()
+        assert call_count == 1
+
+
+# ── is_in_dialog ─────────────────────────────────────────────────────
+
+
+class TestIsInDialog:
+    @patch("subprocess.run")
+    def test_detects_yn_dialog(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="Continue? (y/n)", stderr="")
+        assert is_in_dialog("test-pane") is True
+
+    @patch("subprocess.run")
+    def test_no_dialog(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="$ normal prompt", stderr="")
+        assert is_in_dialog("test-pane") is False
+
+
+# ── wait_for_idle ────────────────────────────────────────────────────
+
+
+class TestWaitForIdle:
+    @patch("subprocess.run")
+    @patch("duo.transport._time")
+    def test_detects_idle(self, mock_time, mock_run):
+        mock_time.sleep = MagicMock()
+        # Return same content twice = idle
+        mock_run.return_value = MagicMock(returncode=0, stdout="stable output", stderr="")
+        assert wait_for_idle("test-pane", timeout=5.0, poll_interval=0.01) is True
+
+    @patch("subprocess.run")
+    @patch("duo.transport._time")
+    def test_timeout(self, mock_time, mock_run):
+        mock_time.sleep = MagicMock()
+        # Return different content each time
+        call_count = [0]
+
+        def changing_output(*args, **kwargs):
+            call_count[0] += 1
+            return MagicMock(returncode=0, stdout=f"output {call_count[0]}", stderr="")
+
+        mock_run.side_effect = changing_output
+        assert wait_for_idle("test-pane", timeout=0.05, poll_interval=0.01) is False

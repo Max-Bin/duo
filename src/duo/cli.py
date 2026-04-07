@@ -42,6 +42,13 @@ def start(name: str, repo: str, desc: str) -> None:
     from duo.commander import start_session
 
     repo = os.path.abspath(repo)
+
+    # Check for duplicate task
+    existing = load_task(name)
+    if existing is not None:
+        click.echo(f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.", err=True)
+        sys.exit(1)
+
     worktree = f"/tmp/duo-worktrees/{name}"
     branch = f"duo/{name}"
 
@@ -116,6 +123,9 @@ def send(name: str, prompt: str) -> None:
     if task is None:
         click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
+
+    if task.status == TaskStatus.QUEUED:
+        click.echo(f"Warning: task '{name}' is queued and not yet started. Prompt will be sent when task starts.", err=True)
 
     send_task_prompt(task, prompt)
     click.echo(f"Sent to {name} (step={task.current_step} attempt={task.current_attempt})")
@@ -214,6 +224,10 @@ def merge(name: str) -> None:
         sys.exit(1)
 
     worktree = task.worktree
+
+    if not os.path.exists(worktree):
+        click.echo(f"Error: worktree '{worktree}' does not exist. Task may have been cleaned up.", err=True)
+        sys.exit(1)
 
     # Fetch and rebase
     click.echo("Fetching and rebasing...")
@@ -338,6 +352,10 @@ def batch(file: str, repo: str) -> None:
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
         click.echo("Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json", err=True)
+        sys.exit(1)
+
+    if not tasks_data.get("tasks"):
+        click.echo("No tasks defined in file.", err=True)
         sys.exit(1)
 
     # Get base commit

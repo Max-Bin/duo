@@ -319,3 +319,38 @@ class TestErrorMessages:
     def test_inspect_not_found_helpful(self, runner: CliRunner):
         result = runner.invoke(main, ["inspect", "nope"])
         assert "duo list" in result.output
+
+
+# ---------------------------------------------------------------------------
+# edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCases:
+    def test_start_duplicate_task(self, runner: CliRunner):
+        _make_task("dupe-task")
+        result = runner.invoke(main, ["start", "dupe-task", "--repo", "/tmp"])
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+
+    def test_batch_empty_tasks(self, runner: CliRunner, tmp_path: Path):
+        f = tmp_path / "empty.json"
+        f.write_text('{"tasks": []}')
+        result = runner.invoke(main, ["batch", str(f)])
+        assert result.exit_code != 0
+        assert "No tasks" in result.output
+
+    def test_send_queued_task_warning(self, runner: CliRunner):
+        task = _make_task("q-task")
+        task.status = TaskStatus.QUEUED
+        save_task(task)
+        result = runner.invoke(main, ["send", "q-task", "hello"])
+        assert "queued" in result.output.lower()
+
+    def test_merge_missing_worktree(self, runner: CliRunner):
+        task = _make_task("merge-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["merge", "merge-task"])
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
