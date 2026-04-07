@@ -253,7 +253,8 @@ def send(name: str, prompt: str) -> None:
 
 @main.command()
 @click.argument("name", required=False)
-def status(name: str | None = None) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def status(name: str | None = None, *, as_json: bool = False) -> None:
     """Show task status."""
     if name:
         task = load_task(name)
@@ -263,6 +264,19 @@ def status(name: str | None = None) -> None:
                 err=True,
             )
             sys.exit(1)
+        if as_json:
+            output = {
+                "id": task.id,
+                "status": task.status.value,
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+                "worktree": task.worktree,
+                "branch": task.branch,
+                "created_at": task.created_at,
+                "description": task.description,
+            }
+            click.echo(json.dumps(output, indent=2))
+            return
         _print_task(task)
     else:
         tasks = list_tasks()
@@ -284,11 +298,28 @@ def _print_task(task: Task) -> None:
 
 
 @main.command("list")
-def list_cmd() -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def list_cmd(as_json: bool) -> None:
     """List all tasks."""
     tasks = list_tasks()
     if not tasks:
         click.echo("No tasks.")
+        return
+
+    if as_json:
+        output = [
+            {
+                "id": t.id,
+                "status": t.status.value,
+                "step": t.current_step,
+                "attempt": t.current_attempt,
+                "worktree": t.worktree,
+                "branch": t.branch,
+                "created_at": t.created_at,
+            }
+            for t in tasks
+        ]
+        click.echo(json.dumps(output, indent=2))
         return
 
     click.echo(f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'INCARNATION':<12}")

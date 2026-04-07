@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-551%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-559%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander directs, Executor delivers**
@@ -95,12 +95,14 @@ duo version              # Show version
 | `duo doctor` | Check environment dependencies |
 | `duo start <name> --repo <path> --desc <text>` | Create a task, initialize worktree and Copilot session |
 | `duo send <name> <prompt>` | Send a work instruction to a task |
+| `duo stop <name>` | Stop a task gracefully (preserves worktree for resume) |
 | `duo status [name]` | Show status for a single task or all tasks |
 | `duo list` | List all tasks in a table (ID / STATUS / STEP / INCARNATION) |
 | `duo monitor [names...]` | Start adaptive polling monitor (specify tasks, or default to all) |
 | `duo resume [NAME]` | Resume interrupted task sessions |
 | `duo recover` | Recover interrupted tasks by replaying journals |
 | `duo merge <name>` | Merge a completed task's worktree into the main branch (fetch + rebase + ff-only) |
+| `duo diff <name>` | Show git diff for a task's worktree changes |
 | `duo kill <name>` | Terminate a task and clean up its worktree and branch |
 | `duo batch <file> --repo <path>` | Batch-create tasks from a JSON/YAML file |
 | `duo queue` | Show parallel queue status (active / queued task counts) |

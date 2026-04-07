@@ -6,11 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `duo stop` — Stop a task gracefully (preserves worktree for resume)
 - `duo diff` — Show git diff for a task's worktree changes
 - `--dry-run` flag on `duo batch` and `duo merge` commands
 - `duo --version` flag (standard CLI behavior, in addition to `duo version`)
 - Categorized command help: 22 commands organized into 7 sections
-- 551 tests with 100% coverage
+- 559 tests with 100% coverage
 - 41 edge case tests (protocol, scheduler, poller, config, CLI)
 - Expanded secret detection patterns (11 patterns)
 

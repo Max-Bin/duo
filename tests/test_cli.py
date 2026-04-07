@@ -2684,3 +2684,89 @@ class TestDiffCommand:
             result = runner.invoke(main, ["diff", "diff-output"])
             assert result.exit_code == 0
             assert "+new line" in result.output
+
+
+# ---------------------------------------------------------------------------
+# --json-output flag
+# ---------------------------------------------------------------------------
+
+
+class TestJsonOutput:
+    def test_list_json(self, runner: CliRunner):
+        """list --json-output returns JSON array."""
+        _make_task("json-task", "A JSON task")
+        result = runner.invoke(main, ["list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["id"] == "json-task"
+        assert data[0]["status"] == "created"
+        assert "step" in data[0]
+        assert "attempt" in data[0]
+        assert "worktree" in data[0]
+        assert "branch" in data[0]
+        assert "created_at" in data[0]
+
+    def test_list_json_empty(self, runner: CliRunner):
+        """list --json-output with no tasks still shows 'No tasks.'."""
+        result = runner.invoke(main, ["list", "--json-output"])
+        assert result.exit_code == 0
+        assert "No tasks." in result.output
+
+    def test_list_json_multiple(self, runner: CliRunner):
+        """list --json-output with multiple tasks returns sorted array."""
+        _make_task("beta-task", "Beta")
+        _make_task("alpha-task", "Alpha")
+        result = runner.invoke(main, ["list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 2
+        assert data[0]["id"] == "alpha-task"
+        assert data[1]["id"] == "beta-task"
+
+    def test_status_json(self, runner: CliRunner):
+        """status --json-output returns JSON object."""
+        _make_task("json-status", "Status JSON task")
+        result = runner.invoke(main, ["status", "json-status", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, dict)
+        assert data["id"] == "json-status"
+        assert data["status"] == "created"
+        assert data["description"] == "Status JSON task"
+        assert "step" in data
+        assert "attempt" in data
+        assert "worktree" in data
+        assert "branch" in data
+        assert "created_at" in data
+
+    def test_status_json_not_found(self, runner: CliRunner):
+        """status --json-output with unknown task shows error."""
+        result = runner.invoke(main, ["status", "nope", "--json-output"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_status_json_no_name(self, runner: CliRunner):
+        """status --json-output without name falls back to normal output."""
+        _make_task("fallback-task", "Fallback")
+        result = runner.invoke(main, ["status", "--json-output"])
+        assert result.exit_code == 0
+        assert "fallback-task" in result.output
+
+    def test_list_without_json_flag(self, runner: CliRunner):
+        """list without --json-output returns table format."""
+        _make_task("table-task", "Table task")
+        result = runner.invoke(main, ["list"])
+        assert result.exit_code == 0
+        assert "ID" in result.output
+        assert "STATUS" in result.output
+        assert "table-task" in result.output
+
+    def test_status_without_json_flag(self, runner: CliRunner):
+        """status without --json-output returns normal format."""
+        _make_task("normal-task", "Normal task")
+        result = runner.invoke(main, ["status", "normal-task"])
+        assert result.exit_code == 0
+        assert "normal-task" in result.output
+        assert "Status:" in result.output
