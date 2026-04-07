@@ -2322,6 +2322,7 @@ class TestHelpTexts:
             ["init", "--help"],
             ["doctor", "--help"],
             ["resume", "--help"],
+            ["diff", "--help"],
             ["config", "--help"],
             ["export", "--help"],
             ["cleanup", "--help"],
@@ -2366,3 +2367,121 @@ class TestBatchValidation:
         """batch with a path that doesn't exist fails."""
         result = runner.invoke(main, ["batch", "/no/such/file.json"])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# --dry-run flags
+# ---------------------------------------------------------------------------
+
+
+class TestDryRun:
+    """Tests for --dry-run flags."""
+
+    def test_batch_dry_run(self, runner: CliRunner, tmp_path: Path):
+        """batch --dry-run previews tasks without creating them."""
+        batch_file = tmp_path / "tasks.json"
+        batch_file.write_text(
+            json.dumps(
+                [
+                    {
+                        "name": "task-a",
+                        "description": "First task",
+                        "subtasks": [{"step_id": 1, "description": "do a"}],
+                    },
+                    {
+                        "name": "task-b",
+                        "description": "Second task",
+                        "subtasks": [{"step_id": 1, "description": "do b"}],
+                    },
+                ]
+            )
+        )
+
+        result = runner.invoke(main, ["batch", str(batch_file), "--dry-run"])
+        assert result.exit_code == 0
+        assert "Would create 2 tasks" in result.output
+        assert "task-a" in result.output
+        assert "task-b" in result.output
+        # Verify no tasks were actually created
+        tasks_dir = duo.protocol.TASKS_DIR
+        assert len(list(tasks_dir.iterdir())) == 0
+
+    def test_merge_dry_run(self, runner: CliRunner):
+        """merge --dry-run previews without merging."""
+        task = _make_task("dry-merge")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["merge", "dry-merge", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Would merge" in result.output
+        assert "dry-merge" in result.output or task.branch in result.output
+
+
+# ---------------------------------------------------------------------------
+# diff command
+# ---------------------------------------------------------------------------
+
+
+class TestDiffCommand:
+    """Tests for duo diff command."""
+
+    def test_diff_not_found(self, runner: CliRunner):
+        """diff with unknown task shows error."""
+        result = runner.invoke(main, ["diff", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_diff_no_worktree(self, runner: CliRunner):
+        """diff when worktree doesn't exist shows error."""
+        sub = Subtask(
+            step_id=1, description="d", target_files=[], writable_paths=[]
+        )
+        create_task(
+            task_id="diff-test",
+            description="desc",
+            worktree="/nonexistent/path",
+            branch="main",
+            base_commit="abc",
+            subtasks=[sub],
+        )
+
+        result = runner.invoke(main, ["diff", "diff-test"])
+        assert result.exit_code != 0
+        assert (
+            "worktree" in result.output.lower()
+            or "not found" in result.output.lower()
+        )
+
+    def test_diff_no_changes(self, runner: CliRunner, tmp_path: Path):
+        """diff with no changes shows 'No changes'."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+
+        sub = Subtask(
+            step_id=1, description="d", target_files=[], writable_paths=[]
+        )
+        create_task(
+            task_id="diff-empty",
+            description="desc",
+            worktree=str(wt),
+            branch="main",
+            base_commit="abc",
+            subtasks=[sub],
+        )
+
+        import subprocess
+
+        original_run = subprocess.run
+
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "git" and "diff" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="", stderr=""
+                )
+            return original_run(cmd, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["diff", "diff-empty"])
+            assert result.exit_code == 0
+            assert "No changes" in result.output

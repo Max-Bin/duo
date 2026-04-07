@@ -36,6 +36,25 @@ def _validate_task_name(name: str) -> None:
         )
 
 
+def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a git command with consistent error handling.
+
+    Args:
+        args: Git arguments (without 'git' prefix), e.g. ['rev-parse', 'HEAD']
+        cwd: Working directory
+        check: If True, exit on failure with error message
+
+    Returns:
+        CompletedProcess result
+    """
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if check and result.returncode != 0:
+        cmd_str = " ".join(["git", *args])
+        click.echo(f"Error: `{cmd_str}` failed: {result.stderr.strip()}", err=True)
+        sys.exit(1)
+    return result
+
+
 @click.group()
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.pass_context
@@ -56,32 +75,10 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
     worktree = os.path.join(worktree_base, name)
     branch = f"duo/{name}"
 
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo,
-    )
-    if result.returncode != 0:
-        click.echo(
-            f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.",
-            err=True,
-        )
-        sys.exit(1)
+    result = _run_git(["rev-parse", "HEAD"], cwd=repo)
     base_commit = result.stdout.strip()
 
-    result = subprocess.run(
-        ["git", "worktree", "add", worktree, "-b", branch],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        click.echo(
-            f"Error: failed to create worktree: {result.stderr.strip()}. Ensure the repo exists and you have write permissions.",
-            err=True,
-        )
-        sys.exit(1)
+    result = _run_git(["worktree", "add", worktree, "-b", branch], cwd=repo)
 
     return worktree, base_commit
 
@@ -301,7 +298,8 @@ def recover() -> None:
 
 @main.command()
 @click.argument("name")
-def merge(name: str) -> None:
+@click.option("--dry-run", is_flag=True, help="Preview merge without executing")
+def merge(name: str, dry_run: bool) -> None:
     """Merge a completed task's worktree to main."""
     task = load_task(name)
     if task is None:
@@ -319,6 +317,14 @@ def merge(name: str) -> None:
         sys.exit(1)
 
     worktree = task.worktree
+
+    if dry_run:
+        click.echo("Would merge:")
+        click.echo(f"  Branch: {task.branch}")
+        click.echo("  Into: main")
+        click.echo(f"  Worktree: {task.worktree}")
+        click.echo("\nRun without --dry-run to execute.")
+        return
 
     if not os.path.exists(worktree):
         click.echo(
@@ -386,8 +392,12 @@ def merge(name: str) -> None:
 
     # Cleanup
     click.echo("Cleaning up worktree and branch...")
-    subprocess.run(["git", "worktree", "remove", worktree], cwd=main_worktree)
-    subprocess.run(["git", "branch", "-d", task.branch], cwd=main_worktree)
+    r = _run_git(["worktree", "remove", worktree], cwd=main_worktree, check=False)
+    if r.returncode != 0:
+        click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
+    r = _run_git(["branch", "-d", task.branch], cwd=main_worktree, check=False)
+    if r.returncode != 0:
+        click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
     from duo.protocol import append_event
 
@@ -432,16 +442,14 @@ def kill(name: str) -> None:
 
     # Remove worktree
     if os.path.exists(task.worktree):
-        subprocess.run(
-            ["git", "worktree", "remove", "--force", task.worktree], cwd=repo_cwd
-        )
+        r = _run_git(["worktree", "remove", "--force", task.worktree], cwd=repo_cwd, check=False)
+        if r.returncode != 0:
+            click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
 
     # Remove branch
-    subprocess.run(
-        ["git", "branch", "-D", task.branch],
-        capture_output=True,
-        cwd=repo_cwd,
-    )
+    r = _run_git(["branch", "-D", task.branch], cwd=repo_cwd, check=False)
+    if r.returncode != 0:
+        click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
     from duo.protocol import append_event
 
@@ -473,11 +481,14 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
         tasks_data = json.loads(content)
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
-        click.echo(
-            "Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json",
-            err=True,
-        )
-        sys.exit(1)
+        if isinstance(tasks_data, list):
+            tasks_data = {"tasks": tasks_data}
+        else:
+            click.echo(
+                "Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json",
+                err=True,
+            )
+            sys.exit(1)
 
     if not tasks_data.get("tasks"):
         click.echo("No tasks defined in file.", err=True)
@@ -507,26 +518,10 @@ def _create_task_from_batch_def(
     branch = f"duo/{name}"
 
     # Get base commit
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        capture_output=True,
-        text=True,
-        cwd=repo,
-    )
-    if result.returncode != 0:
-        click.echo(
-            f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.",
-            err=True,
-        )
-        sys.exit(1)
+    result = _run_git(["rev-parse", "HEAD"], cwd=repo)
     base_commit = result.stdout.strip()
 
-    r = subprocess.run(
-        ["git", "worktree", "add", worktree, "-b", branch],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-    )
+    r = _run_git(["worktree", "add", worktree, "-b", branch], cwd=repo, check=False)
     if r.returncode != 0:
         click.echo(
             f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True
@@ -561,8 +556,9 @@ def _create_task_from_batch_def(
 @main.command()
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--repo", default=".", help="Git repo path")
+@click.option("--dry-run", is_flag=True, help="Preview tasks without creating")
 @click.pass_context
-def batch(ctx: click.Context, file: str, repo: str) -> None:
+def batch(ctx: click.Context, file: str, repo: str, dry_run: bool) -> None:
     """Create multiple tasks from a file (JSON or YAML)."""
     from duo.scheduler import queue_status
 
@@ -570,6 +566,12 @@ def batch(ctx: click.Context, file: str, repo: str) -> None:
     verbose = ctx.obj.get("verbose", False)
 
     task_defs = _load_batch_file(file)
+
+    if dry_run:
+        click.echo(f"Would create {len(task_defs)} tasks:")
+        for i, td in enumerate(task_defs, 1):
+            click.echo(f"  {i}. {td['name']} — {td.get('description', '(no description)')}")
+        return
 
     created = 0
     for task_def in task_defs:
@@ -1279,16 +1281,14 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
     for task in targets:
         # Remove worktree if it exists
         if os.path.exists(task.worktree):
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", task.worktree],
-                capture_output=True,
-            )
+            r = _run_git(["worktree", "remove", "--force", task.worktree], cwd=".", check=False)
+            if r.returncode != 0:
+                click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
 
         # Remove branch
-        subprocess.run(
-            ["git", "branch", "-D", task.branch],
-            capture_output=True,
-        )
+        r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
+        if r.returncode != 0:
+            click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
         # Remove task directory (or just non-journal files)
         if keep_journal:
@@ -1305,3 +1305,28 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
         click.echo(f"  ✓ {task.id}")
 
     click.echo(f"\nCleaned {cleaned} tasks.")
+
+
+@main.command("diff")
+@click.argument("name")
+def diff_cmd(name: str) -> None:
+    """Show git diff for a task's worktree changes."""
+    task = load_task(name)
+    if task is None:
+        click.echo(f"Error: task '{name}' not found.", err=True)
+        sys.exit(1)
+
+    if not Path(task.worktree).exists():
+        click.echo(f"Error: worktree '{task.worktree}' not found.", err=True)
+        sys.exit(1)
+
+    result = subprocess.run(
+        ["git", "diff", task.base_commit],
+        cwd=task.worktree,
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        click.echo(result.stdout)
+    else:
+        click.echo("No changes.")
