@@ -32,7 +32,7 @@ from duo.protocol import (
     transition,
 )
 from duo.transport import (
-    _BOOTSTRAP_DONE,
+    clear_bootstrap_done,
     diagnose_pane,
     is_process_alive,
     name_pane,
@@ -277,7 +277,7 @@ def restart_session(task: Task) -> None:
     save_task(task)
 
     # Clear bootstrap lock so new session can send bootstrap
-    _BOOTSTRAP_DONE.discard(task.pane_label)
+    clear_bootstrap_done(task.pane_label)
 
     # Remove stale heartbeat from previous incarnation
     hb = task.dir / "heartbeat.json"

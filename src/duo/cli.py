@@ -374,20 +374,14 @@ def merge(name: str, dry_run: bool) -> None:
 
     # Fetch and rebase
     click.echo("Fetching and rebasing...")
-    r = subprocess.run(
-        ["git", "fetch", "origin", "main"], cwd=worktree, capture_output=True, text=True
-    )
+    r = _run_git(["fetch", "origin", "main"], cwd=worktree, check=False)
     if r.returncode != 0:
         click.echo("Warning: fetch failed, proceeding with local state")
 
-    r = subprocess.run(
-        ["git", "rebase", "origin/main"], cwd=worktree, capture_output=True, text=True
-    )
+    r = _run_git(["rebase", "origin/main"], cwd=worktree, check=False)
     if r.returncode != 0:
         click.echo(f"Rebase conflict! Escalating to human.\n{r.stderr}", err=True)
-        abort = subprocess.run(
-            ["git", "rebase", "--abort"], cwd=worktree, capture_output=True, text=True
-        )
+        abort = _run_git(["rebase", "--abort"], cwd=worktree, check=False)
         if abort.returncode != 0:
             click.echo(
                 f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True
@@ -396,12 +390,7 @@ def merge(name: str, dry_run: bool) -> None:
 
     # Get parent repo from worktree
     main_worktree: str | None = None
-    r = subprocess.run(
-        ["git", "worktree", "list", "--porcelain"],
-        capture_output=True,
-        text=True,
-        cwd=worktree,
-    )
+    r = _run_git(["worktree", "list", "--porcelain"], cwd=worktree, check=False)
     for line in r.stdout.split("\n"):
         if (
             line.startswith("worktree ")
@@ -419,12 +408,7 @@ def merge(name: str, dry_run: bool) -> None:
 
     # ff-only merge
     click.echo(f"Merging {task.branch} into main...")
-    r = subprocess.run(
-        ["git", "merge", task.branch, "--ff-only"],
-        cwd=main_worktree,
-        capture_output=True,
-        text=True,
-    )
+    r = _run_git(["merge", task.branch, "--ff-only"], cwd=main_worktree, check=False)
     if r.returncode != 0:
         click.echo(f"Merge failed: {r.stderr}", err=True)
         sys.exit(1)
@@ -464,11 +448,10 @@ def kill(name: str) -> None:
 
     # Find parent repo
     main_worktree = None
-    r = subprocess.run(
-        ["git", "worktree", "list", "--porcelain"],
-        capture_output=True,
-        text=True,
+    r = _run_git(
+        ["worktree", "list", "--porcelain"],
         cwd=task.worktree if os.path.exists(task.worktree) else ".",
+        check=False,
     )
     for line in r.stdout.split("\n"):
         if (
@@ -1359,12 +1342,7 @@ def diff_cmd(name: str) -> None:
         click.echo(f"Error: worktree '{task.worktree}' not found.", err=True)
         sys.exit(1)
 
-    result = subprocess.run(
-        ["git", "diff", task.base_commit],
-        cwd=task.worktree,
-        capture_output=True,
-        text=True,
-    )
+    result = _run_git(["diff", task.base_commit], cwd=task.worktree, check=False)
     if result.stdout:
         click.echo(result.stdout)
     else:

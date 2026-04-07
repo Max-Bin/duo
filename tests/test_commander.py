@@ -836,7 +836,7 @@ class TestRestartSession:
     @patch("duo.commander.start_session")
     def test_restart_clears_bootstrap(self, mock_start):
         """restart_session discards pane from _BOOTSTRAP_DONE."""
-        from duo.transport import _BOOTSTRAP_DONE
+        from duo.transport import _BOOTSTRAP_DONE, clear_bootstrap_done
 
         task = _make_task()
         _BOOTSTRAP_DONE.add(task.pane_label)
@@ -845,6 +845,7 @@ class TestRestartSession:
 
         assert task.pane_label not in _BOOTSTRAP_DONE
         mock_start.assert_called_once_with(task)
+        clear_bootstrap_done(task.pane_label)  # cleanup
 
     @patch("duo.commander.start_session")
     def test_restart_resets_incarnation(self, mock_start):

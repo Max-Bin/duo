@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -52,15 +53,18 @@ def _find_bridge() -> str:
     )
 
 
+_LOCK = threading.Lock()
+
 _BRIDGE: str | None = None
 
 
 def _bridge_bin() -> str:
     """Return the cached tmux-bridge binary path, locating it on first call."""
     global _BRIDGE
-    if _BRIDGE is None:
-        _BRIDGE = _find_bridge()
-    return _BRIDGE
+    with _LOCK:
+        if _BRIDGE is None:
+            _BRIDGE = _find_bridge()
+        return _BRIDGE
 
 
 def _retry(
@@ -221,14 +225,16 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
         "action": action,
         "context": context,
     }
-    _PR_LOG.append(entry)
+    with _LOCK:
+        _PR_LOG.append(entry)
     if _pr_callback is not None:
         _pr_callback(label, action, context)
 
 
 def get_pr_log() -> list[dict[str, str]]:
     """Return the full PR consumption audit log."""
-    return list(_PR_LOG)
+    with _LOCK:
+        return list(_PR_LOG)
 
 
 def _is_at_main_prompt(content: str) -> bool:
@@ -335,14 +341,21 @@ def send_shell_command(label: str, command: str) -> None:
 
 def send_bootstrap(label: str, prompt: str) -> None:
     """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use."""
-    if label in _BOOTSTRAP_DONE:
-        raise RuntimeError(f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK.")
+    with _LOCK:
+        if label in _BOOTSTRAP_DONE:
+            raise RuntimeError(f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK.")
+        _BOOTSTRAP_DONE.add(label)
     read_pane(label, 5)
     type_text(label, prompt)
     read_pane(label, 5)
     send_keys(label, "Enter")
-    _BOOTSTRAP_DONE.add(label)
     _record_pr(label, "bootstrap", prompt[:80])
+
+
+def clear_bootstrap_done(label: str) -> None:
+    """Remove *label* from the bootstrap-done set (thread-safe)."""
+    with _LOCK:
+        _BOOTSTRAP_DONE.discard(label)
 
 
 def send_prompt(label: str, prompt: str) -> None:
