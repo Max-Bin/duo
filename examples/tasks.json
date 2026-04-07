@@ -1,0 +1,34 @@
+{
+  "tasks": [
+    {
+      "name": "auth-module",
+      "description": "实现 JWT 用户认证模块，包括 login/logout/refresh 端点",
+      "target_files": ["src/auth.py", "src/models/user.py"],
+      "writable_paths": ["src/auth.py", "src/models/*", "tests/test_auth.py"]
+    },
+    {
+      "name": "api-routes",
+      "description": "实现 REST API 路由，包括 CRUD 端点和参数校验",
+      "target_files": ["src/routes.py"],
+      "writable_paths": ["src/routes.py", "src/schemas/*", "tests/test_routes.py"]
+    },
+    {
+      "name": "db-migrations",
+      "description": "创建数据库迁移脚本，初始化用户表和任务表",
+      "target_files": ["migrations/"],
+      "writable_paths": ["migrations/*", "src/models/*"]
+    },
+    {
+      "name": "frontend-dashboard",
+      "description": "实现管理后台前端页面，包括任务列表和状态面板",
+      "target_files": ["frontend/src/"],
+      "writable_paths": ["frontend/*"]
+    },
+    {
+      "name": "ci-setup",
+      "description": "配置 GitHub Actions CI/CD，包括测试、构建、部署流程",
+      "target_files": [".github/workflows/"],
+      "writable_paths": [".github/*", "Dockerfile", "docker-compose.yml"]
+    }
+  ]
+}
