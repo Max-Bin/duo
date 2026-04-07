@@ -333,14 +333,22 @@ def verify_and_advance(task: Task) -> None:
 
 
 def _count_corrections(task: Task, step: int) -> int:
-    """Count correction events for a step from the journal."""
+    """Count correction events for a step from the journal.
+
+    Reads events in reverse to avoid scanning the entire journal for
+    long-running tasks.
+    """
     from duo.protocol import read_jsonl
     events = read_jsonl(task.journal_path)
-    return sum(
-        1 for ev in events
-        if ev.get("event") == "correction_sent"
-        and ev.get("data", {}).get("step") == step
-    )
+    count = 0
+    for ev in reversed(events):
+        event_type = ev.get("event", "")
+        data = ev.get("data", {})
+        if event_type == "correction_sent" and data.get("step") == step:
+            count += 1
+        elif event_type == "task_created":
+            break  # no need to scan before task creation
+    return count
 
 
 # === Poll task (main scheduling loop body) ===

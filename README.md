@@ -1,0 +1,257 @@
+# Duo
+
+**Agent Orchestration Runtime — Commander 指挥，Executor 执行**
+
+## 概述
+
+Duo 是一个轻量级 Agent 编排运行时。Commander（Python CLI）通过文件协议指挥 Executor（Copilot CLI / Claude Code）完成复杂的编码任务。
+
+核心能力：
+
+- **多任务并行** — 每个任务独立 git worktree + tmux pane，互不干扰
+- **自适应轮询** — 指数退避（5s → 120s），状态变更时立即重置
+- **自动纠错** — 质量门禁失败自动重试，≥3 次升级给人类
+- **安全边界** — 可写路径白名单、secret 泄漏检测、禁止命令
+- **Crash 恢复** — Journal 回放重建状态，incarnation 机制隔离旧会话
+
+## 架构
+
+```
+┌─────────────┐     file protocol      ┌──────────────┐
+│  Commander   │◄──────────────────────►│   Executor   │
+│  (duo CLI)   │   ack/heartbeat/result │ (Copilot CLI)│
+│              │                        │              │
+│  ┌─────────┐ │    tmux-bridge         │  ┌────────┐  │
+│  │ Poller  │ │◄──────────────────────►│  │ Pane   │  │
+│  │ Verifier│ │    send keys/read      │  │        │  │
+│  └─────────┘ │                        │  └────────┘  │
+└─────────────┘                        └──────────────┘
+       │                                       │
+       ▼                                       ▼
+  ~/.duo/tasks/{id}/                    /tmp/duo-worktrees/{id}/
+  ├── task.json                        └── (git worktree)
+  ├── journal.jsonl
+  ├── heartbeat.json
+  └── steps/step-NNNN/
+      ├── ack-attempt-NN.json
+      ├── result-attempt-NN.json
+      └── prompt-attempt-NN.txt
+```
+
+Commander 通过文件协议与 Executor 通信：Executor 写入 ack/heartbeat/result 文件，Commander 轮询读取并驱动 FSM 状态机推进任务。tmux-bridge 负责底层的终端交互（发送 prompt、读取输出）。
+
+## 安装
+
+```bash
+git clone https://github.com/user/duo.git && cd duo
+uv sync
+
+# 确保 tmux-bridge (smux) 已安装并在 PATH 中
+# https://github.com/user/smux
+```
+
+需要：
+- Python ≥ 3.12
+- [uv](https://docs.astral.sh/uv/) 包管理器
+- tmux + [smux](https://github.com/user/smux)（提供 tmux-bridge）
+- [Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) 或 Claude Code
+
+## 快速开始
+
+```bash
+# 在 tmux session 中运行
+
+# 1. 创建任务（自动创建 worktree + 启动 Copilot 会话）
+duo start my-task --repo . --desc "实现用户认证模块"
+
+# 2. 发送具体指令
+duo send my-task "在 src/auth.py 中实现 JWT 认证，包含 login/logout/refresh"
+
+# 3. 监控任务进度（自适应轮询）
+duo monitor
+
+# 4. 查看任务状态
+duo status my-task
+
+# 5. 任务完成后合并到主分支
+duo merge my-task
+```
+
+### 全部命令
+
+| 命令 | 说明 |
+|------|------|
+| `duo start <name> --repo <path> --desc <text>` | 创建任务，初始化 worktree 和 Copilot 会话 |
+| `duo send <name> <prompt>` | 向任务发送工作指令 |
+| `duo status [name]` | 查看单个任务或所有任务状态 |
+| `duo list` | 表格形式列出所有任务（ID / STATUS / STEP / INCARNATION） |
+| `duo monitor [names...]` | 启动自适应轮询监控（可指定任务，默认全部） |
+| `duo recover` | 从 journal 回放恢复中断的任务 |
+| `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |
+| `duo kill <name>` | 终止任务，清理 worktree 和分支 |
+
+## 核心概念
+
+### Task（任务）
+
+一个独立的工作单元。每个 Task 拥有自己的：
+- **Git worktree** — `/tmp/duo-worktrees/{name}/`，分支 `duo/{name}`
+- **Tmux pane** — 运行 Copilot CLI 的独立终端
+- **状态目录** — `~/.duo/tasks/{id}/`，包含 task.json、journal、heartbeat 等
+
+### Step / Attempt（步骤 / 尝试）
+
+任务分解为多个步骤（step），每个步骤可以有多次尝试（attempt）。质量门禁失败时自动递增 attempt 并重试，≥3 次失败升级为 ESCALATED 状态。
+
+### Incarnation（会话标识）
+
+8 字符十六进制 UUID，每次启动或重启会话时生成新的。用于隔离旧会话的过期数据 —— ack/heartbeat/result 文件必须携带匹配的 incarnation 才会被接受。
+
+### File Protocol（文件通信协议）
+
+Commander 和 Executor 之间通过文件系统通信，流程：
+
+```
+Commander 发送 prompt → Executor 写入 ack → Executor 写入 heartbeat（持续） → Executor 写入 result
+```
+
+- **ack** — Executor 确认收到 prompt（含 prompt_hash 校验）
+- **heartbeat** — Executor 定期报告进度（当前文件、状态）
+- **result** — Executor 报告完成（状态、变更文件、摘要）
+
+所有写入使用原子操作（tmp + rename），避免读到半写文件。
+
+### FSM（有限状态机）
+
+Task 有 11 个状态，所有转换经过校验并记录到 journal：
+
+```
+CREATED → SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING
+                                                                                    │
+                                    ┌───────────────────────────────────────────────┘
+                                    ▼
+                              ┌─ COMPLETED（终态）
+                              ├─ CORRECTING → 重试
+                              ├─ BLOCKED → ESCALATED / 重试
+                              └─ ESCALATED → 人工介入
+
+FAILED → SESSION_STARTING（自动重启）
+```
+
+## 模块说明
+
+| 模块 | 行数 | 职责 |
+|------|------|------|
+| `cli.py` | ~290 | Click CLI 入口，8 个命令，git worktree/branch 管理 |
+| `protocol.py` | ~440 | FSM 状态机 + 数据模型（dataclass） + 文件 I/O + journal |
+| `commander.py` | ~430 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
+| `transport.py` | ~160 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
+| `poller.py` | ~120 | 自适应轮询器，指数退避 + 心跳超时检测 |
+| `verifier.py` | ~230 | 质量门禁：安全边界、secret 检测、未跟踪文件、验收测试 |
+
+### protocol.py — 数据模型
+
+```python
+@dataclass
+class Task:
+    id: str
+    description: str
+    worktree: str
+    branch: str
+    base_commit: str
+    pane_label: str
+    incarnation_id: str        # 8-char hex, 每次重启更新
+    status: TaskStatus
+    current_step: int
+    current_attempt: int
+    subtasks: list[Subtask]
+    security_policy: SecurityPolicy
+
+@dataclass
+class Subtask:
+    step_id: int
+    description: str
+    target_files: list[str]    # 预期变更文件（软约束）
+    writable_paths: list[str]  # 可写路径（硬约束，fnmatch）
+    acceptance: str            # 验收命令
+
+@dataclass
+class SecurityPolicy:
+    writable_paths: list[str]
+    secret_patterns: list[str]  # ["API_KEY=", "password=", "token="]
+    forbidden_commands: list[str]
+    allow_network: bool
+    require_human_approval: list[str]
+```
+
+### verifier.py — 质量门禁
+
+验证按顺序执行，首个硬失败立即短路返回 Correction：
+
+1. **安全边界检查**（硬） — 变更文件必须匹配 `writable_paths`（fnmatch）
+2. **任务范围检查**（软） — 偏离 `target_files` 仅记录警告
+3. **Secret 泄漏检测**（硬） — 扫描 diff 中新增行的敏感模式
+4. **未跟踪文件检查**（硬） — `git ls-files --others` 必须为空
+5. **验收测试**（硬） — 执行 `acceptance` 命令，exit code 必须为 0
+
+### poller.py — 自适应轮询
+
+```
+初始间隔: 5s   →   指数退避 ×1.5   →   最大间隔: 120s
+心跳超时: 90s（触发诊断 + 可能重启会话）
+Grace period: prompt 发送后 90s 内不判超时
+```
+
+轮询结果：
+- `RESULT_READY` — 结果文件就绪，推进到验证
+- `WORKING` — 心跳正常，继续等待
+- `HEARTBEAT_TIMEOUT` — 超时，检查进程存活状态
+- `UNKNOWN` — 无心跳无 prompt，尝试重发
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DUO_COPILOT_MODEL` | `claude-opus-4.6` | Copilot CLI 使用的模型 |
+
+## 开发
+
+```bash
+# 安装依赖
+uv sync
+
+# 运行全部测试（157 个测试）
+python -m pytest tests/ -v
+
+# 运行单个模块测试
+python -m pytest tests/test_protocol.py -v
+python -m pytest tests/test_verifier.py -v
+python -m pytest tests/test_poller.py -v
+python -m pytest tests/test_commander.py -v
+```
+
+## 项目结构
+
+```
+duo/
+├── pyproject.toml
+├── README.md
+├── CLAUDE.md
+├── src/duo/
+│   ├── __init__.py
+│   ├── cli.py          # CLI 入口
+│   ├── protocol.py     # FSM + 数据模型 + 文件 I/O
+│   ├── commander.py    # 编排逻辑
+│   ├── transport.py    # tmux-bridge 封装
+│   ├── poller.py       # 自适应轮询
+│   └── verifier.py     # 质量门禁
+└── tests/
+    ├── test_protocol.py
+    ├── test_verifier.py
+    ├── test_poller.py
+    └── test_commander.py
+```
+
+## License
+
+MIT
