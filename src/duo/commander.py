@@ -56,6 +56,7 @@ _DIALOG_TIMEOUT_SEND = 60.0
 _DIALOG_TIMEOUT_RESEND = 30.0
 _DIALOG_TIMEOUT_MONITOR = 15.0
 _IDLE_TIMEOUT_START = 30.0
+_IDLE_TIMEOUT_ALLOW_ALL = 10  # seconds to wait for /allow-all
 
 
 def _get_copilot_model() -> str:
@@ -251,7 +252,7 @@ def start_session(task: Task) -> None:
     # Auto-approve all operations to avoid interactive prompts
     click.echo("Sending /allow-all...")
     send_shell_command(task.pane_label, "/allow-all")
-    wait_for_idle(task.pane_label, timeout=10, poll_interval=1.0)
+    wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0)
 
     # Send bootstrap prompt (this is the first and only ❯ prompt message)
     bootstrap = build_bootstrap_prompt(task)

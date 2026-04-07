@@ -78,6 +78,14 @@ def _validate_task_name(name: str) -> None:
         )
 
 
+def _fmt_ts(ts: str) -> str:
+    """Extract HH:MM:SS from ISO timestamp, or return '?' if malformed."""
+    try:
+        return ts.split("T", 1)[1][:8] if "T" in ts else ts[:8]
+    except (IndexError, AttributeError):
+        return "?"
+
+
 def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
     """Run a git command with consistent error handling.
 
@@ -597,17 +605,17 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
     return list(tasks_data["tasks"])
 
 
-def _create_task_from_batch_def(
-    defn: dict[str, Any], repo: str, verbose: bool
+def _create_single_task(
+    defn: dict[str, Any], repo: str, *, queue_only: bool = False
 ) -> str | None:
     """Create a single task from a batch definition dict.
 
     Returns task name on success, None on failure (prints error).
-    Handles worktree creation, task creation, and session start.
-    """
-    from duo.commander import start_session
-    from duo.scheduler import enqueue_or_start
 
+    When *queue_only* is False (default), the task is handed to the scheduler
+    which may start it immediately or queue it.  When True, the task is placed
+    directly into QUEUED state without starting a session.
+    """
     name = defn["name"]
     desc = defn.get("description", f"Task {name}")
     target_files = defn.get("target_files", [])
@@ -644,61 +652,21 @@ def _create_task_from_batch_def(
         ],
     )
 
-    action = enqueue_or_start(task)
-    if action == "started":
-        start_session(task)
-        click.echo(f"  ✓ {name}: started")
-    else:
+    if queue_only:
+        from duo.protocol import transition
+
+        transition(task, TaskStatus.QUEUED)
         click.echo(f"  ◷ {name}: queued")
-    return str(name)
+    else:
+        from duo.commander import start_session
+        from duo.scheduler import enqueue_or_start
 
-
-def _create_task_queued(
-    defn: dict[str, Any], repo: str, verbose: bool
-) -> str | None:
-    """Create a single task in QUEUED state without starting it.
-
-    Returns task name on success, None on failure (prints error).
-    """
-    from duo.protocol import transition
-
-    name = defn["name"]
-    desc = defn.get("description", f"Task {name}")
-    target_files = defn.get("target_files", [])
-    writable = defn.get("writable_paths", ["*"])
-
-    worktree_base = get_config("worktree_base_path")
-    worktree = os.path.join(worktree_base, name)
-    branch = f"duo/{name}"
-
-    result = _run_git(["rev-parse", "HEAD"], cwd=repo)
-    base_commit = result.stdout.strip()
-
-    r = _run_git(["worktree", "add", worktree, "-b", branch], cwd=repo, check=False)
-    if r.returncode != 0:
-        click.echo(
-            f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True
-        )
-        return None
-
-    task = create_task(
-        task_id=name,
-        description=desc,
-        worktree=worktree,
-        branch=branch,
-        base_commit=base_commit,
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=desc,
-                target_files=target_files,
-                writable_paths=writable,
-            )
-        ],
-    )
-
-    transition(task, TaskStatus.QUEUED)
-    click.echo(f"  ◷ {name}: queued")
+        action = enqueue_or_start(task)
+        if action == "started":
+            start_session(task)
+            click.echo(f"  ✓ {name}: started")
+        else:
+            click.echo(f"  ◷ {name}: queued")
     return str(name)
 
 
@@ -724,16 +692,10 @@ def batch(ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued:
         return
 
     created = 0
-    if start_queued:
-        for task_def in task_defs:
-            name = _create_task_queued(task_def, repo, verbose)
-            if name is not None:
-                created += 1
-    else:
-        for task_def in task_defs:
-            name = _create_task_from_batch_def(task_def, repo, verbose)
-            if name is not None:
-                created += 1
+    for task_def in task_defs:
+        name = _create_single_task(task_def, repo, queue_only=start_queued)
+        if name is not None:
+            created += 1
 
     qs = queue_status()
     click.echo(f"\nBatch complete: {created} tasks created")
@@ -793,9 +755,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
             click.echo(f"\n{'TIME':<10} {'ACTION':<16} {'STEP':<6} {'ATTEMPT':<8}")
             click.echo("-" * 42)
             for ev in pr_events:
-                ts = ev.get("ts", "?")
-                if "T" in ts:
-                    ts = ts.split("T", 1)[1][:8]
+                ts = _fmt_ts(ev.get("ts", "?"))
                 data = ev.get("data", {})
                 click.echo(
                     f"{ts:<10} {data.get('action', '?'):<16} "
@@ -839,9 +799,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         if pr_log:
             click.echo(f"\nSession log ({len(pr_log)} entries):")
             for entry in pr_log[-10:]:
-                ts = entry.get("ts", "?")
-                if "T" in ts:
-                    ts = ts.split("T", 1)[1][:8]
+                ts = _fmt_ts(entry.get("ts", "?"))
                 click.echo(
                     f"  {ts} {entry.get('action', '?')} [{entry.get('label', '?')}]"
                 )
@@ -893,10 +851,7 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: boo
         return
 
     for ev in events:
-        ts = ev.get("ts", "?")
-        # Shorten timestamp for display
-        if "T" in ts:
-            ts = ts.split("T", 1)[1][:8]  # HH:MM:SS
+        ts = _fmt_ts(ev.get("ts", "?"))
         event_type = ev.get("event", "?")
         data = ev.get("data", {})
 
@@ -1049,9 +1004,7 @@ def inspect(name: str, as_json: bool) -> None:
         recent = events[-5:]
         click.echo(f"\nRecent Events ({len(events)} total):")
         for ev in recent:
-            ts = ev.get("ts", "?")
-            if "T" in ts:
-                ts = ts.split("T", 1)[1][:8]
+            ts = _fmt_ts(ev.get("ts", "?"))
             click.echo(f"  {ts} {ev.get('event', '?')}")
 
 
@@ -1473,9 +1426,7 @@ def _export_as_text(task: Task) -> str:
 
     lines.append(f"Events ({len(events)} total):")
     for ev in events[-20:]:
-        ts = ev.get("ts", "?")
-        if "T" in ts:
-            ts = ts.split("T", 1)[1][:8]
+        ts = _fmt_ts(ev.get("ts", "?"))
         lines.append(f"  {ts} {ev.get('event', '?')}")
 
     return "\n".join(lines)
