@@ -747,9 +747,10 @@ class TestValidateTaskName:
 class TestCreateWorktree:
     def test_success(self, tmp_path: Path):
         """_create_worktree returns (worktree_path, base_commit) on success."""
-        with patch("duo.cli.get_config", return_value=str(tmp_path / "wt")), patch(
-            "duo.cli.subprocess.run"
-        ) as mock_run:
+        with (
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.cli.subprocess.run") as mock_run,
+        ):
             # First call: git rev-parse HEAD
             # Second call: git worktree add
             mock_run.side_effect = [
@@ -763,9 +764,10 @@ class TestCreateWorktree:
 
     def test_not_git_repo(self, tmp_path: Path):
         """_create_worktree exits if repo is not a git repository."""
-        with patch("duo.cli.get_config", return_value=str(tmp_path / "wt")), patch(
-            "duo.cli.subprocess.run"
-        ) as mock_run:
+        with (
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.cli.subprocess.run") as mock_run,
+        ):
             mock_run.return_value = MagicMock(
                 returncode=128, stdout="", stderr="not a git repo"
             )
@@ -774,9 +776,10 @@ class TestCreateWorktree:
 
     def test_worktree_add_fails(self, tmp_path: Path):
         """_create_worktree exits if 'git worktree add' fails."""
-        with patch("duo.cli.get_config", return_value=str(tmp_path / "wt")), patch(
-            "duo.cli.subprocess.run"
-        ) as mock_run:
+        with (
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.cli.subprocess.run") as mock_run,
+        ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
                 MagicMock(returncode=1, stdout="", stderr="branch already exists"),
@@ -793,10 +796,11 @@ class TestCreateWorktree:
 class TestStartSuccess:
     def test_start_and_run(self, runner: CliRunner, tmp_path: Path):
         """start creates task + worktree, starts session immediately."""
-        with patch("duo.cli._create_worktree") as mock_wt, patch(
-            "duo.cli.subprocess.run"
-        ), patch("duo.commander.start_session") as mock_start, patch(
-            "duo.scheduler.enqueue_or_start", return_value="started"
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.subprocess.run"),
+            patch("duo.commander.start_session") as mock_start,
+            patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "my-task"), "abc123")
             result = runner.invoke(
@@ -809,19 +813,21 @@ class TestStartSuccess:
 
     def test_start_queued(self, runner: CliRunner, tmp_path: Path):
         """start queues task when slots are full."""
-        with patch("duo.cli._create_worktree") as mock_wt, patch(
-            "duo.cli.subprocess.run"
-        ), patch("duo.commander.start_session") as mock_start, patch(
-            "duo.scheduler.enqueue_or_start", return_value="queued"
-        ), patch(
-            "duo.scheduler.queue_status",
-            return_value={
-                "active_count": 3,
-                "queued_count": 1,
-                "max_parallel": 3,
-                "active_tasks": ["a", "b", "c"],
-                "queued_tasks": ["my-task"],
-            },
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.subprocess.run"),
+            patch("duo.commander.start_session") as mock_start,
+            patch("duo.scheduler.enqueue_or_start", return_value="queued"),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 3,
+                    "queued_count": 1,
+                    "max_parallel": 3,
+                    "active_tasks": ["a", "b", "c"],
+                    "queued_tasks": ["my-task"],
+                },
+            ),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "q-task"), "abc123")
             result = runner.invoke(
@@ -939,11 +945,14 @@ class TestMergeCommand:
             m = MagicMock(returncode=0, stdout="", stderr="")
             # git worktree list --porcelain: return main + task worktree
             if args[:3] == ["git", "worktree", "list"]:
-                m.stdout = f"worktree /main/repo\n\nworktree {worktree_base}/merge-ok\n\n"
+                m.stdout = (
+                    f"worktree /main/repo\n\nworktree {worktree_base}/merge-ok\n\n"
+                )
             return m
 
-        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
-            "duo.cli.get_config", return_value=worktree_base
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
+            patch("duo.cli.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-ok"])
             assert result.exit_code == 0
@@ -1002,13 +1011,13 @@ class TestMergeCommand:
                 return m
             if args[:3] == ["git", "worktree", "list"]:
                 m.stdout = (
-                    f"worktree /main/repo\n\n"
-                    f"worktree {worktree_base}/merge-fetch\n\n"
+                    f"worktree /main/repo\n\nworktree {worktree_base}/merge-fetch\n\n"
                 )
             return m
 
-        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
-            "duo.cli.get_config", return_value=worktree_base
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
+            patch("duo.cli.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-fetch"])
             assert result.exit_code == 0
@@ -1062,8 +1071,9 @@ class TestMergeCommand:
                 m.stdout = f"worktree {worktree_base}/merge-nomain\n\n"
             return m
 
-        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
-            "duo.cli.get_config", return_value=worktree_base
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
+            patch("duo.cli.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-nomain"])
             assert result.exit_code != 0
@@ -1084,16 +1094,16 @@ class TestMergeCommand:
             m = MagicMock(returncode=0, stdout="", stderr="")
             if args[:3] == ["git", "worktree", "list"]:
                 m.stdout = (
-                    f"worktree /main/repo\n\n"
-                    f"worktree {worktree_base}/merge-ff\n\n"
+                    f"worktree /main/repo\n\nworktree {worktree_base}/merge-ff\n\n"
                 )
             if args[:2] == ["git", "merge"]:
                 m.returncode = 1
                 m.stderr = "not possible to fast-forward"
             return m
 
-        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run), patch(
-            "duo.cli.get_config", return_value=worktree_base
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
+            patch("duo.cli.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-ff"])
             assert result.exit_code != 0
@@ -1184,10 +1194,11 @@ class TestCreateTaskFromBatchDef:
         from duo.cli import _create_task_from_batch_def
 
         defn = {"name": "batch-a", "description": "Batch A", "target_files": ["a.py"]}
-        with patch("duo.cli.subprocess.run") as mock_run, patch(
-            "duo.cli.get_config", return_value=str(tmp_path / "wt")
-        ), patch("duo.commander.start_session"), patch(
-            "duo.scheduler.enqueue_or_start", return_value="started"
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.commander.start_session"),
+            patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
@@ -1201,10 +1212,11 @@ class TestCreateTaskFromBatchDef:
         from duo.cli import _create_task_from_batch_def
 
         defn = {"name": "batch-q", "description": "Queued"}
-        with patch("duo.cli.subprocess.run") as mock_run, patch(
-            "duo.cli.get_config", return_value=str(tmp_path / "wt")
-        ), patch("duo.commander.start_session") as mock_start, patch(
-            "duo.scheduler.enqueue_or_start", return_value="queued"
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.commander.start_session") as mock_start,
+            patch("duo.scheduler.enqueue_or_start", return_value="queued"),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
@@ -1219,8 +1231,9 @@ class TestCreateTaskFromBatchDef:
         from duo.cli import _create_task_from_batch_def
 
         defn = {"name": "batch-fail", "description": "Fail"}
-        with patch("duo.cli.subprocess.run") as mock_run, patch(
-            "duo.cli.get_config", return_value=str(tmp_path / "wt")
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
@@ -1234,8 +1247,9 @@ class TestCreateTaskFromBatchDef:
         from duo.cli import _create_task_from_batch_def
 
         defn = {"name": "batch-rp", "description": "RP Fail"}
-        with patch("duo.cli.subprocess.run") as mock_run, patch(
-            "duo.cli.get_config", return_value=str(tmp_path / "wt")
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="not a git repo"
@@ -1264,15 +1278,18 @@ class TestBatchCommand:
             )
         )
 
-        with patch("duo.cli._create_task_from_batch_def") as mock_create, patch(
-            "duo.scheduler.queue_status",
-            return_value={
-                "active_count": 2,
-                "queued_count": 0,
-                "max_parallel": 3,
-                "active_tasks": ["b1", "b2"],
-                "queued_tasks": [],
-            },
+        with (
+            patch("duo.cli._create_task_from_batch_def") as mock_create,
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 2,
+                    "queued_count": 0,
+                    "max_parallel": 3,
+                    "active_tasks": ["b1", "b2"],
+                    "queued_tasks": [],
+                },
+            ),
         ):
             mock_create.side_effect = ["b1", "b2"]
             result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
@@ -1294,15 +1311,18 @@ class TestBatchCommand:
             )
         )
 
-        with patch("duo.cli._create_task_from_batch_def") as mock_create, patch(
-            "duo.scheduler.queue_status",
-            return_value={
-                "active_count": 1,
-                "queued_count": 0,
-                "max_parallel": 3,
-                "active_tasks": ["ok1"],
-                "queued_tasks": [],
-            },
+        with (
+            patch("duo.cli._create_task_from_batch_def") as mock_create,
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 1,
+                    "queued_count": 0,
+                    "max_parallel": 3,
+                    "active_tasks": ["ok1"],
+                    "queued_tasks": [],
+                },
+            ),
         ):
             mock_create.side_effect = ["ok1", None]  # second fails
             result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
@@ -1314,15 +1334,18 @@ class TestBatchCommand:
         f = tmp_path / "tasks.json"
         f.write_text(json.dumps({"tasks": [{"name": "q1"}]}))
 
-        with patch("duo.cli._create_task_from_batch_def") as mock_create, patch(
-            "duo.scheduler.queue_status",
-            return_value={
-                "active_count": 2,
-                "queued_count": 3,
-                "max_parallel": 2,
-                "active_tasks": ["a1", "a2"],
-                "queued_tasks": ["q1", "q2", "q3"],
-            },
+        with (
+            patch("duo.cli._create_task_from_batch_def") as mock_create,
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 2,
+                    "queued_count": 3,
+                    "max_parallel": 2,
+                    "active_tasks": ["a1", "a2"],
+                    "queued_tasks": ["q1", "q2", "q3"],
+                },
+            ),
         ):
             mock_create.return_value = "q1"
             result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
@@ -1388,7 +1411,11 @@ class TestAuditSessionLog:
         )
 
         pr_log = [
-            {"ts": "2024-01-01T12:00:00", "action": "bootstrap", "label": "duo:aud-task"}
+            {
+                "ts": "2024-01-01T12:00:00",
+                "action": "bootstrap",
+                "label": "duo:aud-task",
+            }
         ]
         with patch("duo.transport.get_pr_log", return_value=pr_log):
             result = runner.invoke(main, ["audit"])
@@ -1451,7 +1478,11 @@ class TestInspectDetailed:
         from duo.protocol import AckResult, StepResult
 
         ack = AckResult(
-            step=1, attempt=1, incarnation="test1234", prompt_hash="h123", acked_at="2024-01-01T12:00:00"
+            step=1,
+            attempt=1,
+            incarnation="test1234",
+            prompt_hash="h123",
+            acked_at="2024-01-01T12:00:00",
         )
         result_obj = StepResult(
             step=1,
@@ -1461,9 +1492,11 @@ class TestInspectDetailed:
             files_changed=["file1.py", "file2.py"],
             summary="Implemented feature",
         )
-        with patch("duo.protocol.read_ack_for_step", return_value=ack), patch(
-            "duo.protocol.read_result_for_step", return_value=result_obj
-        ), patch("duo.protocol.read_heartbeat", return_value=None):
+        with (
+            patch("duo.protocol.read_ack_for_step", return_value=ack),
+            patch("duo.protocol.read_result_for_step", return_value=result_obj),
+            patch("duo.protocol.read_heartbeat", return_value=None),
+        ):
             result = runner.invoke(main, ["inspect", "insp-ar"])
             assert result.exit_code == 0
             assert "Ack:" in result.output
@@ -1624,9 +1657,7 @@ class TestCleanupDetailed:
 
 
 class TestConfigSubcommands:
-    def test_config_get_known_key(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch
-    ):
+    def test_config_get_known_key(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         import duo.config as config_mod
 
         fake_config = tmp_path / "config.json"
@@ -1646,9 +1677,7 @@ class TestConfigSubcommands:
         assert result.exit_code != 0
         assert "Unknown key" in result.output
 
-    def test_config_set_known(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch
-    ):
+    def test_config_set_known(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         import duo.config as config_mod
 
         fake_config = tmp_path / "config.json"
@@ -1667,9 +1696,7 @@ class TestConfigSubcommands:
         result = runner.invoke(main, ["config", "set", "unknown_key", "val"])
         assert "not a known config key" in result.output
 
-    def test_config_list(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch
-    ):
+    def test_config_list(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         import duo.config as config_mod
 
         fake_config = tmp_path / "config.json"
@@ -1704,9 +1731,7 @@ class TestConfigSubcommands:
         assert result.exit_code == 0
         assert "Reset max_corrections" in result.output
 
-    def test_config_reset_all(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch
-    ):
+    def test_config_reset_all(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         import duo.config as config_mod
 
         fake_config = tmp_path / "config.json"
@@ -1781,7 +1806,9 @@ class TestDashboardCommand:
 class TestVersionFallback:
     def test_version_fallback(self, runner: CliRunner):
         """version command shows fallback when importlib.metadata fails."""
-        with patch("importlib.metadata.version", side_effect=ImportError("no metadata")):
+        with patch(
+            "importlib.metadata.version", side_effect=ImportError("no metadata")
+        ):
             result = runner.invoke(main, ["version"])
             assert result.exit_code == 0
             assert "duo" in result.output

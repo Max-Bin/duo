@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from duo.protocol import (
+    TASKS_DIR,
     TRANSITIONS,
     AckResult,
     Heartbeat,
     StepResult,
     Subtask,
     TaskStatus,
+    _clear_task_cache,
     append_event,
     create_task,
+    list_tasks,
     load_task,
     new_incarnation,
     now_iso,
@@ -452,9 +456,28 @@ class TestAppendEventEdgeCases:
 class TestListTasksEdgeCases:
     def test_list_tasks_empty_dir(self):
         """list_tasks when TASKS_DIR is empty returns empty list."""
-        from duo.protocol import TASKS_DIR, list_tasks
+        import duo.protocol
 
-        TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        duo.protocol.TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        _clear_task_cache()
+        assert list_tasks() == []
+
+    def test_list_tasks_skips_non_dir_entries(self):
+        """list_tasks ignores regular files in TASKS_DIR."""
+        import duo.protocol
+
+        duo.protocol.TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        (duo.protocol.TASKS_DIR / "stray-file.txt").write_text("not a task")
+        _clear_task_cache()
+        assert list_tasks() == []
+
+    def test_list_tasks_skips_dir_without_task_json(self):
+        """list_tasks ignores directories missing task.json."""
+        import duo.protocol
+
+        duo.protocol.TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        (duo.protocol.TASKS_DIR / "broken-task").mkdir()
+        _clear_task_cache()
         assert list_tasks() == []
 
 
@@ -518,13 +541,16 @@ class TestReadHeartbeat:
     def test_read_heartbeat_valid(self):
         """Write a valid heartbeat JSON, read it back, verify fields."""
         task = create_task("hb-valid", "d", "/w", "b", "c", [_make_subtask()])
-        write_json(task.heartbeat_path, {
-            "ts": "2025-01-01T00:00:00+00:00",
-            "incarnation": "abcd1234",
-            "step": 1,
-            "status": "running",
-            "current_file": "main.py",
-        })
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": "2025-01-01T00:00:00+00:00",
+                "incarnation": "abcd1234",
+                "step": 1,
+                "status": "running",
+                "current_file": "main.py",
+            },
+        )
         hb = read_heartbeat(task)
         assert hb is not None
         assert isinstance(hb, Heartbeat)
@@ -556,13 +582,16 @@ class TestReadAckForStep:
     def test_read_ack_valid(self):
         """Write valid ack JSON, read back, verify fields."""
         task = create_task("ack-valid", "d", "/w", "b", "c", [_make_subtask()])
-        write_json(task.ack_path(1, 1), {
-            "step": 1,
-            "attempt": 1,
-            "incarnation": "beef0001",
-            "prompt_hash": "aabb1122",
-            "acked_at": "2025-01-01T00:00:00+00:00",
-        })
+        write_json(
+            task.ack_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "beef0001",
+                "prompt_hash": "aabb1122",
+                "acked_at": "2025-01-01T00:00:00+00:00",
+            },
+        )
         ack = read_ack_for_step(task, 1, 1)
         assert ack is not None
         assert isinstance(ack, AckResult)
@@ -587,15 +616,18 @@ class TestReadResultForStep:
     def test_read_result_valid(self):
         """Write valid result JSON with status/summary/files_changed, read back."""
         task = create_task("res-valid", "d", "/w", "b", "c", [_make_subtask()])
-        write_json(task.result_path(1, 1), {
-            "step": 1,
-            "attempt": 1,
-            "incarnation": "dead0001",
-            "status": "completed",
-            "files_changed": ["src/main.py", "tests/test_main.py"],
-            "summary": "Implemented feature X",
-            "reason": "",
-        })
+        write_json(
+            task.result_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "dead0001",
+                "status": "completed",
+                "files_changed": ["src/main.py", "tests/test_main.py"],
+                "summary": "Implemented feature X",
+                "reason": "",
+            },
+        )
         result = read_result_for_step(task, 1, 1)
         assert result is not None
         assert isinstance(result, StepResult)
@@ -666,9 +698,7 @@ class TestReplayStateMalformed:
         task = create_task("replay-badval", "d", "/w", "b", "c", [_make_subtask()])
         with open(task.journal_path, "a") as f:
             f.write(
-                json.dumps(
-                    {"event": "status_changed", "data": {"to": "bogus_status"}}
-                )
+                json.dumps({"event": "status_changed", "data": {"to": "bogus_status"}})
                 + "\n"
             )
         assert replay_state(task) == TaskStatus.CREATED
@@ -687,3 +717,105 @@ class TestWriteJsonPathTraversal:
         bad_path = tmp_path / "safe" / ".." / "escaped" / "data.json"
         with pytest.raises(ValueError, match="Path traversal detected"):
             write_json(bad_path, {"key": "value"})
+
+
+# ---------------------------------------------------------------------------
+# Performance: list_tasks with many tasks
+# ---------------------------------------------------------------------------
+
+
+class TestListTasksPerformance:
+    def test_list_tasks_performance_many_tasks(self):
+        """Create 50 tasks, verify list_tasks completes in <1 second."""
+        TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        _clear_task_cache()
+
+        for i in range(50):
+            create_task(
+                f"perf-task-{i:03d}",
+                f"Performance test task {i}",
+                "/work",
+                "feature",
+                "deadbeef",
+                [_make_subtask(1), _make_subtask(2)],
+            )
+
+        start = time.monotonic()
+        tasks = list_tasks()
+        elapsed = time.monotonic() - start
+
+        assert len(tasks) == 50
+        assert elapsed < 1.0, f"list_tasks took {elapsed:.3f}s, expected <1s"
+
+        # Second call should be faster (mtime cache hit)
+        start2 = time.monotonic()
+        tasks2 = list_tasks()
+        elapsed2 = time.monotonic() - start2
+
+        assert len(tasks2) == 50
+        assert elapsed2 <= elapsed, "Cached call should not be slower"
+
+
+# ---------------------------------------------------------------------------
+# read_jsonl tail parameter
+# ---------------------------------------------------------------------------
+
+
+class TestReadJsonlTail:
+    def test_tail_returns_last_n_events(self, tmp_path: Path):
+        """Create journal with 100 events, verify tail=10 returns only last 10."""
+        path = tmp_path / "big_journal.jsonl"
+        lines = [json.dumps({"event": "test", "index": i}) for i in range(100)]
+        path.write_text("\n".join(lines) + "\n")
+
+        result = read_jsonl(path, tail=10)
+        assert len(result) == 10
+        assert result[0]["index"] == 90
+        assert result[-1]["index"] == 99
+
+    def test_tail_none_returns_all(self, tmp_path: Path):
+        """Without tail, all events are returned."""
+        path = tmp_path / "journal.jsonl"
+        lines = [json.dumps({"i": i}) for i in range(50)]
+        path.write_text("\n".join(lines) + "\n")
+
+        result = read_jsonl(path)
+        assert len(result) == 50
+
+    def test_tail_larger_than_file(self, tmp_path: Path):
+        """tail=100 on a 5-event file returns all 5."""
+        path = tmp_path / "small.jsonl"
+        lines = [json.dumps({"i": i}) for i in range(5)]
+        path.write_text("\n".join(lines) + "\n")
+
+        result = read_jsonl(path, tail=100)
+        assert len(result) == 5
+
+    def test_tail_skips_bad_lines(self, tmp_path: Path):
+        """tail correctly skips bad lines and counts only valid ones."""
+        path = tmp_path / "mixed.jsonl"
+        content = ""
+        for i in range(20):
+            content += json.dumps({"i": i}) + "\n"
+            if i % 5 == 0:
+                content += "BAD LINE\n"
+        path.write_text(content)
+
+        result = read_jsonl(path, tail=5)
+        assert len(result) == 5
+        assert result[0]["i"] == 15
+        assert result[-1]["i"] == 19
+
+    def test_tail_zero_returns_empty(self, tmp_path: Path):
+        """tail=0 returns empty list."""
+        path = tmp_path / "journal.jsonl"
+        lines = [json.dumps({"i": i}) for i in range(10)]
+        path.write_text("\n".join(lines) + "\n")
+
+        result = read_jsonl(path, tail=0)
+        assert result == []
+
+    def test_tail_missing_file(self, tmp_path: Path):
+        """tail on missing file returns empty list."""
+        result = read_jsonl(tmp_path / "nope.jsonl", tail=5)
+        assert result == []

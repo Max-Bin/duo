@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -211,19 +212,29 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
         raise
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Read a JSONL file, return list of events."""
+def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
+    """Read a JSONL file, return list of events.
+
+    Uses streaming I/O to avoid loading the entire file into memory.
+    If *tail* is set, return only the last N valid events using a bounded
+    deque so memory stays O(tail) even for huge journals.
+    """
     if not path.exists():
         return []
-    events = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line:
-            try:
-                events.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return events
+    result: deque[dict[str, Any]] | list[dict[str, Any]]
+    if tail is not None:
+        result = deque(maxlen=tail)
+    else:
+        result = []
+    with open(path) as f:
+        for raw in f:
+            stripped = raw.strip()
+            if stripped:
+                try:
+                    result.append(json.loads(stripped))
+                except json.JSONDecodeError:
+                    continue
+    return list(result)
 
 
 # === Event Journal ===
@@ -395,16 +406,40 @@ def load_task(task_id: str) -> Task | None:
     )
 
 
+_task_cache: dict[str, tuple[float, Task]] = {}
+
+
+def _clear_task_cache() -> None:
+    """Clear the internal task-list mtime cache (useful in tests)."""
+    _task_cache.clear()
+
+
 def list_tasks() -> list[Task]:
-    """List all tasks."""
+    """List all tasks, using mtime-based caching to skip re-parsing unchanged files."""
     if not TASKS_DIR.exists():
         return []
-    tasks = []
+    tasks: list[Task] = []
+    seen: set[str] = set()
     for d in sorted(TASKS_DIR.iterdir()):
-        if d.is_dir():
+        if not d.is_dir():
+            continue
+        task_json = d / "task.json"
+        try:
+            mtime = task_json.stat().st_mtime
+        except OSError:
+            continue
+        seen.add(d.name)
+        cached = _task_cache.get(d.name)
+        if cached is not None and cached[0] == mtime:
+            tasks.append(cached[1])
+        else:
             t = load_task(d.name)
-            if t:
+            if t is not None:
+                _task_cache[d.name] = (mtime, t)
                 tasks.append(t)
+    # Evict entries for deleted tasks
+    for stale in set(_task_cache) - seen:
+        del _task_cache[stale]
     return tasks
 
 

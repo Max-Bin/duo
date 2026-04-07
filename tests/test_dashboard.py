@@ -148,13 +148,16 @@ class TestTaskRowStatuses:
 def _write_heartbeat(task, seconds_ago):
     """Write a heartbeat file with a timestamp N seconds in the past."""
     ts = (datetime.now(UTC) - timedelta(seconds=seconds_ago)).isoformat()
-    write_json(task.heartbeat_path, {
-        "ts": ts,
-        "incarnation": task.incarnation_id,
-        "step": task.current_step,
-        "status": "working",
-        "current_file": "test.py",
-    })
+    write_json(
+        task.heartbeat_path,
+        {
+            "ts": ts,
+            "incarnation": task.incarnation_id,
+            "step": task.current_step,
+            "status": "working",
+            "current_file": "test.py",
+        },
+    )
 
 
 class TestTasksTableHeartbeat:
@@ -256,9 +259,7 @@ class TestRunDashboard:
     @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
     @patch("duo.dashboard.Console")
     @patch("duo.dashboard.Live")
-    def test_run_dashboard_filters_tasks(
-        self, mock_live, mock_console, mock_sleep
-    ):
+    def test_run_dashboard_filters_tasks(self, mock_live, mock_console, mock_sleep):
         """run_dashboard filters tasks by task_ids."""
         from duo.dashboard import run_dashboard
 

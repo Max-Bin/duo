@@ -631,9 +631,7 @@ class TestSendTaskPrompt:
 
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
-    def test_send_task_prompt_records_prompt_sent_event(
-        self, mock_select, mock_wait
-    ):
+    def test_send_task_prompt_records_prompt_sent_event(self, mock_select, mock_wait):
         """prompt_sent event is appended with hash."""
         task = _make_task()
         _advance_to_prompt_sent(task)
@@ -648,9 +646,7 @@ class TestSendTaskPrompt:
 
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
-    def test_send_task_prompt_updates_last_prompt_sent_at(
-        self, mock_select, mock_wait
-    ):
+    def test_send_task_prompt_updates_last_prompt_sent_at(self, mock_select, mock_wait):
         """last_prompt_sent_at is updated after sending."""
         task = _make_task()
         _advance_to_prompt_sent(task)
@@ -660,9 +656,7 @@ class TestSendTaskPrompt:
 
         assert task.last_prompt_sent_at is not None
 
-    def test_send_task_prompt_pr_budget_exceeded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_send_task_prompt_pr_budget_exceeded(self, monkeypatch: pytest.MonkeyPatch):
         """PR budget exceeded → task escalated, no prompt sent."""
         task = _make_task()
         # Use CORRECTING state which allows transition to ESCALATED
@@ -838,9 +832,7 @@ class TestRestartSession:
         restart_session(task)
 
         events = read_jsonl(task.journal_path)
-        restart_events = [
-            e for e in events if e.get("event") == "session_restarted"
-        ]
+        restart_events = [e for e in events if e.get("event") == "session_restarted"]
         assert len(restart_events) == 1
         assert restart_events[0]["data"]["old_incarnation"] == old_inc
         assert restart_events[0]["data"]["new_incarnation"] == task.incarnation_id
@@ -876,9 +868,7 @@ class TestPollTask:
 
     @patch("duo.commander.verify_and_advance")
     @patch("duo.commander.read_result_for_step")
-    def test_poll_result_ready_wrong_incarnation(
-        self, mock_read_result, mock_verify
-    ):
+    def test_poll_result_ready_wrong_incarnation(self, mock_read_result, mock_verify):
         """RESULT_READY with stale incarnation does not verify."""
         task = _make_task()
         _advance_to_prompt_sent(task)
@@ -907,9 +897,7 @@ class TestPollTask:
     @patch("duo.commander.send_task_prompt")
     @patch("duo.commander.restart_session")
     @patch("duo.commander.is_process_alive", return_value=False)
-    def test_poll_heartbeat_timeout_dead(
-        self, mock_alive, mock_restart, mock_send
-    ):
+    def test_poll_heartbeat_timeout_dead(self, mock_alive, mock_restart, mock_send):
         """HEARTBEAT_TIMEOUT + dead process → restart + resend prompt."""
         task = _make_task()
         _advance_to_prompt_sent(task)
@@ -1088,9 +1076,10 @@ class TestMonitor:
         mock_list.return_value = [task]
 
         with (
-            patch("duo.scheduler.queue_status", return_value={
-                "active_count": 1, "queued_count": 0, "max_parallel": 2
-            }),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
             pytest.raises(StopIteration),
         ):
             monitor()
@@ -1101,9 +1090,10 @@ class TestMonitor:
     @patch("duo.commander.list_tasks", return_value=[])
     def test_monitor_no_tasks_exits(self, mock_list, mock_promote):
         """Monitor exits when no active or queued tasks."""
-        with patch("duo.scheduler.queue_status", return_value={
-            "active_count": 0, "queued_count": 0, "max_parallel": 2
-        }):
+        with patch(
+            "duo.scheduler.queue_status",
+            return_value={"active_count": 0, "queued_count": 0, "max_parallel": 2},
+        ):
             monitor()  # should exit cleanly
 
     @patch("duo.commander.time.sleep", side_effect=StopIteration)
@@ -1113,8 +1103,13 @@ class TestMonitor:
     @patch("duo.scheduler.promote_queued")
     @patch("duo.commander.list_tasks")
     def test_monitor_promoted_task(
-        self, mock_list, mock_promote, mock_start, mock_send,
-        mock_poll, mock_sleep,
+        self,
+        mock_list,
+        mock_promote,
+        mock_start,
+        mock_send,
+        mock_poll,
+        mock_sleep,
     ):
         """Monitor starts session and sends prompt for promoted tasks."""
         task = _make_task()
@@ -1123,9 +1118,10 @@ class TestMonitor:
         mock_promote.return_value = [task]
 
         with (
-            patch("duo.scheduler.queue_status", return_value={
-                "active_count": 1, "queued_count": 0, "max_parallel": 2
-            }),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
             pytest.raises(StopIteration),
         ):
             monitor()
