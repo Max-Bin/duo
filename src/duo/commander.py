@@ -229,7 +229,7 @@ def start_session(task: Task) -> None:
         send_shell_command(task.pane_label, f"cd {task.worktree}")
         time.sleep(_SESSION_CD_WAIT)
         send_shell_command(task.pane_label, copilot_cmd)
-    except Exception as exc:
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_start_failed", {"error": str(exc)})
@@ -295,7 +295,7 @@ def restart_session(task: Task) -> None:
 
     try:
         start_session(task)
-    except Exception as exc:
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         logger.warning("restart_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_restart_failed", {"error": str(exc)})

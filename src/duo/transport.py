@@ -132,7 +132,12 @@ def send_keys(label: str, *keys: str) -> None:
 
 
 def name_pane(target: str, label: str) -> None:
-    """Label a pane (visible in tmux border via smux .tmux.conf)."""
+    """Label a pane (visible in tmux border via smux .tmux.conf).
+
+    Raises:
+        ValueError: If *label* contains unsafe characters.
+    """
+    _validate_label(label)
     bridge(["name", target, label])
 
 
@@ -150,7 +155,9 @@ def resolve_label(label: str) -> str:
     (e.g. ``"task-fix-auth"``) into the underlying pane target
     (e.g. ``"%42"``).
 
-    Raises ``RuntimeError`` if the label cannot be resolved.
+    Raises:
+        ValueError: If *label* contains unsafe characters.
+        RuntimeError: If the label cannot be resolved.
     """
     _validate_label(label)
     return bridge(["resolve", label]).strip()

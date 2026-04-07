@@ -14,6 +14,7 @@ import duo.cli
 import duo.protocol
 from duo.cli import (
     _create_worktree,
+    _fmt_ts,
     _load_batch_file,
     _validate_task_name,
     main,
@@ -586,6 +587,12 @@ class TestExport:
 class TestCleanup:
     def test_no_tasks(self, runner: CliRunner):
         result = runner.invoke(main, ["cleanup", "--force"])
+        assert "No tasks" in result.output
+
+    def test_cleanup_no_tasks_without_force(self, runner: CliRunner):
+        """cleanup without --force still exits cleanly when there's nothing to do."""
+        result = runner.invoke(main, ["cleanup"])
+        assert result.exit_code == 0
         assert "No tasks" in result.output
 
     def test_cleanup_completed(self, runner: CliRunner, make_task):
@@ -1386,14 +1393,14 @@ class TestLoadBatchFile:
 
 
 # ---------------------------------------------------------------------------
-# _create_task_from_batch_def helper
+# _create_single_task helper
 # ---------------------------------------------------------------------------
 
 
 class TestCreateTaskFromBatchDef:
     def test_success_started(self, runner: CliRunner, tmp_path: Path):
         """Task batch def that starts immediately."""
-        from duo.cli import _create_task_from_batch_def
+        from duo.cli import _create_single_task
 
         defn = {"name": "batch-a", "description": "Batch A", "target_files": ["a.py"]}
         with (
@@ -1406,12 +1413,12 @@ class TestCreateTaskFromBatchDef:
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
                 MagicMock(returncode=0, stdout="", stderr=""),  # worktree add
             ]
-            result = _create_task_from_batch_def(defn, str(tmp_path), verbose=False)
+            result = _create_single_task(defn, str(tmp_path))
             assert result == "batch-a"
 
     def test_success_queued(self, runner: CliRunner, tmp_path: Path):
         """Task batch def that gets queued."""
-        from duo.cli import _create_task_from_batch_def
+        from duo.cli import _create_single_task
 
         defn = {"name": "batch-q", "description": "Queued"}
         with (
@@ -1424,13 +1431,13 @@ class TestCreateTaskFromBatchDef:
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
                 MagicMock(returncode=0, stdout="", stderr=""),
             ]
-            result = _create_task_from_batch_def(defn, str(tmp_path), verbose=False)
+            result = _create_single_task(defn, str(tmp_path))
             assert result == "batch-q"
             mock_start.assert_not_called()
 
     def test_worktree_failure(self, runner: CliRunner, tmp_path: Path):
         """Task batch def fails when worktree creation fails."""
-        from duo.cli import _create_task_from_batch_def
+        from duo.cli import _create_single_task
 
         defn = {"name": "batch-fail", "description": "Fail"}
         with (
@@ -1441,12 +1448,12 @@ class TestCreateTaskFromBatchDef:
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
                 MagicMock(returncode=1, stdout="", stderr="error"),
             ]
-            result = _create_task_from_batch_def(defn, str(tmp_path), verbose=False)
+            result = _create_single_task(defn, str(tmp_path))
             assert result is None
 
     def test_revparse_fails(self, tmp_path: Path):
-        """_create_task_from_batch_def exits when rev-parse fails (lines 491-495)."""
-        from duo.cli import _create_task_from_batch_def
+        """_create_single_task exits when rev-parse fails."""
+        from duo.cli import _create_single_task
 
         defn = {"name": "batch-rp", "description": "RP Fail"}
         with (
@@ -1457,7 +1464,7 @@ class TestCreateTaskFromBatchDef:
                 returncode=1, stdout="", stderr="not a git repo"
             )
             with pytest.raises(SystemExit):
-                _create_task_from_batch_def(defn, str(tmp_path), verbose=False)
+                _create_single_task(defn, str(tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -1481,7 +1488,7 @@ class TestBatchCommand:
         )
 
         with (
-            patch("duo.cli._create_task_from_batch_def") as mock_create,
+            patch("duo.cli._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -1514,7 +1521,7 @@ class TestBatchCommand:
         )
 
         with (
-            patch("duo.cli._create_task_from_batch_def") as mock_create,
+            patch("duo.cli._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -1537,7 +1544,7 @@ class TestBatchCommand:
         f.write_text(json.dumps({"tasks": [{"name": "q1"}]}))
 
         with (
-            patch("duo.cli._create_task_from_batch_def") as mock_create,
+            patch("duo.cli._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -1570,7 +1577,7 @@ class TestBatchCommand:
         )
 
         with (
-            patch("duo.cli._create_task_queued") as mock_queued,
+            patch("duo.cli._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -1582,13 +1589,13 @@ class TestBatchCommand:
                 },
             ),
         ):
-            mock_queued.side_effect = ["q1", "q2"]
+            mock_create.side_effect = ["q1", "q2"]
             result = runner.invoke(
                 main, ["batch", str(f), "--queue", "--repo", str(tmp_path)]
             )
             assert result.exit_code == 0
             assert "2 tasks created" in result.output
-            assert mock_queued.call_count == 2
+            assert mock_create.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -2931,14 +2938,14 @@ class TestStartFlags:
 
 
 # ---------------------------------------------------------------------------
-# _create_task_queued helper (lines 663-702)
+# _create_single_task queue_only=True path
 # ---------------------------------------------------------------------------
 
 
 class TestCreateTaskQueued:
     def test_success(self, tmp_path: Path):
-        """_create_task_queued creates task and transitions to QUEUED."""
-        from duo.cli import _create_task_queued
+        """_create_single_task(queue_only=True) creates task and transitions to QUEUED."""
+        from duo.cli import _create_single_task
 
         defn = {
             "name": "cq-ok",
@@ -2954,7 +2961,7 @@ class TestCreateTaskQueued:
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
                 MagicMock(returncode=0, stdout="", stderr=""),  # worktree add
             ]
-            result = _create_task_queued(defn, str(tmp_path), verbose=False)
+            result = _create_single_task(defn, str(tmp_path), queue_only=True)
             assert result == "cq-ok"
 
         task = load_task("cq-ok")
@@ -2962,8 +2969,8 @@ class TestCreateTaskQueued:
         assert task.status == TaskStatus.QUEUED
 
     def test_worktree_failure_returns_none(self, tmp_path: Path):
-        """_create_task_queued returns None when worktree add fails."""
-        from duo.cli import _create_task_queued
+        """_create_single_task(queue_only=True) returns None when worktree add fails."""
+        from duo.cli import _create_single_task
 
         defn = {"name": "cq-fail", "description": "Fail"}
         with (
@@ -2974,12 +2981,12 @@ class TestCreateTaskQueued:
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
                 MagicMock(returncode=1, stdout="", stderr="already exists"),
             ]
-            result = _create_task_queued(defn, str(tmp_path), verbose=False)
+            result = _create_single_task(defn, str(tmp_path), queue_only=True)
             assert result is None
 
     def test_default_description_and_writable(self, tmp_path: Path):
-        """_create_task_queued uses defaults when description/writable_paths omitted."""
-        from duo.cli import _create_task_queued
+        """_create_single_task(queue_only=True) uses defaults when description/writable_paths omitted."""
+        from duo.cli import _create_single_task
 
         defn = {"name": "cq-defaults"}
         with (
@@ -2990,7 +2997,7 @@ class TestCreateTaskQueued:
                 MagicMock(returncode=0, stdout="def456\n", stderr=""),
                 MagicMock(returncode=0, stdout="", stderr=""),
             ]
-            result = _create_task_queued(defn, str(tmp_path), verbose=False)
+            result = _create_single_task(defn, str(tmp_path), queue_only=True)
             assert result == "cq-defaults"
 
         task = load_task("cq-defaults")
