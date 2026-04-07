@@ -653,12 +653,62 @@ def _create_task_from_batch_def(
     return str(name)
 
 
+def _create_task_queued(
+    defn: dict[str, Any], repo: str, verbose: bool
+) -> str | None:
+    """Create a single task in QUEUED state without starting it.
+
+    Returns task name on success, None on failure (prints error).
+    """
+    from duo.protocol import transition
+
+    name = defn["name"]
+    desc = defn.get("description", f"Task {name}")
+    target_files = defn.get("target_files", [])
+    writable = defn.get("writable_paths", ["*"])
+
+    worktree_base = get_config("worktree_base_path")
+    worktree = os.path.join(worktree_base, name)
+    branch = f"duo/{name}"
+
+    result = _run_git(["rev-parse", "HEAD"], cwd=repo)
+    base_commit = result.stdout.strip()
+
+    r = _run_git(["worktree", "add", worktree, "-b", branch], cwd=repo, check=False)
+    if r.returncode != 0:
+        click.echo(
+            f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True
+        )
+        return None
+
+    task = create_task(
+        task_id=name,
+        description=desc,
+        worktree=worktree,
+        branch=branch,
+        base_commit=base_commit,
+        subtasks=[
+            Subtask(
+                step_id=1,
+                description=desc,
+                target_files=target_files,
+                writable_paths=writable,
+            )
+        ],
+    )
+
+    transition(task, TaskStatus.QUEUED)
+    click.echo(f"  ◷ {name}: queued")
+    return str(name)
+
+
 @main.command()
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--repo", default=".", help="Git repo path")
 @click.option("--dry-run", is_flag=True, help="Preview tasks without creating")
+@click.option("--queue", "start_queued", is_flag=True, help="Create all tasks in queued state")
 @click.pass_context
-def batch(ctx: click.Context, file: str, repo: str, dry_run: bool) -> None:
+def batch(ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued: bool) -> None:
     """Create multiple tasks from a file (JSON or YAML)."""
     from duo.scheduler import queue_status
 
@@ -674,10 +724,16 @@ def batch(ctx: click.Context, file: str, repo: str, dry_run: bool) -> None:
         return
 
     created = 0
-    for task_def in task_defs:
-        name = _create_task_from_batch_def(task_def, repo, verbose)
-        if name is not None:
-            created += 1
+    if start_queued:
+        for task_def in task_defs:
+            name = _create_task_queued(task_def, repo, verbose)
+            if name is not None:
+                created += 1
+    else:
+        for task_def in task_defs:
+            name = _create_task_from_batch_def(task_def, repo, verbose)
+            if name is not None:
+                created += 1
 
     qs = queue_status()
     click.echo(f"\nBatch complete: {created} tasks created")

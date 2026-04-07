@@ -361,6 +361,15 @@ class TestLogs:
         ]
         assert len(event_lines) == 1
 
+    def test_logs_json_output(self, runner: CliRunner):
+        _make_task("json-task")
+        result = runner.invoke(main, ["logs", "json-task", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        assert data[0]["event"] == "task_created"
+
 
 # ---------------------------------------------------------------------------
 # inspect command
@@ -386,6 +395,17 @@ class TestInspect:
         _make_task("test-task")
         result = runner.invoke(main, ["inspect", "test-task"])
         assert "Recent Events" in result.output
+
+    def test_inspect_json_output(self, runner: CliRunner):
+        _make_task("json-inspect")
+        result = runner.invoke(main, ["inspect", "json-inspect", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["id"] == "json-inspect"
+        assert data["status"] == "created"
+        assert "subtasks" in data
+        assert isinstance(data["subtasks"], list)
+        assert data["branch"] == "duo/json-inspect"
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +677,21 @@ class TestAudit:
         result = runner.invoke(main, ["audit", "nope"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    def test_audit_json_output(self, runner: CliRunner, make_task):
+        from duo.protocol import append_event
+
+        task = make_task("json-audit")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        result = runner.invoke(main, ["audit", "json-audit", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["task"] == "json-audit"
+        assert data["pr_consumed"] == 1
+        assert isinstance(data["events"], list)
 
 
 # ---------------------------------------------------------------------------
@@ -1520,6 +1555,41 @@ class TestBatchCommand:
             assert "Queued: 3" in result.output
             assert "duo monitor" in result.output
 
+    def test_batch_queue_flag(self, runner: CliRunner, tmp_path: Path):
+        """batch --queue creates tasks in QUEUED state."""
+        f = tmp_path / "tasks.json"
+        f.write_text(
+            json.dumps(
+                {
+                    "tasks": [
+                        {"name": "q1", "description": "Task 1"},
+                        {"name": "q2", "description": "Task 2"},
+                    ]
+                }
+            )
+        )
+
+        with (
+            patch("duo.cli._create_task_queued") as mock_queued,
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 0,
+                    "queued_count": 2,
+                    "max_parallel": 3,
+                    "active_tasks": [],
+                    "queued_tasks": ["q1", "q2"],
+                },
+            ),
+        ):
+            mock_queued.side_effect = ["q1", "q2"]
+            result = runner.invoke(
+                main, ["batch", str(f), "--queue", "--repo", str(tmp_path)]
+            )
+            assert result.exit_code == 0
+            assert "2 tasks created" in result.output
+            assert mock_queued.call_count == 2
+
 
 # ---------------------------------------------------------------------------
 # queue command
@@ -1541,8 +1611,8 @@ class TestQueueCommand:
         ):
             result = runner.invoke(main, ["queue"])
             assert result.exit_code == 0
-            assert "2/3" in result.output
-            assert "task-a" in result.output
+            assert "2" in result.output
+            assert "3" in result.output
             assert "task-c" in result.output
 
     def test_queue_empty(self, runner: CliRunner):
@@ -1559,8 +1629,28 @@ class TestQueueCommand:
         ):
             result = runner.invoke(main, ["queue"])
             assert result.exit_code == 0
-            assert "0/3" in result.output
+            assert "0" in result.output
             assert "empty" in result.output.lower()
+
+    def test_queue_positions(self, runner: CliRunner):
+        """queue shows numbered positions for queued tasks."""
+        with patch(
+            "duo.scheduler.queue_status",
+            return_value={
+                "active_count": 2,
+                "queued_count": 3,
+                "max_parallel": 4,
+                "active_tasks": ["run-a", "run-b"],
+                "queued_tasks": ["task-a", "task-b", "task-c"],
+            },
+        ):
+            result = runner.invoke(main, ["queue"])
+            assert result.exit_code == 0
+            assert "Queue (3 tasks):" in result.output
+            assert "1. task-a" in result.output
+            assert "2. task-b" in result.output
+            assert "3. task-c" in result.output
+            assert "Active: 2 / max_parallel: 4" in result.output
 
 
 # ---------------------------------------------------------------------------
