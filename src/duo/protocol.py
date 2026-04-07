@@ -28,6 +28,7 @@ TASKS_DIR = DUO_DIR / "tasks"
 
 class TaskStatus(str, Enum):
     CREATED = "created"
+    QUEUED = "queued"
     SESSION_STARTING = "session_starting"
     PROMPT_SENT = "prompt_sent"
     ACKED = "acked"
@@ -43,7 +44,8 @@ class TaskStatus(str, Enum):
 
 # Legal state transitions
 TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.CREATED: {TaskStatus.SESSION_STARTING},
+    TaskStatus.CREATED: {TaskStatus.SESSION_STARTING, TaskStatus.QUEUED},
+    TaskStatus.QUEUED: {TaskStatus.SESSION_STARTING, TaskStatus.FAILED},
     TaskStatus.SESSION_STARTING: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
     TaskStatus.PROMPT_SENT: {TaskStatus.ACKED, TaskStatus.PROMPT_SENT, TaskStatus.FAILED, TaskStatus.VERIFYING, TaskStatus.RUNNING, TaskStatus.BLOCKED},
     TaskStatus.ACKED: {TaskStatus.RUNNING, TaskStatus.RESULT_REPORTED},

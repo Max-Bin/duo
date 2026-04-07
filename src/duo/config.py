@@ -18,6 +18,7 @@ DEFAULTS: dict[str, Any] = {
     "poll_base_interval": 5.0,
     "poll_max_interval": 120.0,
     "auto_allow_all": True,
+    "max_parallel": 3,
 }
 
 

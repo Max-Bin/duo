@@ -164,7 +164,8 @@ def build_correction_prompt(task: Task, reason: str) -> str:
 
 def start_session(task: Task) -> None:
     """Start a Copilot session in tmux for this task."""
-    transition(task, TaskStatus.SESSION_STARTING)
+    if task.status != TaskStatus.SESSION_STARTING:
+        transition(task, TaskStatus.SESSION_STARTING)
 
     # Create tmux pane and start copilot
     # Note: tmux must already be running (user starts duo inside tmux)
@@ -406,19 +407,32 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
 
 def monitor(task_ids: list[str] | None = None) -> None:
     """Run the adaptive polling monitor loop."""
+    from duo.scheduler import promote_queued
+
     pollers: dict[str, AdaptivePoller] = {}
 
     while True:
         tasks = list_tasks()
         active = [
             t for t in tasks
-            if t.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED)
+            if t.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED, TaskStatus.QUEUED)
             and (task_ids is None or t.id in task_ids)
         ]
 
-        if not active:
-            print("[duo] No active tasks. Monitoring stopped.")
-            break
+        # Promote queued tasks if slots available
+        promoted = promote_queued()
+        for task in promoted:
+            print(f"[duo] Promoting queued task: {task.id}")
+            start_session(task)
+            prompt = build_task_prompt(task)
+            send_task_prompt(task, prompt)
+
+        if not active and not promoted:
+            # Check if there are queued tasks waiting
+            queued = [t for t in tasks if t.status == TaskStatus.QUEUED]
+            if not queued:
+                print("[duo] No active tasks. Monitoring stopped.")
+                break
 
         for task in active:
             if task.id not in pollers:

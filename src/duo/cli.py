@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import click
 
@@ -81,6 +83,17 @@ def start(name: str, repo: str, desc: str) -> None:
     click.echo(f"  Worktree: {worktree}")
     click.echo(f"  Branch: {branch}")
     click.echo(f"  Incarnation: {task.incarnation_id}")
+
+    # Check if we should queue or start
+    from duo.scheduler import enqueue_or_start, queue_status
+    action = enqueue_or_start(task)
+
+    if action == "queued":
+        qs = queue_status()
+        click.echo(f"  Queued (position #{qs['queued_count']}). {qs['active_count']}/{qs['max_parallel']} slots in use.")
+        click.echo("  Task will start automatically when a slot opens.")
+        click.echo("  Run 'duo monitor' to manage the queue.")
+        return
 
     # Start Copilot session
     click.echo("Starting Copilot session...")
@@ -292,6 +305,112 @@ def kill(name: str) -> None:
     from duo.protocol import save_task
     save_task(task)
     click.echo(f"Killed {name}.")
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--repo", default=".", help="Git repo path")
+def batch(file: str, repo: str) -> None:
+    """Create multiple tasks from a file (JSON or YAML)."""
+    from duo.commander import start_session
+    from duo.scheduler import enqueue_or_start, queue_status
+
+    repo = os.path.abspath(repo)
+
+    # Parse file
+    file_path = Path(file)
+    content = file_path.read_text()
+
+    if file_path.suffix in (".yaml", ".yml"):
+        try:
+            import yaml  # type: ignore[import-untyped]
+            tasks_data = yaml.safe_load(content)
+        except ImportError:
+            click.echo("Error: PyYAML not installed. Run: uv pip install pyyaml", err=True)
+            click.echo("Or use JSON format instead.", err=True)
+            sys.exit(1)
+    else:
+        tasks_data = json.loads(content)
+
+    if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
+        click.echo("Error: file must contain a 'tasks' key with a list of tasks", err=True)
+        sys.exit(1)
+
+    # Get base commit
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True, text=True, cwd=repo,
+    )
+    if result.returncode != 0:
+        click.echo(f"Error: not a git repo: {repo}", err=True)
+        sys.exit(1)
+    base_commit = result.stdout.strip()
+
+    created = 0
+    for task_def in tasks_data["tasks"]:
+        name = task_def["name"]
+        desc = task_def.get("description", f"Task {name}")
+        target_files = task_def.get("target_files", [])
+        writable = task_def.get("writable_paths", ["*"])
+
+        worktree = f"/tmp/duo-worktrees/{name}"
+        branch = f"duo/{name}"
+
+        # Create worktree
+        r = subprocess.run(
+            ["git", "worktree", "add", worktree, "-b", branch],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            click.echo(f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True)
+            continue
+
+        task = create_task(
+            task_id=name,
+            description=desc,
+            worktree=worktree,
+            branch=branch,
+            base_commit=base_commit,
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description=desc,
+                    target_files=target_files,
+                    writable_paths=writable,
+                )
+            ],
+        )
+
+        action = enqueue_or_start(task)
+        if action == "started":
+            start_session(task)
+            click.echo(f"  ✓ {name}: started")
+        else:
+            click.echo(f"  ◷ {name}: queued")
+        created += 1
+
+    qs = queue_status()
+    click.echo(f"\nBatch complete: {created} tasks created")
+    click.echo(f"  Active: {qs['active_count']}/{qs['max_parallel']}")
+    click.echo(f"  Queued: {qs['queued_count']}")
+    if qs['queued_count'] > 0:
+        click.echo("Run 'duo monitor' to process the queue.")
+
+
+@main.command()
+def queue() -> None:
+    """Show queue status."""
+    from duo.scheduler import queue_status
+    qs = queue_status()
+    click.echo(f"Slots: {qs['active_count']}/{qs['max_parallel']} in use")
+    if qs['active_tasks']:
+        click.echo(f"Active: {', '.join(qs['active_tasks'])}")
+    if qs['queued_tasks']:
+        click.echo(f"Queued: {', '.join(qs['queued_tasks'])}")
+    else:
+        click.echo("Queue: empty")
 
 
 @main.group()
