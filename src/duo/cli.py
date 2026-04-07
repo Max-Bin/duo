@@ -27,6 +27,48 @@ from duo.protocol import (
     replay_state,
 )
 
+_COMMAND_SECTIONS: dict[str, list[str]] = {
+    "Task Lifecycle": ["start", "send", "status", "merge", "diff", "kill"],
+    "Monitoring": ["list", "monitor", "dashboard", "logs", "inspect"],
+    "Batch & Queue": ["batch", "queue"],
+    "Recovery": ["recover", "resume"],
+    "Data & Audit": ["export", "audit", "cleanup"],
+    "Setup": ["init", "doctor", "config"],
+    "Misc": ["version", "completion"],
+}
+
+_CMD_TO_SECTION = {cmd: sec for sec, cmds in _COMMAND_SECTIONS.items() for cmd in cmds}
+
+
+class _OrderedGroup(click.Group):
+    """Click group that displays commands in categorized sections."""
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        seen: set[str] = set()
+        for section, cmd_names in _COMMAND_SECTIONS.items():
+            rows: list[tuple[str, str]] = []
+            for name in cmd_names:
+                cmd = self.get_command(ctx, name)
+                if cmd is None:
+                    continue  # pragma: no cover — defensive for future section edits
+                seen.add(name)
+                help_text = cmd.get_short_help_str(limit=60)
+                rows.append((name, help_text))
+            if rows:
+                with formatter.section(section):
+                    formatter.write_dl(rows)
+
+        # Any commands not in a section
+        extra: list[tuple[str, str]] = []
+        for name in self.list_commands(ctx):
+            if name not in seen:
+                cmd = self.get_command(ctx, name)  # pragma: no cover
+                if cmd:  # pragma: no cover
+                    extra.append((name, cmd.get_short_help_str(limit=60)))  # pragma: no cover
+        if extra:  # pragma: no cover
+            with formatter.section("Other"):  # pragma: no cover
+                formatter.write_dl(extra)  # pragma: no cover
+
 
 def _validate_task_name(name: str) -> None:
     """Validate that a task name contains only safe characters."""
@@ -55,7 +97,7 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
     return result
 
 
-@click.group()
+@click.group(cls=_OrderedGroup)
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.version_option(package_name="duo", prog_name="duo")
 @click.pass_context

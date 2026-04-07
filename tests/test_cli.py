@@ -2428,6 +2428,16 @@ class TestHelpTexts:
         assert result.exit_code == 0, f"{cmd} failed: {result.output}"
         assert "Usage:" in result.output
 
+    def test_main_help_shows_sections(self):
+        """Main --help displays categorized command sections."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        assert "Task Lifecycle:" in result.output
+        assert "Monitoring:" in result.output
+        assert "Setup:" in result.output
+        assert "Recovery:" in result.output
+
 
 # ---------------------------------------------------------------------------
 # Batch validation edge cases
