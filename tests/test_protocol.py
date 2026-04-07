@@ -162,6 +162,24 @@ class TestReadJsonl:
     def test_missing_file(self, tmp_path: Path):
         assert read_jsonl(tmp_path / "missing.jsonl") == []
 
+    def test_read_jsonl_truncated_line(self):
+        """read_jsonl skips malformed (truncated) lines gracefully."""
+        task = create_task("jsonl-trunc", "d", "/w", "b", "c", [_make_subtask()])
+        journal = task.journal_path
+        journal.write_text('{"event":"ok"}\n{broken json\n{"event":"ok2"}\n')
+        events = read_jsonl(journal)
+        assert len(events) == 2
+        assert events[0]["event"] == "ok"
+        assert events[1]["event"] == "ok2"
+
+    def test_read_jsonl_empty_lines(self):
+        """read_jsonl handles empty lines without crashing."""
+        task = create_task("jsonl-empty", "d", "/w", "b", "c", [_make_subtask()])
+        journal = task.journal_path
+        journal.write_text('\n\n{"event":"valid"}\n\n')
+        events = read_jsonl(journal)
+        assert len(events) == 1
+
 
 # ---------------------------------------------------------------------------
 # TaskStatus FSM transitions
@@ -447,6 +465,16 @@ class TestJsonIOEdgeCases:
         bad.write_text("{{{{not json at all!!")
         result = read_json(bad)
         assert result is None
+
+    def test_write_json_creates_parent_dirs_under_tasks_dir(self):
+        """write_json creates parent directories under TASKS_DIR if needed."""
+        import duo.protocol
+
+        deep_path = duo.protocol.TASKS_DIR / "deep" / "nested" / "file.json"
+        write_json(deep_path, {"key": "value"})
+        assert deep_path.exists()
+        data = read_json(deep_path)
+        assert data["key"] == "value"
 
 
 # ---------------------------------------------------------------------------

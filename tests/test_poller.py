@@ -262,3 +262,50 @@ class TestPoll:
         )
         poller = AdaptivePoller()
         assert poller.poll(task) == PollResult.UNKNOWN
+
+    def test_result_takes_precedence_over_heartbeat(self, tmp_path: Path):
+        """When both result and heartbeat exist, result is used."""
+        task = _make_task(tmp_path)
+        # Write a valid heartbeat
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": _now_iso(),
+                "incarnation": task.incarnation_id,
+                "step": 1,
+                "status": "working",
+                "current_file": "test.py",
+            },
+        )
+        # Write a valid result
+        write_json(
+            task.result_path(task.current_step, task.current_attempt),
+            {
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+                "incarnation": task.incarnation_id,
+                "status": "done",
+                "files_changed": [],
+                "summary": "ok",
+            },
+        )
+        poller = AdaptivePoller()
+        assert poller.poll(task) == PollResult.RESULT_READY
+
+    def test_heartbeat_wrong_incarnation_with_prompt_sent(self, tmp_path: Path):
+        """Heartbeat with wrong incarnation_id is ignored; falls back to prompt timing."""
+        task = _make_task(tmp_path)
+        task.last_prompt_sent_at = _ago_iso(HEARTBEAT_TIMEOUT + 30)
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": _now_iso(),
+                "incarnation": "wronginc1",
+                "step": 1,
+                "status": "working",
+                "current_file": "test.py",
+            },
+        )
+        poller = AdaptivePoller()
+        # Wrong incarnation heartbeat is ignored, and prompt is stale → timeout
+        assert poller.poll(task) == PollResult.HEARTBEAT_TIMEOUT

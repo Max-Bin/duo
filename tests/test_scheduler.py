@@ -211,6 +211,40 @@ class TestPromoteQueued:
         assert len(promoted) == 1
         assert promoted[0].id == "queued0"
 
+    def test_promote_queued_respects_custom_max_parallel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """promote_queued only promotes up to max_parallel - active_count."""
+        import time
+
+        monkeypatch.setattr("duo.scheduler.get_config", lambda k: 4)
+        # Create 3 active tasks
+        for i in range(3):
+            t = _make_task(f"active-{i}")
+            _force_status(t, TaskStatus.RUNNING)
+        # Queue 5 tasks
+        for i in range(5):
+            t = _make_task(f"queued-{i}")
+            _force_status(t, TaskStatus.QUEUED)
+            time.sleep(0.01)
+        # Only 1 slot available (max=4, 3 active)
+        promoted = promote_queued()
+        assert len(promoted) == 1
+
+    def test_promote_queued_unlimited_when_high_max(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With a very high max_parallel, all queued tasks are promoted."""
+        import time
+
+        monkeypatch.setattr("duo.scheduler.get_config", lambda k: 1000)
+        for i in range(3):
+            t = _make_task(f"unlim-{i}")
+            _force_status(t, TaskStatus.QUEUED)
+            time.sleep(0.01)
+        promoted = promote_queued()
+        assert len(promoted) == 3
+
 
 class TestNextQueued:
     def test_empty(self) -> None:

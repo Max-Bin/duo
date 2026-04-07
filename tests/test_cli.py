@@ -298,6 +298,16 @@ class TestStart:
         # Should get past validation and fail on git check instead
         assert "Task name must contain only" not in result.output
 
+    def test_start_rejects_emoji_name(self, runner: CliRunner, tmp_path: Path):
+        """Task names with emoji should be rejected."""
+        result = runner.invoke(main, ["start", "task-🚀", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+
+    def test_start_rejects_slash_in_name(self, runner: CliRunner, tmp_path: Path):
+        """Task names with slashes should be rejected (path traversal)."""
+        result = runner.invoke(main, ["start", "../evil", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # kill command (error case)
@@ -2280,3 +2290,79 @@ class TestResume:
         assert "started new session" in result.output
         mock_start.assert_called_once()
         mock_restart.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Help-text smoke tests
+# ---------------------------------------------------------------------------
+
+
+class TestHelpTexts:
+    """Verify --help works for every registered command."""
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            ["version", "--help"],
+            ["completion", "--help"],
+            ["start", "--help"],
+            ["send", "--help"],
+            ["status", "--help"],
+            ["list", "--help"],
+            ["monitor", "--help"],
+            ["recover", "--help"],
+            ["merge", "--help"],
+            ["kill", "--help"],
+            ["batch", "--help"],
+            ["queue", "--help"],
+            ["audit", "--help"],
+            ["dashboard", "--help"],
+            ["logs", "--help"],
+            ["inspect", "--help"],
+            ["init", "--help"],
+            ["doctor", "--help"],
+            ["resume", "--help"],
+            ["config", "--help"],
+            ["export", "--help"],
+            ["cleanup", "--help"],
+            ["config", "get", "--help"],
+            ["config", "set", "--help"],
+            ["config", "list", "--help"],
+            ["config", "reset", "--help"],
+        ],
+    )
+    def test_help_exits_zero(self, cmd):
+        runner = CliRunner()
+        result = runner.invoke(main, cmd)
+        assert result.exit_code == 0, f"{cmd} failed: {result.output}"
+        assert "Usage:" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Batch validation edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestBatchValidation:
+    """Additional edge cases for batch file validation."""
+
+    def test_batch_tasks_null(self, tmp_path: Path):
+        """_load_batch_file exits when 'tasks' value is null."""
+        f = tmp_path / "bad.json"
+        f.write_text(json.dumps({"tasks": None}))
+        with pytest.raises(SystemExit):
+            _load_batch_file(str(f))
+
+    def test_batch_missing_name_in_task_def(
+        self, runner: CliRunner, tmp_path: Path
+    ):
+        """batch task missing 'name' key causes an error for that task."""
+        f = tmp_path / "noname.json"
+        f.write_text(json.dumps({"tasks": [{"description": "no name field"}]}))
+        result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+
+    def test_batch_nonexistent_file(self, runner: CliRunner):
+        """batch with a path that doesn't exist fails."""
+        result = runner.invoke(main, ["batch", "/no/such/file.json"])
+        assert result.exit_code != 0

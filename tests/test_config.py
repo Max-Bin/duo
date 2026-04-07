@@ -145,3 +145,38 @@ class TestResetConfig:
         assert config_mod.get_config("custom_key") == "value"
         config_mod.reset_config("custom_key")
         assert config_mod.get_config("custom_key") is None
+
+
+# ---------------------------------------------------------------------------
+# Config edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestConfigEdgeCases:
+    """Additional edge-case coverage for config operations."""
+
+    def test_set_config_preserves_other_keys(self, isolated_config):
+        """Setting one key doesn't affect other keys."""
+        isolated_config.write_text(
+            json.dumps({"copilot_model": "custom-model", "max_corrections": 10})
+        )
+        config_mod.set_config("max_corrections", "7")
+        assert config_mod.get_config("max_corrections") == 7
+        assert config_mod.get_config("copilot_model") == "custom-model"
+
+    def test_load_config_with_extra_keys(self, isolated_config):
+        """Config with unknown keys are preserved (forward compatibility)."""
+        isolated_config.write_text(
+            json.dumps({"future_feature": "enabled", "copilot_model": "gpt-4o"})
+        )
+        cfg = config_mod.load_config()
+        assert cfg["future_feature"] == "enabled"
+        assert cfg["copilot_model"] == "gpt-4o"
+        # Defaults still merged in
+        assert cfg["max_corrections"] == config_mod.DEFAULTS["max_corrections"]
+
+    def test_config_empty_file(self, isolated_config):
+        """Empty config.json falls back to defaults."""
+        isolated_config.write_text("")
+        cfg = config_mod.load_config()
+        assert cfg == config_mod.DEFAULTS
