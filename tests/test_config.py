@@ -122,13 +122,11 @@ class TestSetConfig:
         assert config_mod.get_config("totally_unknown") == "val"
         assert "Unknown config key: 'totally_unknown'" in caplog.text
 
-    def test_set_unknown_key_warns_via_logging(self, caplog):
-        """Unknown config key produces a warning (caplog-based detection)."""
-        import logging
-
-        with caplog.at_level(logging.WARNING):
-            config_mod.set_config("nonexistent_key", "value")
-        assert "Unknown config key" in caplog.text or "not a known" in caplog.text
+    def test_set_unknown_key_warns_via_logging(self, capsys):
+        """Unknown config key produces a stderr warning."""
+        config_mod.set_config("nonexistent_key", "value")
+        captured = capsys.readouterr()
+        assert "not a known config key" in captured.err
 
 
 class TestResetConfig:
