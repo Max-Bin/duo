@@ -4,21 +4,23 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-305%20passed-brightgreen.svg)]()
 
-**Agent Orchestration Runtime — Commander 指挥，Executor 执行**
+**Agent Orchestration Runtime — Commander directs, Executor delivers**
 
-## 概述
+> [中文文档](README.zh-CN.md)
 
-Duo 是一个轻量级 Agent 编排运行时。Commander（Python CLI）通过文件协议指挥 Executor（Copilot CLI / Claude Code）完成复杂的编码任务。
+## Overview
 
-核心能力：
+Duo is a lightweight agent orchestration runtime. The Commander (Python CLI) coordinates the Executor (Copilot CLI / Claude Code) via a file-based protocol to accomplish complex coding tasks.
 
-- **多任务并行** — 每个任务独立 git worktree + tmux pane，互不干扰
-- **自适应轮询** — 指数退避（5s → 120s），状态变更时立即重置
-- **自动纠错** — 质量门禁失败自动重试，≥3 次升级给人类
-- **安全边界** — 可写路径白名单、secret 泄漏检测、禁止命令
-- **Crash 恢复** — Journal 回放重建状态，incarnation 机制隔离旧会话
+Key capabilities:
 
-## 架构
+- **Parallel task execution** — Each task gets its own git worktree + tmux pane, fully isolated
+- **Adaptive polling** — Exponential backoff (5s → 120s), resets immediately on state changes
+- **Auto-correction** — Automatic retries on quality gate failures; escalates to a human after ≥3 attempts
+- **Security boundaries** — Writable path allowlists, secret leak detection, forbidden commands
+- **Crash recovery** — Journal replay rebuilds state; incarnation IDs isolate stale sessions
+
+## Architecture
 
 ```
 ┌─────────────┐     file protocol      ┌──────────────┐
@@ -42,254 +44,254 @@ Duo 是一个轻量级 Agent 编排运行时。Commander（Python CLI）通过�
       └── prompt-attempt-NN.txt
 ```
 
-Commander 通过文件协议与 Executor 通信：Executor 写入 ack/heartbeat/result 文件，Commander 轮询读取并驱动 FSM 状态机推进任务。tmux-bridge 负责底层的终端交互（发送 prompt、读取输出）。
+Commander communicates with the Executor through a file-based protocol: the Executor writes ack/heartbeat/result files, and the Commander polls these files to drive the FSM forward. The tmux-bridge handles low-level terminal interaction (sending prompts, reading output).
 
-## 安装
+## Installation
 
 ```bash
 git clone https://github.com/user/duo.git && cd duo
 bash install.sh
 ```
 
-`install.sh` 会自动检测环境、安装 uv（如缺失）、同步依赖并安装 `duo` CLI。
+`install.sh` automatically detects your environment, installs uv (if missing), syncs dependencies, and sets up the `duo` CLI.
 
-需要：
+Prerequisites:
 - Python ≥ 3.12
-- [uv](https://docs.astral.sh/uv/) 包管理器（install.sh 会自动安装）
-- tmux + [smux](https://github.com/user/smux)（提供 tmux-bridge）
-- [Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) 或 Claude Code
+- [uv](https://docs.astral.sh/uv/) package manager (auto-installed by install.sh)
+- tmux + [smux](https://github.com/user/smux) (provides tmux-bridge)
+- [Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) or Claude Code
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 在 tmux session 中运行
+# Run inside a tmux session
 
-# 1. 创建任务（自动创建 worktree + 启动 Copilot 会话）
-duo start my-task --repo . --desc "实现用户认证模块"
+# 1. Create a task (auto-creates worktree + starts Copilot session)
+duo start my-task --repo . --desc "Implement user auth module"
 
-# 2. 发送具体指令
-duo send my-task "在 src/auth.py 中实现 JWT 认证，包含 login/logout/refresh"
+# 2. Send a specific instruction
+duo send my-task "Implement JWT auth in src/auth.py with login/logout/refresh"
 
-# 3. 监控任务进度（自适应轮询）
+# 3. Monitor task progress (adaptive polling)
 duo monitor
 
-# 4. 查看任务状态
+# 4. Check task status
 duo status my-task
 
-# 5. 任务完成后合并到主分支
+# 5. Merge into the main branch when done
 duo merge my-task
 
-# 其他常用命令
-duo dashboard            # 实时仪表盘
-duo version              # 查看版本
+# Other common commands
+duo dashboard            # Live dashboard
+duo version              # Show version
 ```
 
-### 全部命令
+### All Commands
 
-| 命令 | 说明 |
-|------|------|
-| `duo start <name> --repo <path> --desc <text>` | 创建任务，初始化 worktree 和 Copilot 会话 |
-| `duo send <name> <prompt>` | 向任务发送工作指令 |
-| `duo status [name]` | 查看单个任务或所有任务状态 |
-| `duo list` | 表格形式列出所有任务（ID / STATUS / STEP / INCARNATION） |
-| `duo monitor [names...]` | 启动自适应轮询监控（可指定任务，默认全部） |
-| `duo recover` | 从 journal 回放恢复中断的任务 |
-| `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |
-| `duo kill <name>` | 终止任务，清理 worktree 和分支 |
-| `duo batch <file> --repo <path>` | 从 JSON/YAML 文件批量创建任务 |
-| `duo queue` | 查看并行队列状态（活跃/排队任务数） |
-| `duo dashboard [names...] --refresh <sec>` | Rich 实时终端仪表盘（默认刷新间隔 2s） |
-| `duo logs <name> [-n N] [--all]` | 查看任务事件流（默认最近 20 条） |
-| `duo inspect <name>` | 查看任务详细信息（状态、心跳、ack/result、近期事件） |
-| `duo export <name> --format json\|text [-o file]` | 导出任务报告（事件、变更文件、摘要） |
-| `duo cleanup [--all] [--force] [--keep-journal]` | 清理已完成/失败的任务（worktree + 状态目录） |
-| `duo config list\|get\|set\|reset` | 配置管理（查看/修改/重置配置项） |
-| `duo version` | 显示 Duo 版本号 |
-| `duo audit [name]` | 查看 Premium Request 消耗审计（每任务或全局） |
+| Command | Description |
+|---------|-------------|
+| `duo start <name> --repo <path> --desc <text>` | Create a task, initialize worktree and Copilot session |
+| `duo send <name> <prompt>` | Send a work instruction to a task |
+| `duo status [name]` | Show status for a single task or all tasks |
+| `duo list` | List all tasks in a table (ID / STATUS / STEP / INCARNATION) |
+| `duo monitor [names...]` | Start adaptive polling monitor (specify tasks, or default to all) |
+| `duo recover` | Recover interrupted tasks by replaying journals |
+| `duo merge <name>` | Merge a completed task's worktree into the main branch (fetch + rebase + ff-only) |
+| `duo kill <name>` | Terminate a task and clean up its worktree and branch |
+| `duo batch <file> --repo <path>` | Batch-create tasks from a JSON/YAML file |
+| `duo queue` | Show parallel queue status (active / queued task counts) |
+| `duo dashboard [names...] --refresh <sec>` | Rich live terminal dashboard (default refresh: 2s) |
+| `duo logs <name> [-n N] [--all]` | View the task event stream (default: last 20 entries) |
+| `duo inspect <name>` | View detailed task info (status, heartbeat, ack/result, recent events) |
+| `duo export <name> --format json\|text [-o file]` | Export a task report (events, changed files, summary) |
+| `duo cleanup [--all] [--force] [--keep-journal]` | Clean up completed/failed tasks (worktree + state directory) |
+| `duo config list\|get\|set\|reset` | Manage configuration (view / modify / reset settings) |
+| `duo version` | Show the Duo version |
+| `duo audit [name]` | View Premium Request usage audit (per-task or global) |
 
-### 全局选项
+### Global Options
 
-| 选项 | 说明 |
-|------|------|
-| `--verbose` | 启用详细输出，显示调试信息 |
-| `--help` | 显示帮助信息 |
+| Option | Description |
+|--------|-------------|
+| `--verbose` | Enable verbose output with debug information |
+| `--help` | Show help message |
 
-## 完整使用示例
+## Full Walkthrough
 
-一个端到端的工作流：
+An end-to-end workflow:
 
 ```bash
-# 1. 安装
+# 1. Install
 bash install.sh
 
-# 2. 配置（可选）
+# 2. Configure (optional)
 duo config set copilot_model claude-sonnet-4-20250514
 duo config list
 
-# 3. 在 tmux 中创建任务
-duo start auth-module --repo . --desc "实现用户认证模块"
+# 3. Create a task inside tmux
+duo start auth-module --repo . --desc "Implement user auth module"
 
-# 4. 发送具体指令
-duo send auth-module "在 src/auth.py 中实现 JWT 认证，包括 login/logout/refresh 端点"
+# 4. Send a specific instruction
+duo send auth-module "Implement JWT auth in src/auth.py with login/logout/refresh endpoints"
 
-# 5. 实时仪表盘监控
+# 5. Watch progress on the live dashboard
 duo dashboard auth-module
 
-# 6. 或者自适应轮询监控
+# 6. Or use adaptive polling
 duo monitor auth-module
 
-# 7. 查看状态
+# 7. Check status
 duo status auth-module
 duo list
 
-# 8. 查看详情和事件流
+# 8. View details and event stream
 duo inspect auth-module
 duo logs auth-module -n 50
 
-# 9. 导出任务报告
+# 9. Export a task report
 duo export auth-module --format json -o report.json
 duo export auth-module --format text
 
-# 10. 任务完成后合并
+# 10. Merge when the task is complete
 duo merge auth-module
 
-# 11. 清理已完成的任务
+# 11. Clean up completed tasks
 duo cleanup --all --force
 
-# 12. 清理单个失败的任务
+# 12. Kill a single failed task
 duo kill failed-task
 
-# 13. 查看版本
+# 13. Show version
 duo version
 ```
 
-## 配置管理
+## Configuration
 
-配置文件位于 `~/.duo/config.json`，通过 `duo config` 子命令管理：
+The config file is located at `~/.duo/config.json` and managed via the `duo config` subcommand:
 
 ```bash
-duo config list              # 查看所有配置
-duo config get copilot_model # 查看单个配置
-duo config set copilot_model claude-sonnet-4-20250514  # 修改配置
-duo config reset             # 重置所有配置
-duo config reset copilot_model  # 重置单个配置
+duo config list              # List all settings
+duo config get copilot_model # Get a single setting
+duo config set copilot_model claude-sonnet-4-20250514  # Update a setting
+duo config reset             # Reset all settings to defaults
+duo config reset copilot_model  # Reset a single setting
 ```
 
-### 可用配置项
+### Available Settings
 
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `copilot_model` | `claude-opus-4.6` | Copilot 模型 |
-| `max_corrections` | `3` | 最大纠错次数 |
-| `heartbeat_timeout` | `90` | 心跳超时秒数 |
-| `poll_base_interval` | `5.0` | 轮询基础间隔 |
-| `poll_max_interval` | `120.0` | 轮询最大间隔 |
-| `auto_allow_all` | `true` | 自动发送 /allow-all |
-| `max_parallel` | `3` | 最大并行任务数 |
-| `pr_budget` | `0` | 每任务最大 PR 消耗（0=无限制） |
-| `worktree_base_path` | `/tmp/duo-worktrees` | Git worktree 创建的基础路径 |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `copilot_model` | `claude-opus-4.6` | Copilot model to use |
+| `max_corrections` | `3` | Max auto-correction attempts |
+| `heartbeat_timeout` | `90` | Heartbeat timeout in seconds |
+| `poll_base_interval` | `5.0` | Base polling interval |
+| `poll_max_interval` | `120.0` | Max polling interval |
+| `auto_allow_all` | `true` | Automatically send /allow-all |
+| `max_parallel` | `3` | Max parallel tasks |
+| `pr_budget` | `0` | Max Premium Request usage per task (0 = unlimited) |
+| `worktree_base_path` | `/tmp/duo-worktrees` | Base path for git worktree creation |
 
-## 并行调度
+## Parallel Scheduling
 
-Duo 支持最多 N 个任务并行执行（默认 3，可配置）。超出限制的任务自动进入 FIFO 队列。
+Duo supports up to N tasks running in parallel (default: 3, configurable). Tasks exceeding the limit are automatically queued in a FIFO order.
 
 ```bash
-# 配置并发数
+# Set concurrency limit
 duo config set max_parallel 5
 
-# 批量创建任务
+# Batch-create tasks
 duo batch examples/tasks.json --repo .
 
-# 查看队列状态
+# Check queue status
 duo queue
 
-# monitor 会自动在有空位时启动排队任务
+# monitor auto-starts queued tasks when slots become available
 duo monitor
 ```
 
-## 调试
+## Debugging
 
 ```bash
-# 查看任务详情
+# View task details
 duo inspect my-task
 
-# 查看事件流
+# View the event stream
 duo logs my-task
-duo logs my-task -n 50     # 最近 50 条
-duo logs my-task --all     # 全部
+duo logs my-task -n 50     # Last 50 entries
+duo logs my-task --all     # All entries
 
-# 查看队列
+# Check the queue
 duo queue
 
-# 恢复中断的任务
+# Recover interrupted tasks
 duo recover
 ```
 
-## 核心概念
+## Core Concepts
 
-### Task（任务）
+### Task
 
-一个独立的工作单元。每个 Task 拥有自己的：
-- **Git worktree** — `/tmp/duo-worktrees/{name}/`，分支 `duo/{name}`
-- **Tmux pane** — 运行 Copilot CLI 的独立终端
-- **状态目录** — `~/.duo/tasks/{id}/`，包含 task.json、journal、heartbeat 等
+An independent unit of work. Each Task has its own:
+- **Git worktree** — `/tmp/duo-worktrees/{name}/`, on branch `duo/{name}`
+- **Tmux pane** — A dedicated terminal running the Copilot CLI
+- **State directory** — `~/.duo/tasks/{id}/`, containing task.json, journal, heartbeat, etc.
 
-### Step / Attempt（步骤 / 尝试）
+### Step / Attempt
 
-任务分解为多个步骤（step），每个步骤可以有多次尝试（attempt）。质量门禁失败时自动递增 attempt 并重试，≥3 次失败升级为 ESCALATED 状态。
+Tasks are broken down into multiple steps, and each step can have multiple attempts. When a quality gate fails, the attempt counter is incremented and the step is retried. After ≥3 failures, the task is escalated to ESCALATED status for human intervention.
 
-### Incarnation（会话标识）
+### Incarnation
 
-8 字符十六进制 UUID，每次启动或重启会话时生成新的。用于隔离旧会话的过期数据 —— ack/heartbeat/result 文件必须携带匹配的 incarnation 才会被接受。
+An 8-character hex UUID generated each time a session is started or restarted. It isolates stale data from previous sessions — ack/heartbeat/result files must carry a matching incarnation ID to be accepted.
 
-### File Protocol（文件通信协议）
+### File Protocol
 
-Commander 和 Executor 之间通过文件系统通信，流程：
-
-```
-Commander 发送 prompt → Executor 写入 ack → Executor 写入 heartbeat（持续） → Executor 写入 result
-```
-
-- **ack** — Executor 确认收到 prompt（含 prompt_hash 校验）
-- **heartbeat** — Executor 定期报告进度（当前文件、状态）
-- **result** — Executor 报告完成（状态、变更文件、摘要）
-
-所有写入使用原子操作（tmp + rename），避免读到半写文件。
-
-### FSM（有限状态机）
-
-Task 有 13 个状态，所有转换经过校验并记录到 journal：
+Commander and Executor communicate through the filesystem:
 
 ```
-CREATED → QUEUED（排队等待） / SESSION_STARTING（直接启动）
-QUEUED → SESSION_STARTING（有空位时调度） / FAILED
+Commander sends prompt → Executor writes ack → Executor writes heartbeat (ongoing) → Executor writes result
+```
+
+- **ack** — Executor confirms receipt of a prompt (includes prompt_hash for verification)
+- **heartbeat** — Executor periodically reports progress (current file, status)
+- **result** — Executor reports completion (status, changed files, summary)
+
+All writes use atomic operations (write to temp file + rename) to prevent reading partial data.
+
+### FSM (Finite State Machine)
+
+A Task has 13 states. All transitions are validated and recorded in the journal:
+
+```
+CREATED → QUEUED (waiting for a slot) / SESSION_STARTING (launched immediately)
+QUEUED → SESSION_STARTING (scheduled when a slot opens) / FAILED
 SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING
                                                                           │
                                       ┌───────────────────────────────────┘
                                       ▼
-                                ┌─ COMPLETED（终态）
-                                ├─ CORRECTING → 重试
-                                ├─ BLOCKED → ESCALATED / 重试
-                                └─ ESCALATED → 人工介入
+                                ┌─ COMPLETED (terminal)
+                                ├─ CORRECTING → retry
+                                ├─ BLOCKED → ESCALATED / retry
+                                └─ ESCALATED → human intervention
 
-FAILED → SESSION_STARTING（自动重启）
+FAILED → SESSION_STARTING (auto-restart)
 ```
 
-## 模块说明
+## Module Reference
 
-| 模块 | 行数 | 职责 |
-|------|------|------|
-| `cli.py` | ~780 | Click CLI 入口，17 个命令 + config 子命令，git worktree/branch 管理 |
-| `protocol.py` | ~449 | FSM 状态机（13 状态） + 数据模型（dataclass） + 文件 I/O + journal |
-| `commander.py` | ~469 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
-| `config.py` | ~77 | 配置管理：持久化配置读写，类型自动转换，默认值 |
-| `scheduler.py` | ~129 | 并行调度器：FIFO 队列、max_parallel 限流、自动出队 |
-| `dashboard.py` | ~158 | Rich 实时仪表盘：任务状态表格、心跳进度、自动刷新 |
-| `transport.py` | ~264 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
-| `poller.py` | ~120 | 自适应轮询器，指数退避 + 心跳超时检测 |
-| `verifier.py` | ~239 | 质量门禁：安全边界、secret 检测、未跟踪文件、验收测试 |
+| Module | Lines | Responsibility |
+|--------|-------|----------------|
+| `cli.py` | ~780 | Click CLI entry point — 17 commands + config subcommand, git worktree/branch management |
+| `protocol.py` | ~449 | FSM (13 states) + data models (dataclass) + file I/O + journal |
+| `commander.py` | ~469 | Orchestration brain: prompt construction, session management, poll scheduling, correction loop |
+| `config.py` | ~77 | Configuration management: persistent read/write, automatic type coercion, defaults |
+| `scheduler.py` | ~129 | Parallel scheduler: FIFO queue, max_parallel throttling, auto-dequeue |
+| `dashboard.py` | ~158 | Rich live dashboard: task status table, heartbeat progress, auto-refresh |
+| `transport.py` | ~264 | tmux-bridge wrapper — the sole entry point for all tmux interactions |
+| `poller.py` | ~120 | Adaptive poller: exponential backoff + heartbeat timeout detection |
+| `verifier.py` | ~239 | Quality gates: security boundaries, secret detection, untracked files, acceptance tests |
 
-### protocol.py — 数据模型
+### protocol.py — Data Models
 
 ```python
 @dataclass
@@ -300,7 +302,7 @@ class Task:
     branch: str
     base_commit: str
     pane_label: str
-    incarnation_id: str        # 8-char hex, 每次重启更新
+    incarnation_id: str        # 8-char hex, regenerated on each restart
     status: TaskStatus
     current_step: int
     current_attempt: int
@@ -311,9 +313,9 @@ class Task:
 class Subtask:
     step_id: int
     description: str
-    target_files: list[str]    # 预期变更文件（软约束）
-    writable_paths: list[str]  # 可写路径（硬约束，fnmatch）
-    acceptance: str            # 验收命令
+    target_files: list[str]    # Expected changed files (soft constraint)
+    writable_paths: list[str]  # Writable paths (hard constraint, fnmatch)
+    acceptance: str            # Acceptance test command
 
 @dataclass
 class SecurityPolicy:
@@ -324,44 +326,44 @@ class SecurityPolicy:
     require_human_approval: list[str]
 ```
 
-### verifier.py — 质量门禁
+### verifier.py — Quality Gates
 
-验证按顺序执行，首个硬失败立即短路返回 Correction：
+Checks run in order. The first hard failure short-circuits and returns a Correction:
 
-1. **安全边界检查**（硬） — 变更文件必须匹配 `writable_paths`（fnmatch）
-2. **任务范围检查**（软） — 偏离 `target_files` 仅记录警告
-3. **Secret 泄漏检测**（硬） — 扫描 diff 中新增行的敏感模式
-4. **未跟踪文件检查**（硬） — `git ls-files --others` 必须为空
-5. **验收测试**（硬） — 执行 `acceptance` 命令，exit code 必须为 0
+1. **Security boundary check** (hard) — Changed files must match `writable_paths` (fnmatch)
+2. **Scope check** (soft) — Deviations from `target_files` produce a warning only
+3. **Secret leak detection** (hard) — Scans added lines in the diff for sensitive patterns
+4. **Untracked file check** (hard) — `git ls-files --others` must return empty
+5. **Acceptance test** (hard) — Runs the `acceptance` command; exit code must be 0
 
-### poller.py — 自适应轮询
+### poller.py — Adaptive Polling
 
 ```
-初始间隔: 5s   →   指数退避 ×1.5   →   最大间隔: 120s
-心跳超时: 90s（触发诊断 + 可能重启会话）
-Grace period: prompt 发送后 90s 内不判超时
+Initial interval: 5s   →   Exponential backoff ×1.5   →   Max interval: 120s
+Heartbeat timeout: 90s (triggers diagnostics + possible session restart)
+Grace period: 90s after sending a prompt before timeout is enforced
 ```
 
-轮询结果：
-- `RESULT_READY` — 结果文件就绪，推进到验证
-- `WORKING` — 心跳正常，继续等待
-- `HEARTBEAT_TIMEOUT` — 超时，检查进程存活状态
-- `UNKNOWN` — 无心跳无 prompt，尝试重发
+Poll results:
+- `RESULT_READY` — Result file is ready; proceed to verification
+- `WORKING` — Heartbeat is healthy; keep waiting
+- `HEARTBEAT_TIMEOUT` — Timeout; check whether the process is still alive
+- `UNKNOWN` — No heartbeat and no prompt; attempt to resend
 
-## 环境变量
+## Environment Variables
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `DUO_COPILOT_MODEL` | `claude-opus-4.6` | 覆盖 config 中的 `copilot_model` |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DUO_COPILOT_MODEL` | `claude-opus-4.6` | Overrides `copilot_model` from config |
 
-## 开发
+## Development
 
 ```bash
-bash install.sh              # 安装
-python -m pytest tests/ -v   # 运行测试
-duo --help                   # 查看命令
+bash install.sh              # Install
+python -m pytest tests/ -v   # Run tests
+duo --help                   # View commands
 
-# 运行单个模块测试
+# Run individual module tests
 python -m pytest tests/test_protocol.py -v
 python -m pytest tests/test_verifier.py -v
 python -m pytest tests/test_poller.py -v
@@ -373,24 +375,25 @@ python -m pytest tests/test_dashboard.py -v
 python -m pytest tests/test_transport.py -v
 ```
 
-## 项目结构
+## Project Structure
 
 ```
 duo/
 ├── pyproject.toml
 ├── README.md
+├── README.zh-CN.md
 ├── CLAUDE.md
 ├── src/duo/
 │   ├── __init__.py
-│   ├── cli.py          # CLI 入口（17 个命令）
-│   ├── config.py       # 配置管理
-│   ├── protocol.py     # FSM + 数据模型 + 文件 I/O
-│   ├── commander.py    # 编排逻辑
-│   ├── scheduler.py    # 并行调度器
-│   ├── dashboard.py    # Rich 实时仪表盘
-│   ├── transport.py    # tmux-bridge 封装
-│   ├── poller.py       # 自适应轮询
-│   └── verifier.py     # 质量门禁
+│   ├── cli.py          # CLI entry point (17 commands)
+│   ├── config.py       # Configuration management
+│   ├── protocol.py     # FSM + data models + file I/O
+│   ├── commander.py    # Orchestration logic
+│   ├── scheduler.py    # Parallel scheduler
+│   ├── dashboard.py    # Rich live dashboard
+│   ├── transport.py    # tmux-bridge wrapper
+│   ├── poller.py       # Adaptive polling
+│   └── verifier.py     # Quality gates
 └── tests/
     ├── test_cli.py
     ├── test_protocol.py
