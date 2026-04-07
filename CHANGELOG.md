@@ -11,7 +11,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `--dry-run` flag on `duo batch` and `duo merge` commands
 - `duo --version` flag (standard CLI behavior, in addition to `duo version`)
 - Categorized command help: 22 commands organized into 7 sections
-- 559 tests with 100% coverage
+- 594 tests with 100% coverage
 - 41 edge case tests (protocol, scheduler, poller, config, CLI)
 - Expanded secret detection patterns (11 patterns)
 

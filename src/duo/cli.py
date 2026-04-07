@@ -82,7 +82,7 @@ def _fmt_ts(ts: str) -> str:
     """Extract HH:MM:SS from ISO timestamp, or return '?' if malformed."""
     try:
         return ts.split("T", 1)[1][:8] if "T" in ts else ts[:8]
-    except (IndexError, AttributeError):
+    except (IndexError, TypeError, AttributeError):
         return "?"
 
 

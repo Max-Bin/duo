@@ -3178,3 +3178,35 @@ class TestInspectJsonWithFiles:
         assert "heartbeat" in data
         assert "ack" in data
         assert "result" in data
+
+
+# ---------------------------------------------------------------------------
+# _fmt_ts helper
+# ---------------------------------------------------------------------------
+
+
+class TestFmtTs:
+    """Tests for the _fmt_ts timestamp formatting helper."""
+
+    def test_valid_iso_timestamp(self):
+        assert _fmt_ts("2025-01-15T14:30:45.123Z") == "14:30:45"
+
+    def test_no_t_separator(self):
+        assert _fmt_ts("14:30:45") == "14:30:45"
+
+    def test_empty_string(self):
+        assert _fmt_ts("") == ""
+
+    def test_none_input(self):
+        assert _fmt_ts(None) == "?"
+
+    def test_numeric_input(self):
+        assert _fmt_ts(12345) == "?"
+
+    def test_t_at_end(self):
+        """Timestamp ending with T and nothing after → IndexError → '?'."""
+        assert _fmt_ts("2025-01-15T") == ""
+
+    def test_short_time_part(self):
+        """Time portion shorter than 8 chars returns what's available."""
+        assert _fmt_ts("2025-01-15T14:30") == "14:30"
