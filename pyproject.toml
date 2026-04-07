@@ -28,13 +28,16 @@ dependencies = [
     "rich>=14.3.3",
 ]
 
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+
 [project.scripts]
 duo = "duo.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/user/duo"
-Repository = "https://github.com/user/duo"
-Issues = "https://github.com/user/duo/issues"
+Homepage = "https://github.com/maxbin/duo"
+Repository = "https://github.com/maxbin/duo"
+Issues = "https://github.com/maxbin/duo/issues"
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11.0"]

@@ -57,6 +57,7 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
 
 @click.group()
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
+@click.version_option(package_name="duo", prog_name="duo")
 @click.pass_context
 def main(ctx: click.Context, verbose: bool) -> None:
     """Duo — Agent Orchestration Runtime."""
@@ -86,13 +87,9 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
 @main.command()
 def version() -> None:
     """Show Duo version."""
-    try:
-        from importlib.metadata import version as pkg_version
+    from duo import __version__
 
-        ver = pkg_version("duo")
-    except (ImportError, AttributeError):
-        ver = "0.5.0-dev"
-    click.echo(f"duo {ver}")
+    click.echo(f"duo {__version__}")
 
 
 @main.command()
