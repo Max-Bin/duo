@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
-import sys
+import logging
 from typing import Any
 
 from duo.protocol import DUO_DIR
 
 CONFIG_PATH = DUO_DIR / "config.json"
+
+logger = logging.getLogger(__name__)
 
 # Default values for all config keys
 DEFAULTS: dict[str, Any] = {
@@ -96,7 +98,7 @@ def set_config(key: str, value: str) -> bool | int | float | str:
                     f"'{key}' must be > 0, got {coerced}"
                 )
     if key not in DEFAULTS:
-        print(f"[duo] Warning: '{key}' is not a known config key", file=sys.stderr)
+        logger.warning("Unknown config key: '%s'", key)
     config[key] = coerced
     save_config(config)
     return coerced

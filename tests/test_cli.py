@@ -137,6 +137,16 @@ class TestCompletion:
         result = runner.invoke(main, ["completion", "powershell"])
         assert result.exit_code != 0
 
+    @pytest.mark.parametrize("shell,keyword", [
+        ("bash", "bash_source"),
+        ("zsh", "zsh_source"),
+        ("fish", "fish_source"),
+    ])
+    def test_completion_shells(self, runner: CliRunner, shell: str, keyword: str):
+        result = runner.invoke(main, ["completion", shell])
+        assert result.exit_code == 0
+        assert "_DUO_COMPLETE" in result.output
+
 
 # ---------------------------------------------------------------------------
 # status command
@@ -324,6 +334,18 @@ class TestStart:
     def test_start_rejects_slash_in_name(self, runner: CliRunner, tmp_path: Path):
         """Task names with slashes should be rejected (path traversal)."""
         result = runner.invoke(main, ["start", "../evil", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+
+    @pytest.mark.parametrize("invalid_name", [
+        "tâche",
+        "任务",
+        "タスク",
+        "задача",
+        "name with space",
+        "name\twith\ttab",
+    ])
+    def test_start_rejects_unicode_names(self, runner: CliRunner, tmp_path: Path, invalid_name: str):
+        result = runner.invoke(main, ["start", invalid_name, "--repo", str(tmp_path), "--desc", "test"])
         assert result.exit_code != 0
 
 
@@ -3401,3 +3423,26 @@ class TestRetry:
         """retry with a path-traversal name is rejected."""
         result = runner.invoke(main, ["retry", "../bad"])
         assert result.exit_code != 0
+
+
+class TestNotFoundParametrized:
+    """Parametrized 'not found' tests covering all task-based commands."""
+
+    @pytest.mark.parametrize("args", [
+        ["status", "nonexistent"],
+        ["logs", "nonexistent"],
+        ["inspect", "nonexistent"],
+        ["export", "nonexistent"],
+        ["audit", "nonexistent"],
+        ["kill", "nonexistent"],
+        ["stop", "nonexistent"],
+        ["merge", "nonexistent"],
+        ["diff", "nonexistent"],
+        ["retry", "nonexistent"],
+        ["resume", "nonexistent"],
+        ["send", "nonexistent", "hello"],
+    ])
+    def test_command_task_not_found(self, runner: CliRunner, args: list[str]):
+        result = runner.invoke(main, args)
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
