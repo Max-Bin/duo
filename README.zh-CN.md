@@ -64,6 +64,8 @@ bash install.sh
 
 ## 快速开始
 
+> **⚠️ 前提条件：** Duo 必须在 `tmux` 会话中运行。每个任务会分配独立的 tmux pane。
+
 ```bash
 # 在 tmux session 中运行
 
@@ -91,23 +93,31 @@ duo version              # 查看版本
 
 | 命令 | 说明 |
 |------|------|
+| `duo init [--repo PATH]` | 初始化项目以使用 Duo |
+| `duo doctor` | 检查环境依赖是否满足 |
 | `duo start <name> --repo <path> --desc <text>` | 创建任务，初始化 worktree 和 Copilot 会话 |
 | `duo send <name> <prompt>` | 向任务发送工作指令 |
+| `duo stop <name>` | 优雅停止任务（保留 worktree 以便恢复） |
 | `duo status [name]` | 查看单个任务或所有任务状态 |
 | `duo list` | 表格形式列出所有任务（ID / STATUS / STEP / INCARNATION） |
+| `duo stats [--json-output]` | 显示任务统计和摘要信息 |
 | `duo monitor [names...]` | 启动自适应轮询监控（可指定任务，默认全部） |
-| `duo recover` | 从 journal 回放恢复中断的任务 |
+| `duo resume [NAME]` | 恢复中断的任务会话 |
+| `duo recover` | 通过回放 journal 恢复中断的任务 |
 | `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |
+| `duo diff <name>` | 显示任务 worktree 变更的 git diff |
 | `duo kill <name>` | 终止任务，清理 worktree 和分支 |
+| `duo retry <name>` | 重试失败或被阻塞的任务 |
 | `duo batch <file> --repo <path>` | 从 JSON/YAML 文件批量创建任务 |
 | `duo queue` | 查看并行队列状态（活跃/排队任务数） |
 | `duo dashboard [names...] --refresh <sec>` | Rich 实时终端仪表盘（默认刷新间隔 2s） |
 | `duo logs <name> [-n N] [--all]` | 查看任务事件流（默认最近 20 条） |
-| `duo inspect <name>` | 查看任务详细信息（状态、心跳、ack/result、近期事件） |
-| `duo export <name> --format json\|text [-o file]` | 导出任务报告（事件、变更文件、摘要） |
+| `duo inspect <name>` | 查看任务详细信息；`--include-files` 显示变更文件和 diff 预览 |
+| `duo export <name> --format json\|text\|jsonl [-o file]` | 导出任务报告；`jsonl` 为逐行 JSON 格式 |
 | `duo cleanup [--all] [--force] [--keep-journal]` | 清理已完成/失败的任务（worktree + 状态目录） |
 | `duo config list\|get\|set\|reset` | 配置管理（查看/修改/重置配置项） |
 | `duo version` | 显示 Duo 版本号 |
+| `duo completion SHELL` | 生成 Shell 补全脚本（bash/zsh/fish） |
 | `duo audit [name]` | 查看 Premium Request 消耗审计（每任务或全局） |
 
 ### 全局选项
@@ -191,6 +201,19 @@ duo config reset copilot_model  # 重置单个配置
 | `max_parallel` | `3` | 最大并行任务数 |
 | `pr_budget` | `0` | 每任务最大 PR 消耗（0=无限制） |
 | `worktree_base_path` | `/tmp/duo-worktrees` | Git worktree 创建的基础路径 |
+
+### Shell 补全
+
+```bash
+# Bash (~/.bashrc)
+eval "$(duo completion bash)"
+
+# Zsh (~/.zshrc)
+eval "$(duo completion zsh)"
+
+# Fish (~/.config/fish/config.fish)
+duo completion fish | source
+```
 
 ## 并行调度
 
@@ -282,13 +305,13 @@ FAILED → SESSION_STARTING（自动重启）
 
 | 模块 | 行数 | 职责 |
 |------|------|------|
-| `cli.py` | ~780 | Click CLI 入口，17 个命令 + config 子命令，git worktree/branch 管理 |
-| `protocol.py` | ~449 | FSM 状态机（13 状态） + 数据模型（dataclass） + 文件 I/O + journal |
-| `commander.py` | ~469 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
+| `cli.py` | ~1310 | Click CLI 入口，17 个命令 + config 子命令，git worktree/branch 管理 |
+| `protocol.py` | ~550 | FSM 状态机（13 状态） + 数据模型（dataclass） + 文件 I/O + journal |
+| `commander.py` | ~640 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
 | `config.py` | ~77 | 配置管理：持久化配置读写，类型自动转换，默认值 |
 | `scheduler.py` | ~129 | 并行调度器：FIFO 队列、max_parallel 限流、自动出队 |
 | `dashboard.py` | ~158 | Rich 实时仪表盘：任务状态表格、心跳进度、自动刷新 |
-| `transport.py` | ~264 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
+| `transport.py` | ~400 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
 | `poller.py` | ~120 | 自适应轮询器，指数退避 + 心跳超时检测 |
 | `verifier.py` | ~239 | 质量门禁：安全边界、secret 检测、未跟踪文件、验收测试 |
 
@@ -357,14 +380,41 @@ Grace period: prompt 发送后 90s 内不判超时
 |------|--------|------|
 | `DUO_COPILOT_MODEL` | `claude-opus-4.6` | 覆盖 config 中的 `copilot_model` |
 
+## 安全
+
+Duo 实施多层安全机制：
+
+- **路径遍历防护** — 变更文件通过 `fnmatch` 与 `writable_paths` 白名单校验，超出声明范围的文件会被硬拒绝
+- **标签净化** — Pane 标签和任务名通过严格正则校验（`^[a-zA-Z0-9_.-]+$`），防止 Shell 注入
+- **Secret 检测** — 在接受结果前扫描 diff 中的敏感模式（`API_KEY=`、`password=`、`token=`）
+- **PR 安全** — Premium Request 预算（`pr_budget`）限制每任务资源消耗
+- **全程 `shell=False`** — 所有 `subprocess.run` 调用使用列表参数，命令通过 `shlex.split()` 拆分，防止 Shell 注入
+
 ## 开发
 
 ```bash
 bash install.sh              # 安装
-python -m pytest tests/ -v   # 运行测试
+make check                   # 运行所有检查（lint + format + 类型检查 + 覆盖率）
+make coverage                # 运行测试并检查覆盖率（fail_under=95）
+make format                  # 使用 ruff 自动格式化
+make lint                    # 使用 ruff 检查代码
+make type-check              # 使用 mypy 进行严格类型检查
+make test                    # 运行测试（pytest）
 duo --help                   # 查看命令
+```
 
-# 运行单个模块测试
+### Pre-commit 设置
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+已配置的钩子：**ruff**（lint + fix）、**ruff-format**、**mypy**（严格类型检查）。
+
+### 运行单个模块测试
+
+```bash
 python -m pytest tests/test_protocol.py -v
 python -m pytest tests/test_verifier.py -v
 python -m pytest tests/test_poller.py -v
@@ -374,6 +424,7 @@ python -m pytest tests/test_config.py -v
 python -m pytest tests/test_scheduler.py -v
 python -m pytest tests/test_dashboard.py -v
 python -m pytest tests/test_transport.py -v
+python -m pytest tests/test_integration.py -v
 ```
 
 ## 项目结构
@@ -382,6 +433,7 @@ python -m pytest tests/test_transport.py -v
 duo/
 ├── pyproject.toml
 ├── README.md
+├── README.zh-CN.md
 ├── CLAUDE.md
 ├── src/duo/
 │   ├── __init__.py
@@ -405,6 +457,10 @@ duo/
     ├── test_poller.py
     └── test_verifier.py
 ```
+
+## 贡献
+
+请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解开发指南和 PR 流程。
 
 ## License
 
