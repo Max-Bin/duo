@@ -1974,6 +1974,21 @@ class TestExportJsonl:
         obj = json.loads(lines[0])
         assert obj["event"] == "task_created"
 
+    def test_export_jsonl_outfile(self, runner: CliRunner, make_task, tmp_path: Path):
+        """export --format jsonl --outfile writes JSONL to disk."""
+        make_task("exp-jsonl-file")
+        outfile = str(tmp_path / "export.jsonl")
+        result = runner.invoke(main, ["export", "exp-jsonl-file", "--format", "jsonl", "-o", outfile])
+        assert result.exit_code == 0
+        assert "written to" in result.output
+        content = Path(outfile).read_text()
+        assert content.endswith("\n")
+        lines = [l for l in content.strip().splitlines() if l.strip()]
+        assert len(lines) >= 1
+        obj = json.loads(lines[0])
+        assert obj["task_id"] == "exp-jsonl-file"
+        assert obj["event"] == "task_created"
+
     def test_export_json_format(self, runner: CliRunner, make_task):
         """export --format json produces valid JSON with task_id and events."""
         make_task("exp-json-fmt")
