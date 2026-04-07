@@ -1253,3 +1253,73 @@ class TestMonitorPollResultBranches:
         captured = capsys.readouterr()
         assert "?" in captured.out
         assert "unknown state" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# start_session — orphaned pane cleanup
+# ---------------------------------------------------------------------------
+
+
+class TestStartSessionOrphanedPaneCleanup:
+    def test_kill_pane_called_on_transport_error(self):
+        """start_session kills orphaned pane when send_shell_command raises."""
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch(
+                "duo.commander.send_shell_command",
+                side_effect=RuntimeError("connection lost"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%77\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            with pytest.raises(RuntimeError, match="connection lost"):
+                start_session(task)
+
+            # Verify tmux kill-pane was called for the orphaned pane
+            kill_calls = [
+                c for c in mock_run.call_args_list
+                if c[0][0][:3] == ["tmux", "kill-pane", "-t"]
+            ]
+            assert len(kill_calls) == 1
+            assert kill_calls[0][0][0][3] == "%77"
+
+
+# ---------------------------------------------------------------------------
+# monitor — min_interval floor
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorMinIntervalFloor:
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_min_interval_clamped_to_1s(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        """Monitor clamps sleep interval to >= 1.0 second."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # time.sleep was called; the interval must be >= 1.0
+        sleep_val = mock_sleep.call_args[0][0]
+        assert sleep_val >= 1.0

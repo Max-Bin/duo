@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import subprocess
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -87,6 +89,7 @@ class TestBridge:
             [BRIDGE, "echo"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
     @patch("subprocess.run")
@@ -114,6 +117,7 @@ class TestReadPane:
             [BRIDGE, "read", "editor", "100"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
     @patch("subprocess.run")
@@ -132,6 +136,7 @@ class TestTypeText:
             [BRIDGE, "type", "editor", "hello world"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
 
@@ -144,6 +149,7 @@ class TestSendKeys:
             [BRIDGE, "keys", "editor", "Enter"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
     @patch("subprocess.run")
@@ -154,6 +160,7 @@ class TestSendKeys:
             [BRIDGE, "keys", "editor", "C-c", "Enter"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
 
@@ -166,6 +173,7 @@ class TestNamePane:
             [BRIDGE, "name", "%5", "editor"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
 
@@ -240,10 +248,10 @@ class TestSendShellCommand:
         mock_run.return_value = _ok()
         send_shell_command("agent", "cd /tmp")
         expected = [
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True),
-            call([BRIDGE, "type", "agent", "cd /tmp"], capture_output=True, text=True),
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True),
-            call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True),
+            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
+            call([BRIDGE, "type", "agent", "cd /tmp"], capture_output=True, text=True, timeout=30),
+            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
+            call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True, timeout=30),
         ]
         assert mock_run.call_args_list == expected
 
@@ -300,10 +308,10 @@ class TestSendMessage:
         mock_run.return_value = _ok()
         send_message("agent", "hello")
         expected = [
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True),
-            call([BRIDGE, "message", "agent", "hello"], capture_output=True, text=True),
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True),
-            call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True),
+            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
+            call([BRIDGE, "message", "agent", "hello"], capture_output=True, text=True, timeout=30),
+            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
+            call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True, timeout=30),
         ]
         assert mock_run.call_args_list == expected
 
@@ -319,6 +327,7 @@ class TestCancelCurrent:
             [BRIDGE, "keys", "agent", "C-c"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
 
@@ -333,6 +342,7 @@ class TestSendEof:
             [BRIDGE, "keys", "agent", "C-d"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
 
@@ -361,6 +371,7 @@ class TestDiagnosePane:
             [BRIDGE, "read", "agent", "200"],
             capture_output=True,
             text=True,
+            timeout=30,
         )
 
 
@@ -691,3 +702,30 @@ class TestLabelValidation:
         for bad in ["lab;rm -rf /", "pane$(whoami)", "a b", "foo&bar", "x|y"]:
             with pytest.raises(ValueError, match="Unsafe pane label"):
                 resolve_label(bad)
+
+
+# ── Bridge timeout ───────────────────────────────────────────────────
+
+
+class TestBridgeTimeout:
+    @patch("subprocess.run")
+    def test_timeout_raises_runtime_error(self, mock_run):
+        """bridge() converts subprocess.TimeoutExpired into RuntimeError."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["tmux-bridge", "read"], timeout=30)
+        with pytest.raises(RuntimeError, match="timed out after 30s"):
+            bridge(["read"])
+
+
+# ── list_panes skipped-line logging ──────────────────────────────────
+
+
+class TestListPanesLogging:
+    @patch("subprocess.run")
+    def test_malformed_line_logs_debug(self, mock_run, caplog):
+        """Malformed tmux output triggers debug log for skipped lines."""
+        output = "HEADER\n%1 main:0\n%2 main:0 80x24 copilot agent /home\n"
+        mock_run.return_value = _ok(output)
+        with caplog.at_level(logging.DEBUG, logger="duo.transport"):
+            panes = list_panes()
+        assert len(panes) == 1
+        assert any("Skipping unparseable tmux line" in m for m in caplog.messages)
