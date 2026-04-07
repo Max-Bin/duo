@@ -782,8 +782,9 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 @click.argument("name")
 @click.option("-n", "--lines", default=20, help="Number of recent events to show")
 @click.option("--all", "show_all", is_flag=True, help="Show all events")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
+def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: bool) -> None:
     """Show task journal events."""
     from duo.protocol import read_jsonl
 
@@ -802,6 +803,10 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
 
     if not show_all:
         events = events[-lines:]
+
+    if as_json:
+        click.echo(json.dumps(events, indent=2))
+        return
 
     for ev in events:
         ts = ev.get("ts", "?")
@@ -839,7 +844,8 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
 
 @main.command()
 @click.argument("name")
-def inspect(name: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def inspect(name: str, as_json: bool) -> None:
     """Show detailed task information."""
     from duo.protocol import (
         read_ack_for_step,
@@ -855,6 +861,51 @@ def inspect(name: str) -> None:
             err=True,
         )
         sys.exit(1)
+
+    if as_json:
+        data: dict[str, Any] = {
+            "id": task.id,
+            "description": task.description,
+            "status": task.status.value,
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+            "worktree": task.worktree,
+            "branch": task.branch,
+            "base_commit": task.base_commit,
+            "created_at": task.created_at,
+            "subtasks": [
+                {
+                    "step_id": s.step_id,
+                    "description": s.description,
+                    "target_files": s.target_files,
+                    "writable_paths": s.writable_paths,
+                }
+                for s in task.subtasks
+            ],
+        }
+        hb = read_heartbeat(task)
+        if hb:
+            data["heartbeat"] = {
+                "ts": hb.ts,
+                "status": hb.status,
+                "current_file": hb.current_file,
+                "incarnation": hb.incarnation,
+            }
+        ack = read_ack_for_step(task, task.current_step, task.current_attempt)
+        if ack:
+            data["ack"] = {
+                "acked_at": ack.acked_at,
+                "prompt_hash": ack.prompt_hash,
+            }
+        result = read_result_for_step(task, task.current_step, task.current_attempt)
+        if result:
+            data["result"] = {
+                "status": result.status,
+                "summary": result.summary,
+                "files_changed": result.files_changed,
+            }
+        click.echo(json.dumps(data, indent=2))
+        return
 
     # Task info
     click.echo(f"Task: {task.id}")
