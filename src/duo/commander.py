@@ -45,6 +45,12 @@ from duo.verifier import Correction, Pass, verify_step
 _SESSION_SPLIT_WAIT = 0.5
 _SESSION_CD_WAIT = 0.3
 
+# Dialog wait timeouts (seconds)
+_DIALOG_TIMEOUT_SEND = 60.0
+_DIALOG_TIMEOUT_RESEND = 30.0
+_DIALOG_TIMEOUT_MONITOR = 15.0
+_IDLE_TIMEOUT_START = 30.0
+
 
 def _get_copilot_model() -> str:
     """Get copilot model from config, env var override, or default."""
@@ -221,7 +227,7 @@ def start_session(task: Task) -> None:
 
     # Wait for copilot to start (adaptive instead of hardcoded sleep)
     click.echo("Waiting for Copilot to start...")
-    wait_for_idle(task.pane_label, timeout=30, poll_interval=2.0)
+    wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0)
 
     # Auto-approve all operations to avoid interactive prompts
     click.echo("Sending /allow-all...")
@@ -278,7 +284,7 @@ def send_task_prompt(task: Task, prompt: str) -> None:
         return
 
     # Wait for dialog then send (all post-bootstrap interaction goes through dialog)
-    if not wait_for_dialog(task.pane_label, timeout=60):
+    if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_SEND):
         append_event(task, "dialog_timeout", {"step": task.current_step})
         raise RuntimeError(f"Dialog timeout for '{task.pane_label}' — Copilot may be stuck")
     select_dialog_option(task.pane_label, prompt)
@@ -316,7 +322,7 @@ def resend_last_prompt(task: Task) -> None:
             transition(task, TaskStatus.ESCALATED)
             click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
             return
-        if not wait_for_dialog(task.pane_label, timeout=30):
+        if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_RESEND):
             append_event(task, "dialog_timeout_resend", {"step": task.current_step})
             return
         select_dialog_option(task.pane_label, prompt)
@@ -453,7 +459,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                     "incarnation": inc,
                     "terminal": terminal[-500:],
                 })
-                if wait_for_dialog(task.pane_label, timeout=15):
+                if wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_MONITOR):
                     # Check PR budget before consuming a Premium Request
                     if not _check_pr_budget(task):
                         append_event(task, "pr_budget_exceeded", {

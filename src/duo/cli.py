@@ -78,7 +78,7 @@ def version() -> None:
         from importlib.metadata import version as pkg_version
 
         ver = pkg_version("duo")
-    except Exception:
+    except (ImportError, AttributeError):
         ver = "0.5.0-dev"
     click.echo(f"duo {ver}")
 

@@ -1,5 +1,9 @@
 # Duo
 
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-305%20passed-brightgreen.svg)]()
+
 **Agent Orchestration Runtime — Commander 指挥，Executor 执行**
 
 ## 概述
@@ -101,6 +105,7 @@ duo version              # 查看版本
 | `duo cleanup [--all] [--force] [--keep-journal]` | 清理已完成/失败的任务（worktree + 状态目录） |
 | `duo config list\|get\|set\|reset` | 配置管理（查看/修改/重置配置项） |
 | `duo version` | 显示 Duo 版本号 |
+| `duo audit [name]` | 查看 Premium Request 消耗审计（每任务或全局） |
 
 ### 全局选项
 
@@ -182,6 +187,7 @@ duo config reset copilot_model  # 重置单个配置
 | `auto_allow_all` | `true` | 自动发送 /allow-all |
 | `max_parallel` | `3` | 最大并行任务数 |
 | `pr_budget` | `0` | 每任务最大 PR 消耗（0=无限制） |
+| `worktree_base_path` | `/tmp/duo-worktrees` | Git worktree 创建的基础路径 |
 
 ## 并行调度
 
