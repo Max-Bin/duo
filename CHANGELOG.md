@@ -3,6 +3,16 @@
 All notable changes to Duo are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- 100% test coverage across all modules
+- Coverage CI enforcement (`fail_under=95`) in GitHub Actions and Makefile
+
+### Security
+- Path traversal protection in `write_json()` — rejects paths with `..` components
+- Pane label sanitisation in `resolve_label()` — rejects shell metacharacters
+
 ## [0.5.0] — 2025-07-18
 
 ### Added

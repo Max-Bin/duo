@@ -199,6 +199,8 @@ def read_json(path: Path) -> dict[str, Any] | None:
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
     """Write JSON atomically (write tmp then rename)."""
+    if ".." in path.parts:
+        raise ValueError(f"Path traversal detected: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:

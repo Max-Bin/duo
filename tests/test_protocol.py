@@ -672,3 +672,18 @@ class TestReplayStateMalformed:
                 + "\n"
             )
         assert replay_state(task) == TaskStatus.CREATED
+
+
+# ---------------------------------------------------------------------------
+# Security: path traversal protection
+# ---------------------------------------------------------------------------
+
+
+class TestWriteJsonPathTraversal:
+    """write_json rejects paths containing '..' components."""
+
+    def test_write_json_path_traversal_rejected(self, tmp_path: Path):
+        """write_json raises ValueError when path contains '..' parts."""
+        bad_path = tmp_path / "safe" / ".." / "escaped" / "data.json"
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            write_json(bad_path, {"key": "value"})

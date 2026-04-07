@@ -670,3 +670,24 @@ class TestSelectDialogOption:
         mock_stable.return_value = False
         with pytest.raises(RuntimeError, match="SAFETY"):
             select_dialog_option("test-pane", "1")
+
+
+# ---------------------------------------------------------------------------
+# Security: pane label sanitisation
+# ---------------------------------------------------------------------------
+
+
+class TestLabelValidation:
+    """_validate_label and resolve_label reject unsafe labels."""
+
+    def test_resolve_label_safe(self):
+        """Valid label passes validation and reaches tmux-bridge."""
+        with patch("subprocess.run", return_value=_ok("%42\n")):
+            result = resolve_label("task-fix.auth_01")
+        assert result == "%42"
+
+    def test_resolve_label_unsafe_rejected(self):
+        """Label with shell metacharacters is rejected before reaching tmux."""
+        for bad in ["lab;rm -rf /", "pane$(whoami)", "a b", "foo&bar", "x|y"]:
+            with pytest.raises(ValueError, match="Unsafe pane label"):
+                resolve_label(bad)

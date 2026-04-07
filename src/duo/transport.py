@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import functools
 import os
+import re
 import shutil
 import subprocess
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
+
+_SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -129,6 +132,12 @@ def name_pane(target: str, label: str) -> None:
     bridge(["name", target, label])
 
 
+def _validate_label(label: str) -> None:
+    """Ensure pane label is safe for shell use."""
+    if not _SAFE_LABEL.match(label):
+        raise ValueError(f"Unsafe pane label: {label!r}")
+
+
 def resolve_label(label: str) -> str:
     """Resolve a human-readable pane label to its tmux pane ID.
 
@@ -139,6 +148,7 @@ def resolve_label(label: str) -> str:
 
     Raises ``RuntimeError`` if the label cannot be resolved.
     """
+    _validate_label(label)
     return bridge(["resolve", label]).strip()
 
 
