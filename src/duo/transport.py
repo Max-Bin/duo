@@ -226,8 +226,16 @@ def select_dialog_option(label: str, option: str) -> None:
 
 
 def send_shell_command(label: str, command: str) -> None:
-    """Send to SHELL (before Copilot starts). No PR cost."""
-    read_pane(label, 5)
+    """Send to SHELL (before Copilot starts). No PR cost.
+
+    Safety: rejects if pane is at Copilot's main ❯ prompt.
+    """
+    content = read_pane(label, 5)
+    if _is_at_main_prompt(content):
+        raise RuntimeError(
+            f"BLOCKED: '{label}' at ❯ prompt. "
+            "send_shell_command is for shell-only. Use select_dialog_option."
+        )
     type_text(label, command)
     read_pane(label, 5)
     send_keys(label, "Enter")

@@ -233,6 +233,25 @@ class TestSendShellCommand:
         ]
         assert mock_run.call_args_list == expected
 
+    @patch("subprocess.run")
+    def test_rejects_at_main_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="❯ Type @ to mention files", stderr="")
+        with pytest.raises(RuntimeError, match="BLOCKED"):
+            send_shell_command("agent", "cd /tmp")
+
+
+class TestSafeEnter:
+    @patch("subprocess.run")
+    def test_allows_non_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="normal output", stderr="")
+        safe_enter("agent")  # should not raise
+
+    @patch("subprocess.run")
+    def test_blocks_main_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="❯ Type @ to mention files", stderr="")
+        with pytest.raises(RuntimeError, match="BLOCKED"):
+            safe_enter("agent")
+
 
 class TestSendBootstrap:
     @patch("subprocess.run")

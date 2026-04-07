@@ -243,9 +243,10 @@ class TestVerifyAndAdvance:
         }
         write_json(result_path, data)
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_no_result_does_nothing(self, mock_verify, mock_send):
+    def test_no_result_does_nothing(self, mock_verify, mock_send, mock_wait):
         task = _make_task()
         _advance_to_prompt_sent(task)
         # Don't write any result file
@@ -254,9 +255,10 @@ class TestVerifyAndAdvance:
         # Status unchanged
         assert task.status == TaskStatus.PROMPT_SENT
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_blocked_result_transitions_to_blocked(self, mock_verify, mock_send):
+    def test_blocked_result_transitions_to_blocked(self, mock_verify, mock_send, mock_wait):
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1, status="blocked", reason="missing dep")
@@ -265,9 +267,10 @@ class TestVerifyAndAdvance:
         assert task.status == TaskStatus.BLOCKED
         mock_verify.assert_not_called()
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_pass_last_step_completes(self, mock_verify, mock_send):
+    def test_pass_last_step_completes(self, mock_verify, mock_send, mock_wait):
         task = _make_task()  # single subtask → step 1 is the last step
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1)
@@ -276,9 +279,10 @@ class TestVerifyAndAdvance:
         verify_and_advance(task)
         assert task.status == TaskStatus.COMPLETED
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_pass_advances_to_next_step(self, mock_verify, mock_send):
+    def test_pass_advances_to_next_step(self, mock_verify, mock_send, mock_wait):
         task = _make_task(subtasks=[_make_subtask(1), _make_subtask(2)])
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1)
@@ -293,9 +297,10 @@ class TestVerifyAndAdvance:
         # Should end in PROMPT_SENT after sending continuation
         assert task.status == TaskStatus.PROMPT_SENT
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_correction_increments_attempt(self, mock_verify, mock_send):
+    def test_correction_increments_attempt(self, mock_verify, mock_send, mock_wait):
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1)
@@ -307,9 +312,10 @@ class TestVerifyAndAdvance:
         mock_send.assert_called()
         assert task.status == TaskStatus.PROMPT_SENT
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_three_corrections_escalates(self, mock_verify, mock_send):
+    def test_three_corrections_escalates(self, mock_verify, mock_send, mock_wait):
         task = _make_task()
         _advance_to_prompt_sent(task)
         # Pre-populate 3 correction events in journal
@@ -321,9 +327,10 @@ class TestVerifyAndAdvance:
         verify_and_advance(task)
         assert task.status == TaskStatus.ESCALATED
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_error_result_transitions_to_blocked(self, mock_verify, mock_send):
+    def test_error_result_transitions_to_blocked(self, mock_verify, mock_send, mock_wait):
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1, status="error", reason="crash")

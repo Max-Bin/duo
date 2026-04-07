@@ -29,6 +29,7 @@ from duo.protocol import (
     transition,
 )
 from duo.transport import (
+    _BOOTSTRAP_DONE,
     diagnose_pane,
     is_process_alive,
     name_pane,
@@ -36,6 +37,8 @@ from duo.transport import (
     select_dialog_option,
     send_bootstrap,
     send_shell_command,
+    wait_for_dialog,
+    wait_for_idle,
 )
 from duo.verifier import Correction, Pass, verify_step
 
@@ -200,14 +203,14 @@ def start_session(task: Task) -> None:
         "pane_id": pane_id,
     })
 
-    # Wait for copilot to start and show its prompt
+    # Wait for copilot to start (adaptive instead of hardcoded sleep)
     click.echo("Waiting for Copilot to start...")
-    time.sleep(8)
+    wait_for_idle(task.pane_label, timeout=30, poll_interval=2.0)
 
     # Auto-approve all operations to avoid interactive prompts
     click.echo("Sending /allow-all...")
     send_shell_command(task.pane_label, "/allow-all")
-    time.sleep(2)  # Wait for it to be processed
+    wait_for_idle(task.pane_label, timeout=10, poll_interval=1.0)
 
     # Send bootstrap prompt (this is the first and only ❯ prompt message)
     bootstrap = build_bootstrap_prompt(task)
@@ -222,6 +225,9 @@ def restart_session(task: Task) -> None:
     task.incarnation_id = new_incarnation()
     task.current_attempt = 1  # reset attempt for current step
     save_task(task)
+
+    # Clear bootstrap lock so new session can send bootstrap
+    _BOOTSTRAP_DONE.discard(task.pane_label)
 
     append_event(task, "session_restarted", {
         "old_incarnation": old_inc,
@@ -240,7 +246,10 @@ def send_task_prompt(task: Task, prompt: str) -> None:
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt)
 
-    # Send via dialog option (all post-bootstrap interaction goes through dialog)
+    # Wait for dialog then send (all post-bootstrap interaction goes through dialog)
+    if not wait_for_dialog(task.pane_label, timeout=60):
+        append_event(task, "dialog_timeout", {"step": task.current_step})
+        raise RuntimeError(f"Dialog timeout for '{task.pane_label}' — Copilot may be stuck")
     select_dialog_option(task.pane_label, prompt)
 
     task.last_prompt_sent_at = now_iso()
@@ -261,6 +270,9 @@ def resend_last_prompt(task: Task) -> None:
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
     if prompt_path.exists():
         prompt = prompt_path.read_text()
+        if not wait_for_dialog(task.pane_label, timeout=30):
+            append_event(task, "dialog_timeout_resend", {"step": task.current_step})
+            return
         select_dialog_option(task.pane_label, prompt)
         task.last_prompt_sent_at = now_iso()
         save_task(task)
@@ -391,7 +403,8 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                     "incarnation": inc,
                     "terminal": terminal[-500:],
                 })
-                select_dialog_option(task.pane_label, "请重试上一个操作")
+                if wait_for_dialog(task.pane_label, timeout=15):
+                    select_dialog_option(task.pane_label, "请重试上一个操作")
 
     elif poll_result == PollResult.UNKNOWN:
         # Check if ack is missing
