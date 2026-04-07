@@ -13,21 +13,19 @@ from pathlib import Path
 
 import click
 
+from duo.config import get_config
 from duo.poller import AdaptivePoller, PollResult, age
 from duo.protocol import (
     Task,
     TaskStatus,
     append_event,
-    create_task,
     list_tasks,
-    load_task,
     new_incarnation,
     now_iso,
     prompt_hash,
     read_ack_for_step,
     read_result_for_step,
     save_task,
-    Subtask,
     transition,
 )
 from duo.transport import (
@@ -44,7 +42,6 @@ from duo.verifier import Correction, Pass, verify_step
 
 def _get_copilot_model() -> str:
     """Get copilot model from config, env var override, or default."""
-    from duo.config import get_config
     env_model = os.environ.get("DUO_COPILOT_MODEL")
     if env_model:
         return env_model
@@ -318,10 +315,11 @@ def verify_and_advance(task: Task) -> None:
     elif isinstance(verdict, Correction):
         # Check correction count
         correction_count = _count_corrections(task, step)
-        if correction_count >= 3:
+        max_corrections = int(get_config("max_corrections") or 3)
+        if correction_count >= max_corrections:
             transition(task, TaskStatus.ESCALATED)
             append_event(task, "escalated_to_human", {
-                "step": step, "reason": f"3 corrections exhausted: {verdict.reason}",
+                "step": step, "reason": f"{max_corrections} corrections exhausted: {verdict.reason}",
             })
             return
 
@@ -422,7 +420,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
         # Promote queued tasks if slots available
         promoted = promote_queued()
         for task in promoted:
-            print(f"[duo] Promoting queued task: {task.id}")
+            click.echo(f"[duo] Promoting queued task: {task.id}")
             start_session(task)
             prompt = build_task_prompt(task)
             send_task_prompt(task, prompt)
@@ -431,7 +429,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
             # Check if there are queued tasks waiting
             queued = [t for t in tasks if t.status == TaskStatus.QUEUED]
             if not queued:
-                print("[duo] No active tasks. Monitoring stopped.")
+                click.echo("[duo] No active tasks. Monitoring stopped.")
                 break
 
         for task in active:
@@ -442,7 +440,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
             result = poll_task(task, poller)
 
             if result != PollResult.WORKING:
-                print(f"[duo] {task.id}: {result.name} (step={task.current_step} attempt={task.current_attempt})")
+                click.echo(f"[duo] {task.id}: {result.name} (step={task.current_step} attempt={task.current_attempt})")
 
         # Use the minimum interval across all active tasks
         min_interval = min(

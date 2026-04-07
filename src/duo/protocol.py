@@ -52,7 +52,7 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.RUNNING: {TaskStatus.RESULT_REPORTED, TaskStatus.BLOCKED, TaskStatus.FAILED},
     TaskStatus.RESULT_REPORTED: {TaskStatus.VERIFYING},
     TaskStatus.VERIFYING: {TaskStatus.PROMPT_SENT, TaskStatus.CORRECTING, TaskStatus.COMPLETED, TaskStatus.ESCALATED, TaskStatus.BLOCKED},
-    TaskStatus.CORRECTING: {TaskStatus.ACKED, TaskStatus.ESCALATED},
+    TaskStatus.CORRECTING: {TaskStatus.ACKED, TaskStatus.ESCALATED, TaskStatus.PROMPT_SENT},
     TaskStatus.BLOCKED: {TaskStatus.PROMPT_SENT, TaskStatus.ESCALATED, TaskStatus.FAILED},
     TaskStatus.ESCALATED: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
     TaskStatus.FAILED: {TaskStatus.SESSION_STARTING},

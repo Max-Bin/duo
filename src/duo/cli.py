@@ -39,7 +39,7 @@ def main(ctx: click.Context, verbose: bool) -> None:
 @click.option("--desc", default="", help="Task description")
 def start(name: str, repo: str, desc: str) -> None:
     """Create a task with worktree + Copilot session."""
-    from duo.commander import send_task_prompt, start_session
+    from duo.commander import start_session
 
     repo = os.path.abspath(repo)
     worktree = f"/tmp/duo-worktrees/{name}"

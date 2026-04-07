@@ -10,7 +10,6 @@ from datetime import datetime, timezone
 from enum import Enum
 
 from duo.protocol import Task, read_heartbeat, read_result_for_step
-from duo.transport import diagnose_pane, is_process_alive
 
 
 # === Constants ===
@@ -62,9 +61,11 @@ class AdaptivePoller:
         self,
         base_interval: float = BASE_INTERVAL,
         max_interval: float = MAX_INTERVAL,
+        heartbeat_timeout: float = HEARTBEAT_TIMEOUT,
     ) -> None:
         self.base_interval = base_interval
         self.max_interval = max_interval
+        self.heartbeat_timeout = heartbeat_timeout
         self.interval = base_interval
 
     def _ramp(self) -> None:
@@ -95,7 +96,7 @@ class AdaptivePoller:
 
         if hb is not None and hb.incarnation == inc:
             hb_age = age(hb.ts)
-            if hb_age > HEARTBEAT_TIMEOUT:
+            if hb_age > self.heartbeat_timeout:
                 self._reset()
                 return PollResult.HEARTBEAT_TIMEOUT
             # Active heartbeat — ramp up (slow down) interval.
@@ -106,7 +107,7 @@ class AdaptivePoller:
         # If we sent a prompt recently, give it time to start.
         if task.last_prompt_sent_at is not None:
             prompt_age = age(task.last_prompt_sent_at)
-            if prompt_age < HEARTBEAT_TIMEOUT:
+            if prompt_age < self.heartbeat_timeout:
                 # Still within grace period, stay at current interval.
                 return PollResult.WORKING
 

@@ -305,8 +305,7 @@ class TestVerifyAndAdvance:
 
         assert task.current_attempt == 2
         mock_send.assert_called()
-        # FSM: CORRECTING cannot transition to PROMPT_SENT, stays CORRECTING
-        assert task.status == TaskStatus.CORRECTING
+        assert task.status == TaskStatus.PROMPT_SENT
 
     @patch("duo.commander.send_prompt")
     @patch("duo.commander.verify_step")
