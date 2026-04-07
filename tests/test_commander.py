@@ -14,6 +14,7 @@ from duo.commander import (
     build_continue_prompt,
     build_correction_prompt,
     build_task_prompt,
+    start_session,
     verify_and_advance,
 )
 from duo.protocol import (
@@ -391,3 +392,70 @@ class TestPRBudget:
         append_event(task, "prompt_sent", {"step": 1, "attempt": 1})
         append_event(task, "correction_sent", {"step": 1, "attempt": 2})
         assert _check_pr_budget(task) is True
+
+
+# ---------------------------------------------------------------------------
+# start_session
+# ---------------------------------------------------------------------------
+
+
+class TestStartSession:
+    def test_start_session_creates_pane(self):
+        """start_session calls subprocess to split tmux and transitions state."""
+        from unittest.mock import MagicMock
+        from duo.commander import start_session
+
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+        ):
+            # tmux split-window succeeds
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            # tmux select-layout succeeds
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            # First subprocess call should be tmux split-window
+            first_call_args = mock_run.call_args_list[0][0][0]
+            assert "tmux" in first_call_args
+            assert "split-window" in first_call_args
+            # Task should end up in PROMPT_SENT state
+            assert task.status == TaskStatus.PROMPT_SENT
+
+
+# ---------------------------------------------------------------------------
+# build_task_prompt edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestBuildTaskPromptEdgeCases:
+    def test_build_task_prompt_last_step(self):
+        """build prompt for the final step of a multi-step task."""
+        task = _make_task(subtasks=[_make_subtask(1), _make_subtask(2), _make_subtask(3)])
+        task.current_step = 3
+        task.current_attempt = 1
+        prompt = build_task_prompt(task)
+        assert "step: 3" in prompt
+        assert "implement step 3" in prompt
+        assert task.incarnation_id in prompt
+
+    def test_build_task_prompt_with_correction(self):
+        """build prompt when attempt > 1 (correction prompt)."""
+        task = _make_task()
+        task.current_attempt = 3
+        prompt = build_correction_prompt(task, "tests still failing")
+        assert "step 1" in prompt
+        assert "attempt 3" in prompt
+        assert "tests still failing" in prompt
+        assert task.incarnation_id in prompt

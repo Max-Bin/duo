@@ -594,3 +594,89 @@ class TestConfigSetPRBudget:
         result = runner.invoke(main, ["config", "set", "pr_budget", "10"])
         assert result.exit_code == 0
         assert "pr_budget = 10" in result.output
+
+
+# ---------------------------------------------------------------------------
+# batch edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestBatchEdgeCases:
+    def test_batch_invalid_json_file(self, runner: CliRunner, tmp_path: Path):
+        """batch with a malformed JSON file shows an error."""
+        bad = tmp_path / "bad.json"
+        bad.write_text("{not valid json!!!}")
+        result = runner.invoke(main, ["batch", str(bad)])
+        assert result.exit_code != 0
+
+    def test_batch_invalid_yaml_file(self, runner: CliRunner, tmp_path: Path):
+        """batch with malformed YAML shows error (if pyyaml available)."""
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            pytest.skip("PyYAML not installed")
+        bad = tmp_path / "bad.yaml"
+        # Write content that parses as a string, not a dict with 'tasks'
+        bad.write_text("- this: is\n  just: a list\n")
+        result = runner.invoke(main, ["batch", str(bad)])
+        assert result.exit_code != 0
+        assert "tasks" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# export edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestExportEdgeCases:
+    def test_export_nonexistent_task(self, runner: CliRunner):
+        """export with unknown task name shows error."""
+        result = runner.invoke(main, ["export", "does-not-exist"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# audit edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestAuditEdgeCases:
+    def test_audit_no_tasks(self, runner: CliRunner):
+        """audit with no tasks shows empty output."""
+        result = runner.invoke(main, ["audit"])
+        assert result.exit_code == 0
+        assert "No tasks" in result.output
+
+
+# ---------------------------------------------------------------------------
+# cleanup edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupEdgeCases:
+    def test_cleanup_no_completed_tasks(self, runner: CliRunner, make_task):
+        """cleanup when no tasks match shows message."""
+        task = make_task("running-task")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        result = runner.invoke(main, ["cleanup", "--force"])
+        assert "No tasks to clean up" in result.output
+
+
+# ---------------------------------------------------------------------------
+# config list edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestConfigListEdgeCases:
+    def test_config_list_shows_all_keys(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """config list output contains all default keys."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "list"])
+        assert result.exit_code == 0
+        for key in config_mod.DEFAULTS:
+            assert key in result.output

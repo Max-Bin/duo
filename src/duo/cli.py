@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
@@ -40,6 +41,8 @@ def main(ctx: click.Context, verbose: bool) -> None:
     """Duo — Agent Orchestration Runtime."""
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s: %(message)s")
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -354,17 +357,8 @@ def kill(name: str) -> None:
     click.echo(f"Killed {name}.")
 
 
-@main.command()
-@click.argument("file", type=click.Path(exists=True))
-@click.option("--repo", default=".", help="Git repo path")
-def batch(file: str, repo: str) -> None:
-    """Create multiple tasks from a file (JSON or YAML)."""
-    from duo.commander import start_session
-    from duo.scheduler import enqueue_or_start, queue_status
-
-    repo = os.path.abspath(repo)
-
-    # Parse file
+def _load_batch_file(file: str) -> list[dict]:
+    """Read a JSON or YAML batch file and return the list of task definitions."""
     file_path = Path(file)
     content = file_path.read_text()
 
@@ -387,6 +381,27 @@ def batch(file: str, repo: str) -> None:
         click.echo("No tasks defined in file.", err=True)
         sys.exit(1)
 
+    return list(tasks_data["tasks"])
+
+
+def _create_task_from_batch_def(defn: dict, repo: str, verbose: bool) -> str | None:
+    """Create a single task from a batch definition dict.
+
+    Returns task name on success, None on failure (prints error).
+    Handles worktree creation, task creation, and session start.
+    """
+    from duo.commander import start_session
+    from duo.scheduler import enqueue_or_start
+
+    name = defn["name"]
+    desc = defn.get("description", f"Task {name}")
+    target_files = defn.get("target_files", [])
+    writable = defn.get("writable_paths", ["*"])
+
+    worktree_base = get_config("worktree_base_path")
+    worktree = os.path.join(worktree_base, name)
+    branch = f"duo/{name}"
+
     # Get base commit
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -397,50 +412,59 @@ def batch(file: str, repo: str) -> None:
         sys.exit(1)
     base_commit = result.stdout.strip()
 
+    r = subprocess.run(
+        ["git", "worktree", "add", worktree, "-b", branch],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        click.echo(f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True)
+        return None
+
+    task = create_task(
+        task_id=name,
+        description=desc,
+        worktree=worktree,
+        branch=branch,
+        base_commit=base_commit,
+        subtasks=[
+            Subtask(
+                step_id=1,
+                description=desc,
+                target_files=target_files,
+                writable_paths=writable,
+            )
+        ],
+    )
+
+    action = enqueue_or_start(task)
+    if action == "started":
+        start_session(task)
+        click.echo(f"  ✓ {name}: started")
+    else:
+        click.echo(f"  ◷ {name}: queued")
+    return str(name)
+
+
+@main.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--repo", default=".", help="Git repo path")
+@click.pass_context
+def batch(ctx: click.Context, file: str, repo: str) -> None:
+    """Create multiple tasks from a file (JSON or YAML)."""
+    from duo.scheduler import queue_status
+
+    repo = os.path.abspath(repo)
+    verbose = ctx.obj.get("verbose", False)
+
+    task_defs = _load_batch_file(file)
+
     created = 0
-    for task_def in tasks_data["tasks"]:
-        name = task_def["name"]
-        desc = task_def.get("description", f"Task {name}")
-        target_files = task_def.get("target_files", [])
-        writable = task_def.get("writable_paths", ["*"])
-
-        worktree_base = get_config("worktree_base_path")
-        worktree = os.path.join(worktree_base, name)
-        branch = f"duo/{name}"
-
-        r = subprocess.run(
-            ["git", "worktree", "add", worktree, "-b", branch],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-        )
-        if r.returncode != 0:
-            click.echo(f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True)
-            continue
-
-        task = create_task(
-            task_id=name,
-            description=desc,
-            worktree=worktree,
-            branch=branch,
-            base_commit=base_commit,
-            subtasks=[
-                Subtask(
-                    step_id=1,
-                    description=desc,
-                    target_files=target_files,
-                    writable_paths=writable,
-                )
-            ],
-        )
-
-        action = enqueue_or_start(task)
-        if action == "started":
-            start_session(task)
-            click.echo(f"  ✓ {name}: started")
-        else:
-            click.echo(f"  ◷ {name}: queued")
-        created += 1
+    for task_def in task_defs:
+        name = _create_task_from_batch_def(task_def, repo, verbose)
+        if name is not None:
+            created += 1
 
     qs = queue_status()
     click.echo(f"\nBatch complete: {created} tasks created")

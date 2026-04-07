@@ -6,11 +6,14 @@ verify output, correct or advance, and manage session recovery.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import time
 
 import click
+
+logger = logging.getLogger(__name__)
 
 from duo.config import get_config
 from duo.poller import AdaptivePoller, PollResult, age
@@ -189,6 +192,7 @@ def _check_pr_budget(task: Task) -> bool:
 
 def start_session(task: Task) -> None:
     """Start a Copilot session in tmux for this task."""
+    logger.debug(f"Starting session for task '{task.id}'")
     if task.status != TaskStatus.SESSION_STARTING:
         transition(task, TaskStatus.SESSION_STARTING)
 
@@ -266,6 +270,7 @@ def restart_session(task: Task) -> None:
 
 def send_task_prompt(task: Task, prompt: str) -> None:
     """Send a prompt and record it."""
+    logger.debug(f"Sending prompt for step {task.current_step}")
     phash = prompt_hash(prompt)
 
     # Save prompt to file for debug
@@ -285,6 +290,7 @@ def send_task_prompt(task: Task, prompt: str) -> None:
 
     # Wait for dialog then send (all post-bootstrap interaction goes through dialog)
     if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_SEND):
+        logger.warning(f"Dialog timeout for '{task.pane_label}'")
         append_event(task, "dialog_timeout", {"step": task.current_step})
         raise RuntimeError(f"Dialog timeout for '{task.pane_label}' — Copilot may be stuck")
     select_dialog_option(task.pane_label, prompt)
@@ -323,6 +329,7 @@ def resend_last_prompt(task: Task) -> None:
             click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
             return
         if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_RESEND):
+            logger.warning(f"Dialog timeout for '{task.pane_label}'")
             append_event(task, "dialog_timeout_resend", {"step": task.current_step})
             return
         select_dialog_option(task.pane_label, prompt)
@@ -352,6 +359,7 @@ def verify_and_advance(task: Task) -> None:
     if result is None:
         return
 
+    logger.info(f"Verification result: {type(result).__name__}")
     transition(task, TaskStatus.VERIFYING)
 
     # Handle blocked/error results
@@ -440,6 +448,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
     inc = task.incarnation_id
 
     poll_result = poller.poll(task)
+    logger.debug(f"Poll result: {poll_result}")
 
     if poll_result == PollResult.RESULT_READY:
         result = read_result_for_step(task, step, attempt)

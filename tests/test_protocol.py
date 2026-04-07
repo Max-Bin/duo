@@ -380,3 +380,96 @@ class TestReplayState:
         reconstructed = replay_state(task)
         assert reconstructed == TaskStatus.RUNNING
         assert reconstructed == task.status
+
+
+# ---------------------------------------------------------------------------
+# Additional JSON I/O edge cases
+# ---------------------------------------------------------------------------
+
+class TestJsonIOEdgeCases:
+    def test_write_json_creates_parent_dirs(self, tmp_path: Path):
+        """write to deeply nested non-existent path creates parents."""
+        path = tmp_path / "deep" / "nested" / "dir" / "data.json"
+        assert not path.parent.exists()
+        write_json(path, {"created": True})
+        assert path.exists()
+        assert read_json(path) == {"created": True}
+
+    def test_read_json_malformed_file(self, tmp_path: Path):
+        """read file with invalid JSON returns None."""
+        bad = tmp_path / "corrupt.json"
+        bad.write_text("{{{{not json at all!!")
+        result = read_json(bad)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# append_event edge cases
+# ---------------------------------------------------------------------------
+
+class TestAppendEventEdgeCases:
+    def test_append_event_creates_journal(self, tmp_path: Path):
+        """append_event to non-existent journal file creates it."""
+        task = create_task("journal-new", "d", "/w", "b", "c", [_make_subtask()])
+        # Remove the journal that create_task wrote
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+        assert not task.journal_path.exists()
+
+        append_event(task, "test_event", {"key": "value"})
+
+        assert task.journal_path.exists()
+        events = read_jsonl(task.journal_path)
+        test_events = [e for e in events if e["event"] == "test_event"]
+        assert len(test_events) == 1
+        assert test_events[0]["data"] == {"key": "value"}
+
+
+# ---------------------------------------------------------------------------
+# list_tasks edge cases
+# ---------------------------------------------------------------------------
+
+class TestListTasksEdgeCases:
+    def test_list_tasks_empty_dir(self):
+        """list_tasks when TASKS_DIR is empty returns empty list."""
+        from duo.protocol import list_tasks, TASKS_DIR
+        TASKS_DIR.mkdir(parents=True, exist_ok=True)
+        assert list_tasks() == []
+
+
+# ---------------------------------------------------------------------------
+# save / load round-trip
+# ---------------------------------------------------------------------------
+
+class TestSaveTaskRoundtrip:
+    def test_save_task_roundtrip(self):
+        """save then load, verify all fields match."""
+        subtasks = [_make_subtask(1), _make_subtask(2)]
+        task = create_task("rt-full", "Full roundtrip test", "/my/worktree", "feat-branch", "deadbeef", subtasks)
+        task.current_step = 2
+        task.current_attempt = 3
+        task.last_prompt_sent_at = now_iso()
+        task.pane_label = "custom-pane"
+        save_task(task)
+
+        loaded = load_task("rt-full")
+        assert loaded is not None
+        assert loaded.id == task.id
+        assert loaded.description == task.description
+        assert loaded.worktree == task.worktree
+        assert loaded.branch == task.branch
+        assert loaded.base_commit == task.base_commit
+        assert loaded.pane_label == task.pane_label
+        assert loaded.incarnation_id == task.incarnation_id
+        assert loaded.status == task.status
+        assert loaded.current_step == 2
+        assert loaded.current_attempt == 3
+        assert loaded.last_prompt_sent_at == task.last_prompt_sent_at
+        assert loaded.created_at == task.created_at
+        assert len(loaded.subtasks) == 2
+        assert loaded.subtasks[0].step_id == 1
+        assert loaded.subtasks[1].step_id == 2
+        assert loaded.subtasks[0].description == "step-1"
+        assert loaded.subtasks[1].description == "step-2"
+        assert loaded.security_policy.allow_network == task.security_policy.allow_network
+        assert loaded.security_policy.secret_patterns == task.security_policy.secret_patterns
