@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-649%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-670%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander directs, Executor delivers**
@@ -100,18 +100,20 @@ duo version              # Show version
 | `duo stop <name>` | Stop a task gracefully (preserves worktree for resume) |
 | `duo status [name]` | Show status for a single task or all tasks |
 | `duo list` | List all tasks in a table (ID / STATUS / STEP / INCARNATION) |
+| `duo stats [--json-output]` | Show task statistics and summary |
 | `duo monitor [names...]` | Start adaptive polling monitor (specify tasks, or default to all) |
 | `duo resume [NAME]` | Resume interrupted task sessions |
 | `duo recover` | Recover interrupted tasks by replaying journals |
 | `duo merge <name>` | Merge a completed task's worktree into the main branch (fetch + rebase + ff-only) |
 | `duo diff <name>` | Show git diff for a task's worktree changes |
 | `duo kill <name>` | Terminate a task and clean up its worktree and branch |
+| `duo retry <name>` | Retry a failed or blocked task |
 | `duo batch <file> --repo <path>` | Batch-create tasks from a JSON/YAML file |
 | `duo queue` | Show parallel queue status (active / queued task counts) |
 | `duo dashboard [names...] --refresh <sec>` | Rich live terminal dashboard (default refresh: 2s) |
 | `duo logs <name> [-n N] [--all]` | View the task event stream (default: last 20 entries) |
-| `duo inspect <name>` | View detailed task info (status, heartbeat, ack/result, recent events) |
-| `duo export <name> --format json\|text [-o file]` | Export a task report (events, changed files, summary) |
+| `duo inspect <name>` | View detailed task info; `--include-files` shows changed files and diff preview |
+| `duo export <name> --format json\|text\|jsonl [-o file]` | Export a task report; `jsonl` for line-delimited JSON |
 | `duo cleanup [--all] [--force] [--keep-journal]` | Clean up completed/failed tasks (worktree + state directory) |
 | `duo config list\|get\|set\|reset` | Manage configuration (view / modify / reset settings) |
 | `duo version` | Show the Duo version |

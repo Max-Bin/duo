@@ -2500,7 +2500,7 @@ class TestDoctor:
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
         assert "✓" in result.output
-        assert "8/8 checks passed" in result.output
+        assert "9/9 checks passed" in result.output
 
     def test_doctor_missing_tmux(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2559,7 +2559,7 @@ class TestDoctor:
             lambda *a, **kw: MagicMock(returncode=0),
         )
         result = runner.invoke(main, ["doctor"])
-        assert "/8 checks passed" in result.output
+        assert "/9 checks passed" in result.output
 
     def test_doctor_tmux_bridge_fallback_path(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

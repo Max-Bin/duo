@@ -20,7 +20,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `--queue` flag on `duo batch` for deferred task creation
 - `duo --version` flag (standard CLI behavior, in addition to `duo version`)
 - Categorized command help: 22 commands organized into 7 sections
-- 630 tests with 100% coverage
+- Task timeout enforcement (`task_timeout` config + `--max-time` on monitor)
+- `inspect --include-files` flag for viewing changed files and diff preview
+- `export --format jsonl` for structured line-delimited JSON export
+- `cleanup --age` flag for time-based task cleanup
+- 670 tests with 100% coverage
 - 41 edge case tests (protocol, scheduler, poller, config, CLI)
 - Expanded secret detection patterns (11 patterns)
 

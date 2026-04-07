@@ -1325,6 +1325,14 @@ def doctor() -> None:
         "no active session — Start tmux first",
     )
 
+    # 9. Task timeout config
+    timeout_val = get_config("task_timeout")
+    if isinstance(timeout_val, int) and timeout_val >= 0:
+        label = f"{timeout_val}s" if timeout_val > 0 else "disabled"
+        _check("task_timeout", True, f"configured ({label})", "")
+    else:
+        _check("task_timeout", False, "", "invalid value — must be 0 or positive integer")
+
     click.echo(f"\n{checks_passed}/{checks_total} checks passed")
     if critical_failed:
         sys.exit(1)
@@ -1592,6 +1600,17 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
         click.echo(output)
 
 
+def _parse_age(age_str: str) -> int:
+    """Parse age string like '7d', '24h', '30m' into seconds."""
+    import re
+    match = re.match(r"^(\d+)([dhms])$", age_str)
+    if not match:
+        click.echo("Error: invalid age format. Use: 7d, 24h, 30m, 3600s", err=True)
+        sys.exit(1)
+    value, unit = int(match.group(1)), match.group(2)
+    return value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
+
+
 @main.command()
 @click.option(
     "--all",
@@ -1601,7 +1620,8 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
 )
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--keep-journal", is_flag=True, help="Keep journal files")
-def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
+@click.option("--age", type=str, default=None, help="Only clean tasks older than duration (e.g., 7d, 24h, 30m)")
+def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None) -> None:
     """Clean up completed and failed tasks."""
     import shutil
 
@@ -1613,6 +1633,11 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
         ]
     else:
         targets = [t for t in tasks if t.status == TaskStatus.COMPLETED]
+
+    if age:
+        max_age = _parse_age(age)
+        from duo.poller import age as task_age
+        targets = [t for t in targets if task_age(t.created_at) > max_age]
 
     if not targets:
         click.echo("No tasks to clean up.")
