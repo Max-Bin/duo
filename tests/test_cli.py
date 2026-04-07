@@ -2928,3 +2928,246 @@ class TestStartFlags:
 
         # Clean up env var
         monkeypatch.delenv("DUO_COPILOT_MODEL", raising=False)
+
+
+# ---------------------------------------------------------------------------
+# _create_task_queued helper (lines 663-702)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateTaskQueued:
+    def test_success(self, tmp_path: Path):
+        """_create_task_queued creates task and transitions to QUEUED."""
+        from duo.cli import _create_task_queued
+
+        defn = {
+            "name": "cq-ok",
+            "description": "Queued task",
+            "target_files": ["x.py"],
+            "writable_paths": ["src/"],
+        }
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+        ):
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
+                MagicMock(returncode=0, stdout="", stderr=""),  # worktree add
+            ]
+            result = _create_task_queued(defn, str(tmp_path), verbose=False)
+            assert result == "cq-ok"
+
+        task = load_task("cq-ok")
+        assert task is not None
+        assert task.status == TaskStatus.QUEUED
+
+    def test_worktree_failure_returns_none(self, tmp_path: Path):
+        """_create_task_queued returns None when worktree add fails."""
+        from duo.cli import _create_task_queued
+
+        defn = {"name": "cq-fail", "description": "Fail"}
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+        ):
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
+                MagicMock(returncode=1, stdout="", stderr="already exists"),
+            ]
+            result = _create_task_queued(defn, str(tmp_path), verbose=False)
+            assert result is None
+
+    def test_default_description_and_writable(self, tmp_path: Path):
+        """_create_task_queued uses defaults when description/writable_paths omitted."""
+        from duo.cli import _create_task_queued
+
+        defn = {"name": "cq-defaults"}
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+        ):
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="def456\n", stderr=""),
+                MagicMock(returncode=0, stdout="", stderr=""),
+            ]
+            result = _create_task_queued(defn, str(tmp_path), verbose=False)
+            assert result == "cq-defaults"
+
+        task = load_task("cq-defaults")
+        assert task.description == "Task cq-defaults"
+        assert task.subtasks[0].writable_paths == ["*"]
+
+
+# ---------------------------------------------------------------------------
+# audit --json-output for all tasks (lines 820-827)
+# ---------------------------------------------------------------------------
+
+
+class TestAuditAllTasksJsonOutput:
+    def test_audit_all_json_output(self, runner: CliRunner, make_task):
+        """audit --json-output with no task name returns JSON for all tasks."""
+        t1 = make_task("aj-one")
+        save_task(t1)
+        append_event(
+            t1, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        t2 = make_task("aj-two")
+        save_task(t2)
+        append_event(
+            t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+        append_event(
+            t2, "pr_consumed", {"action": "correction", "step": 1, "attempt": 2}
+        )
+
+        with patch("duo.transport.get_pr_log", return_value=[]):
+            result = runner.invoke(main, ["audit", "--json-output"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "tasks" in data
+        assert data["total_pr"] == 3
+        assert isinstance(data["session_log"], list)
+        names = {t["task"] for t in data["tasks"]}
+        assert names == {"aj-one", "aj-two"}
+
+    def test_audit_all_json_output_with_session_log(self, runner: CliRunner, make_task):
+        """audit --json-output includes session_log from get_pr_log."""
+        t = make_task("aj-log")
+        save_task(t)
+
+        pr_log = [{"ts": "2025-01-01T00:00:00", "action": "sent", "label": "aj-log"}]
+        with patch("duo.transport.get_pr_log", return_value=pr_log):
+            result = runner.invoke(main, ["audit", "--json-output"])
+
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["session_log"]) == 1
+        assert data["session_log"][0]["action"] == "sent"
+
+
+# ---------------------------------------------------------------------------
+# inspect --json-output with heartbeat/ack/result (lines 972, 980, 986)
+# ---------------------------------------------------------------------------
+
+
+class TestInspectJsonWithFiles:
+    def test_inspect_json_with_heartbeat(self, runner: CliRunner):
+        """inspect --json-output includes heartbeat data when file exists."""
+        from duo.protocol import write_json
+
+        task = _make_task("ins-hb")
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": "2025-01-01T12:00:00",
+                "incarnation": "inc-1",
+                "step": 1,
+                "status": "running",
+                "current_file": "src/app.py",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "ins-hb", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "heartbeat" in data
+        assert data["heartbeat"]["ts"] == "2025-01-01T12:00:00"
+        assert data["heartbeat"]["status"] == "running"
+        assert data["heartbeat"]["current_file"] == "src/app.py"
+        assert data["heartbeat"]["incarnation"] == "inc-1"
+
+    def test_inspect_json_with_ack(self, runner: CliRunner):
+        """inspect --json-output includes ack data when file exists."""
+        from duo.protocol import write_json
+
+        task = _make_task("ins-ack")
+        write_json(
+            task.ack_path(task.current_step, task.current_attempt),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc-2",
+                "prompt_hash": "hash123",
+                "acked_at": "2025-01-01T12:01:00",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "ins-ack", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "ack" in data
+        assert data["ack"]["acked_at"] == "2025-01-01T12:01:00"
+        assert data["ack"]["prompt_hash"] == "hash123"
+
+    def test_inspect_json_with_result(self, runner: CliRunner):
+        """inspect --json-output includes result data when file exists."""
+        from duo.protocol import write_json
+
+        task = _make_task("ins-res")
+        write_json(
+            task.result_path(task.current_step, task.current_attempt),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc-3",
+                "status": "completed",
+                "files_changed": ["a.py", "b.py"],
+                "summary": "Done",
+                "reason": "",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "ins-res", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "result" in data
+        assert data["result"]["status"] == "completed"
+        assert data["result"]["files_changed"] == ["a.py", "b.py"]
+        assert data["result"]["summary"] == "Done"
+
+    def test_inspect_json_with_all_files(self, runner: CliRunner):
+        """inspect --json-output includes all three when all files exist."""
+        from duo.protocol import write_json
+
+        task = _make_task("ins-all")
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": "2025-01-01T12:00:00",
+                "incarnation": "inc-a",
+                "step": 1,
+                "status": "running",
+                "current_file": "main.py",
+            },
+        )
+        write_json(
+            task.ack_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc-a",
+                "prompt_hash": "ph1",
+                "acked_at": "2025-01-01T12:01:00",
+            },
+        )
+        write_json(
+            task.result_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc-a",
+                "status": "completed",
+                "files_changed": ["f.py"],
+                "summary": "All done",
+                "reason": "",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "ins-all", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "heartbeat" in data
+        assert "ack" in data
+        assert "result" in data
