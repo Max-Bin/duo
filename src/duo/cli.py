@@ -24,8 +24,12 @@ from duo.protocol import (
 
 
 @click.group()
-def main() -> None:
+@click.option("-v", "--verbose", is_flag=True, help="Verbose output")
+@click.pass_context
+def main(ctx: click.Context, verbose: bool) -> None:
     """Duo — Agent Orchestration Runtime."""
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -47,7 +51,7 @@ def start(name: str, repo: str, desc: str) -> None:
         capture_output=True, text=True, cwd=repo,
     )
     if result.returncode != 0:
-        click.echo(f"Error: not a git repo: {repo}", err=True)
+        click.echo(f"Error: '{repo}' is not a git repository. Run 'git init' first or specify --repo.", err=True)
         sys.exit(1)
     base_commit = result.stdout.strip()
 
@@ -110,7 +114,7 @@ def send(name: str, prompt: str) -> None:
 
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task not found: {name}", err=True)
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
 
     send_task_prompt(task, prompt)
@@ -124,7 +128,7 @@ def status(name: str | None = None) -> None:
     if name:
         task = load_task(name)
         if task is None:
-            click.echo(f"Error: task not found: {name}", err=True)
+            click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
             sys.exit(1)
         _print_task(task)
     else:
@@ -202,11 +206,11 @@ def merge(name: str) -> None:
     """Merge a completed task's worktree to main."""
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task not found: {name}", err=True)
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
 
     if task.status != TaskStatus.COMPLETED:
-        click.echo(f"Error: task {name} is {task.status.value}, not completed", err=True)
+        click.echo(f"Error: task '{name}' is '{task.status.value}', not 'completed'. Wait for completion or check 'duo logs {name}'.", err=True)
         sys.exit(1)
 
     worktree = task.worktree
@@ -267,7 +271,7 @@ def kill(name: str) -> None:
     """Kill a task and clean up."""
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task not found: {name}", err=True)
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
 
     # Try to kill the pane
@@ -333,7 +337,7 @@ def batch(file: str, repo: str) -> None:
         tasks_data = json.loads(content)
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
-        click.echo("Error: file must contain a 'tasks' key with a list of tasks", err=True)
+        click.echo("Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json", err=True)
         sys.exit(1)
 
     # Get base commit
@@ -342,7 +346,7 @@ def batch(file: str, repo: str) -> None:
         capture_output=True, text=True, cwd=repo,
     )
     if result.returncode != 0:
-        click.echo(f"Error: not a git repo: {repo}", err=True)
+        click.echo(f"Error: '{repo}' is not a git repository. Run 'git init' first or specify --repo.", err=True)
         sys.exit(1)
     base_commit = result.stdout.strip()
 
@@ -411,6 +415,132 @@ def queue() -> None:
         click.echo(f"Queued: {', '.join(qs['queued_tasks'])}")
     else:
         click.echo("Queue: empty")
+
+
+@main.command()
+@click.argument("name")
+@click.option("-n", "--lines", default=20, help="Number of recent events to show")
+@click.option("--all", "show_all", is_flag=True, help="Show all events")
+@click.pass_context
+def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
+    """Show task journal events."""
+    from duo.protocol import read_jsonl
+
+    task = load_task(name)
+    if task is None:
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        sys.exit(1)
+
+    events = read_jsonl(task.journal_path)
+    if not events:
+        click.echo("No events recorded.")
+        return
+
+    if not show_all:
+        events = events[-lines:]
+
+    for ev in events:
+        ts = ev.get("ts", "?")
+        # Shorten timestamp for display
+        if "T" in ts:
+            ts = ts.split("T")[1][:8]  # HH:MM:SS
+        event_type = ev.get("event", "?")
+        data = ev.get("data", {})
+
+        # Color-code by event type
+        if "error" in event_type or "failed" in event_type or "violation" in event_type:
+            symbol = "✗"
+        elif "completed" in event_type or "passed" in event_type:
+            symbol = "✓"
+        elif "warning" in event_type:
+            symbol = "⚠"
+        else:
+            symbol = "·"
+
+        # Format data compactly
+        data_str = ""
+        if data:
+            parts = []
+            for k, v in data.items():
+                if isinstance(v, list) and len(str(v)) > 40:
+                    parts.append(f"{k}=[{len(v)} items]")
+                elif isinstance(v, str) and len(v) > 50:
+                    parts.append(f"{k}={v[:47]}...")
+                else:
+                    parts.append(f"{k}={v}")
+            data_str = " " + " ".join(parts)
+
+        click.echo(f"  {ts} {symbol} {event_type}{data_str}")
+
+
+@main.command()
+@click.argument("name")
+def inspect(name: str) -> None:
+    """Show detailed task information."""
+    from duo.protocol import read_jsonl, read_heartbeat, read_result_for_step, read_ack_for_step
+
+    task = load_task(name)
+    if task is None:
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        sys.exit(1)
+
+    # Task info
+    click.echo(f"Task: {task.id}")
+    click.echo(f"  Description:   {task.description}")
+    click.echo(f"  Status:        {task.status.value}")
+    click.echo(f"  Incarnation:   {task.incarnation_id}")
+    click.echo(f"  Step:          {task.current_step}/{len(task.subtasks)}")
+    click.echo(f"  Attempt:       {task.current_attempt}")
+    click.echo(f"  Worktree:      {task.worktree}")
+    click.echo(f"  Branch:        {task.branch}")
+    click.echo(f"  Created:       {task.created_at}")
+    if task.last_prompt_sent_at:
+        click.echo(f"  Last prompt:   {task.last_prompt_sent_at}")
+
+    # Current subtask
+    if task.current_step <= len(task.subtasks):
+        st = task.subtasks[task.current_step - 1]
+        click.echo(f"\nCurrent Step ({task.current_step}):")
+        click.echo(f"  Description:   {st.description}")
+        click.echo(f"  Target files:  {', '.join(st.target_files) or '(none)'}")
+        click.echo(f"  Writable:      {', '.join(st.writable_paths)}")
+
+    # Heartbeat
+    hb = read_heartbeat(task)
+    if hb:
+        click.echo(f"\nHeartbeat:")
+        click.echo(f"  Timestamp:     {hb.ts}")
+        click.echo(f"  Status:        {hb.status}")
+        click.echo(f"  Current file:  {hb.current_file}")
+        click.echo(f"  Incarnation:   {hb.incarnation}")
+    else:
+        click.echo(f"\nHeartbeat:       (none)")
+
+    # Latest ack/result
+    ack = read_ack_for_step(task, task.current_step, task.current_attempt)
+    if ack:
+        click.echo(f"\nAck:")
+        click.echo(f"  Acked at:      {ack.acked_at}")
+        click.echo(f"  Prompt hash:   {ack.prompt_hash}")
+
+    result = read_result_for_step(task, task.current_step, task.current_attempt)
+    if result:
+        click.echo(f"\nResult:")
+        click.echo(f"  Status:        {result.status}")
+        click.echo(f"  Summary:       {result.summary}")
+        if result.files_changed:
+            click.echo(f"  Files changed: {', '.join(result.files_changed)}")
+
+    # Recent events
+    events = read_jsonl(task.journal_path)
+    if events:
+        recent = events[-5:]
+        click.echo(f"\nRecent Events ({len(events)} total):")
+        for ev in recent:
+            ts = ev.get("ts", "?")
+            if "T" in ts:
+                ts = ts.split("T")[1][:8]
+            click.echo(f"  {ts} {ev.get('event', '?')}")
 
 
 @main.group()

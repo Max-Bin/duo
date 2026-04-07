@@ -84,10 +84,14 @@ duo merge my-task
 | `duo send <name> <prompt>` | 向任务发送工作指令 |
 | `duo status [name]` | 查看单个任务或所有任务状态 |
 | `duo list` | 表格形式列出所有任务（ID / STATUS / STEP / INCARNATION） |
+| `duo inspect <name>` | 查看任务详细信息（状态、心跳、ack/result、近期事件） |
+| `duo logs <name> [-n N] [--all]` | 查看任务事件流（默认最近 20 条） |
 | `duo monitor [names...]` | 启动自适应轮询监控（可指定任务，默认全部） |
 | `duo recover` | 从 journal 回放恢复中断的任务 |
 | `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |
 | `duo kill <name>` | 终止任务，清理 worktree 和分支 |
+| `duo batch <file> --repo <path>` | 从 JSON/YAML 文件批量创建任务 |
+| `duo queue` | 查看并行队列状态（活跃/排队任务数） |
 | `duo config list` | 查看所有配置项及当前值 |
 | `duo config get <key>` | 查看单个配置值 |
 | `duo config set <key> <value>` | 修改配置值 |
@@ -147,6 +151,42 @@ duo config reset copilot_model  # 重置单个配置
 | `poll_base_interval` | `5.0` | 轮询基础间隔 |
 | `poll_max_interval` | `120.0` | 轮询最大间隔 |
 | `auto_allow_all` | `true` | 自动发送 /allow-all |
+
+## 并行调度
+
+Duo 支持最多 N 个任务并行执行（默认 3，可配置）。超出限制的任务自动进入 FIFO 队列。
+
+```bash
+# 配置并发数
+duo config set max_parallel 5
+
+# 批量创建任务
+duo batch examples/tasks.json --repo .
+
+# 查看队列状态
+duo queue
+
+# monitor 会自动在有空位时启动排队任务
+duo monitor
+```
+
+## 调试
+
+```bash
+# 查看任务详情
+duo inspect my-task
+
+# 查看事件流
+duo logs my-task
+duo logs my-task -n 50     # 最近 50 条
+duo logs my-task --all     # 全部
+
+# 查看队列
+duo queue
+
+# 恢复中断的任务
+duo recover
+```
 
 ## 核心概念
 

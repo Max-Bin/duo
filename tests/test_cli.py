@@ -89,7 +89,7 @@ class TestStatus:
     def test_named_task_not_found(self, runner: CliRunner):
         result = runner.invoke(main, ["status", "nonexistent"])
         assert result.exit_code != 0
-        assert "task not found" in result.output
+        assert "not found" in result.output
 
     def test_named_task_shows_details(self, runner: CliRunner):
         task = _make_task()
@@ -190,7 +190,7 @@ class TestSend:
     def test_missing_task(self, runner: CliRunner):
         result = runner.invoke(main, ["send", "ghost", "hello"])
         assert result.exit_code != 0
-        assert "task not found" in result.output
+        assert "not found" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -216,4 +216,106 @@ class TestKill:
     def test_missing_task(self, runner: CliRunner):
         result = runner.invoke(main, ["kill", "nope"])
         assert result.exit_code != 0
-        assert "task not found" in result.output
+        assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# logs command
+# ---------------------------------------------------------------------------
+
+
+class TestLogs:
+    def test_task_not_found(self, runner: CliRunner):
+        result = runner.invoke(main, ["logs", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_no_events(self, runner: CliRunner):
+        task = _make_task("empty-task")
+        # Clear the journal
+        task.journal_path.write_text("")
+        result = runner.invoke(main, ["logs", "empty-task"])
+        assert result.exit_code == 0
+        assert "No events" in result.output
+
+    def test_shows_events(self, runner: CliRunner):
+        _make_task("test-task")
+        result = runner.invoke(main, ["logs", "test-task"])
+        assert result.exit_code == 0
+        assert "task_created" in result.output
+
+    def test_lines_limit(self, runner: CliRunner):
+        _make_task("test-task")
+        result = runner.invoke(main, ["logs", "test-task", "-n", "1"])
+        assert result.exit_code == 0
+        # With -n 1, should only show 1 event line
+        event_lines = [l for l in result.output.strip().splitlines() if "·" in l or "✓" in l or "✗" in l]
+        assert len(event_lines) == 1
+
+
+# ---------------------------------------------------------------------------
+# inspect command
+# ---------------------------------------------------------------------------
+
+
+class TestInspect:
+    def test_task_not_found(self, runner: CliRunner):
+        result = runner.invoke(main, ["inspect", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_shows_task_details(self, runner: CliRunner):
+        _make_task("test-task")
+        result = runner.invoke(main, ["inspect", "test-task"])
+        assert result.exit_code == 0
+        assert "test-task" in result.output
+        assert "Status:" in result.output
+        assert "Incarnation:" in result.output
+        assert "Step:" in result.output
+
+    def test_shows_recent_events(self, runner: CliRunner):
+        _make_task("test-task")
+        result = runner.invoke(main, ["inspect", "test-task"])
+        assert "Recent Events" in result.output
+
+
+# ---------------------------------------------------------------------------
+# verbose flag
+# ---------------------------------------------------------------------------
+
+
+class TestVerbose:
+    def test_verbose_flag_accepted(self, runner: CliRunner):
+        result = runner.invoke(main, ["-v", "list"])
+        assert result.exit_code == 0
+
+    def test_help_shows_verbose(self, runner: CliRunner):
+        result = runner.invoke(main, ["--help"])
+        assert "--verbose" in result.output or "-v" in result.output
+
+
+# ---------------------------------------------------------------------------
+# improved error messages
+# ---------------------------------------------------------------------------
+
+
+class TestErrorMessages:
+    def test_send_not_found_helpful(self, runner: CliRunner):
+        result = runner.invoke(main, ["send", "nope", "hello"])
+        assert "duo list" in result.output
+
+    def test_status_not_found_helpful(self, runner: CliRunner):
+        result = runner.invoke(main, ["status", "nope"])
+        assert "duo list" in result.output
+
+    def test_kill_not_found_helpful(self, runner: CliRunner):
+        result = runner.invoke(main, ["kill", "nope"])
+        assert "duo list" in result.output
+
+    def test_logs_not_found_helpful(self, runner: CliRunner):
+        result = runner.invoke(main, ["logs", "nope"])
+        assert "duo list" in result.output
+
+    def test_inspect_not_found_helpful(self, runner: CliRunner):
+        result = runner.invoke(main, ["inspect", "nope"])
+        assert "duo list" in result.output
