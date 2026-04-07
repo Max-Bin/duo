@@ -22,6 +22,8 @@ from duo.protocol import (
     TaskStatus,
     append_event,
     create_task,
+    load_task,
+    read_jsonl,
     save_task,
 )
 
@@ -914,6 +916,68 @@ class TestSendSuccess:
 
 # ---------------------------------------------------------------------------
 # kill command — successful path
+# ---------------------------------------------------------------------------
+# stop command
+# ---------------------------------------------------------------------------
+
+
+class TestStop:
+    def test_stop_not_found(self, runner: CliRunner):
+        result = runner.invoke(main, ["stop", "ghost"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_stop_running_task(self, runner: CliRunner):
+        """stop transitions task to BLOCKED and preserves worktree."""
+        task = _make_task("stop-running")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["stop", "stop-running"])
+            assert result.exit_code == 0
+            assert "Stopped" in result.output
+            assert "resume" in result.output
+
+        reloaded = load_task("stop-running")
+        assert reloaded is not None
+        assert reloaded.status == TaskStatus.BLOCKED
+
+    def test_stop_already_completed(self, runner: CliRunner):
+        """stop on completed task shows message."""
+        task = _make_task("stop-done")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["stop", "stop-done"])
+        assert result.exit_code == 0
+        assert "terminal state" in result.output
+
+    def test_stop_already_blocked(self, runner: CliRunner):
+        """stop on already blocked task shows message."""
+        task = _make_task("stop-blocked")
+        task.status = TaskStatus.BLOCKED
+        save_task(task)
+
+        result = runner.invoke(main, ["stop", "stop-blocked"])
+        assert result.exit_code == 0
+        assert "already stopped" in result.output
+
+    def test_stop_records_event(self, runner: CliRunner):
+        """stop logs task_stopped event with previous status."""
+        task = _make_task("stop-event")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run"):
+            runner.invoke(main, ["stop", "stop-event"])
+
+        events = read_jsonl(task.journal_path)
+        stopped_events = [e for e in events if e.get("event") == "task_stopped"]
+        assert len(stopped_events) == 1
+        assert stopped_events[0]["data"]["previous_status"] == "running"
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -2402,6 +2466,7 @@ class TestHelpTexts:
             ["monitor", "--help"],
             ["recover", "--help"],
             ["merge", "--help"],
+            ["stop", "--help"],
             ["kill", "--help"],
             ["batch", "--help"],
             ["queue", "--help"],

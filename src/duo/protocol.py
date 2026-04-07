@@ -80,6 +80,7 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.PROMPT_SENT,
     },
     TaskStatus.BLOCKED: {
+        TaskStatus.SESSION_STARTING,
         TaskStatus.PROMPT_SENT,
         TaskStatus.ESCALATED,
         TaskStatus.FAILED,

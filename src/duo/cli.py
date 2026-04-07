@@ -28,7 +28,7 @@ from duo.protocol import (
 )
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
-    "Task Lifecycle": ["start", "send", "status", "merge", "diff", "kill"],
+    "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
     "Monitoring": ["list", "monitor", "dashboard", "logs", "inspect"],
     "Batch & Queue": ["batch", "queue"],
     "Recovery": ["recover", "resume"],
@@ -426,6 +426,42 @@ def merge(name: str, dry_run: bool) -> None:
 
     append_event(task, "task_merged", {"branch": task.branch})
     click.echo(f"Merged {name}. Remember to `git push` when ready.")
+
+
+@main.command()
+@click.argument("name")
+def stop(name: str) -> None:
+    """Stop a task gracefully (preserves worktree for resume)."""
+    from duo.protocol import append_event, transition
+
+    task = load_task(name)
+    if task is None:
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
+        sys.exit(1)
+
+    terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+    if task.status in terminal_states:
+        click.echo(f"Task '{name}' is already in terminal state '{task.status.value}'.")
+        return
+
+    if task.status == TaskStatus.BLOCKED:
+        click.echo(f"Task '{name}' is already stopped.")
+        return
+
+    # Kill the pane but preserve worktree and branch
+    subprocess.run(
+        ["tmux", "kill-pane", "-t", task.pane_label],
+        capture_output=True,
+    )
+
+    previous = task.status.value
+    transition(task, TaskStatus.BLOCKED)
+    append_event(task, "task_stopped", {"previous_status": previous})
+    click.echo(f"Stopped '{name}'. Worktree preserved at {task.worktree}")
+    click.echo(f"  Resume with: duo resume {name}")
 
 
 @main.command()
