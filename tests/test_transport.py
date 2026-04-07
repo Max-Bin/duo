@@ -22,10 +22,13 @@ from duo.transport import (
     name_pane,
     read_pane,
     resolve_label,
+    safe_enter,
+    send_bootstrap,
     send_eof,
     send_keys,
     send_message,
     send_prompt,
+    send_shell_command,
     type_text,
     wait_for_idle,
 )
@@ -211,17 +214,41 @@ class TestListPanes:
 
 
 class TestSendPrompt:
+    def test_send_prompt_banned(self):
+        """send_prompt() is BANNED and always raises."""
+        with pytest.raises(RuntimeError, match="BANNED"):
+            send_prompt("agent", "do something")
+
+
+class TestSendShellCommand:
     @patch("subprocess.run")
     def test_call_sequence(self, mock_run):
         mock_run.return_value = _ok()
-        send_prompt("agent", "do something")
+        send_shell_command("agent", "cd /tmp")
         expected = [
             call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True),
-            call([BRIDGE, "type", "agent", "do something"], capture_output=True, text=True),
+            call([BRIDGE, "type", "agent", "cd /tmp"], capture_output=True, text=True),
             call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True),
             call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True),
         ]
         assert mock_run.call_args_list == expected
+
+
+class TestSendBootstrap:
+    @patch("subprocess.run")
+    def test_first_call_works(self, mock_run):
+        mock_run.return_value = _ok()
+        duo.transport._BOOTSTRAP_DONE.discard("agent")
+        send_bootstrap("agent", "bootstrap prompt")
+        assert "agent" in duo.transport._BOOTSTRAP_DONE
+
+    @patch("subprocess.run")
+    def test_second_call_raises(self, mock_run):
+        mock_run.return_value = _ok()
+        duo.transport._BOOTSTRAP_DONE.add("agent2")
+        with pytest.raises(RuntimeError, match="PERMANENT LOCK"):
+            send_bootstrap("agent2", "prompt")
+        duo.transport._BOOTSTRAP_DONE.discard("agent2")
 
 
 class TestSendMessage:
@@ -375,13 +402,19 @@ class TestRetry:
 
 class TestIsInDialog:
     @patch("subprocess.run")
-    def test_detects_yn_dialog(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="Continue? (y/n)", stderr="")
+    def test_detects_box_dialog(self, mock_run):
+        content = "╭─ Question ─╮\n1. Yes\n2. No\n╰────────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
         assert is_in_dialog("test-pane") is True
 
     @patch("subprocess.run")
     def test_no_dialog(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout="$ normal prompt", stderr="")
+        assert is_in_dialog("test-pane") is False
+
+    @patch("subprocess.run")
+    def test_main_prompt_rejected(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="❯ Type @ to mention files", stderr="")
         assert is_in_dialog("test-pane") is False
 
 

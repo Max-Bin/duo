@@ -35,6 +35,7 @@ _BRIDGE: str | None = None
 
 
 def _bridge_bin() -> str:
+    """Return the cached tmux-bridge binary path, locating it on first call."""
     global _BRIDGE
     if _BRIDGE is None:
         _BRIDGE = _find_bridge()
@@ -46,7 +47,7 @@ def _retry(max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0) -> C
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_error = None
+            last_error: RuntimeError = RuntimeError("all retries exhausted")
             wait = delay
             for attempt in range(max_attempts):
                 try:
@@ -56,7 +57,7 @@ def _retry(max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0) -> C
                     if attempt < max_attempts - 1:
                         _time.sleep(wait)
                         wait *= backoff
-            raise last_error  # type: ignore[misc]
+            raise last_error
         return wrapper  # type: ignore[return-value]
     return decorator
 
@@ -109,6 +110,8 @@ def get_pane_id() -> str:
 
 @dataclass
 class PaneInfo:
+    """Parsed row from ``tmux-bridge list`` output."""
+
     target: str
     session_win: str
     size: str
@@ -133,31 +136,51 @@ def list_panes() -> list[PaneInfo]:
     return panes
 
 
-# === Safety: dialog detection ===
+# === PREMIUM REQUEST PROTECTION (HARD ENFORCEMENT) ===
+# - send_bootstrap(): locked after 1st use per pane
+# - send_prompt(): BANNED, always raises
+# - safe_enter(): blocks Enter if at ❯ prompt
+# - select_dialog_option(): double-checks dialog stability
+
+_BOOTSTRAP_DONE: set[str] = set()
+
+
+def _is_at_main_prompt(content: str) -> bool:
+    """True if pane shows Copilot ❯ prompt. ANY input here = PR consumed."""
+    for line in reversed(content.strip().split("\n")):
+        s = line.strip()
+        if s.startswith("❯") and ("Type @" in s or s == "❯" or "mention files" in s):
+            return True
+        if "Remaining reqs" in s or "shift+tab" in s:
+            continue
+        if s and not s.startswith("─"):
+            break
+    return False
 
 
 def is_in_dialog(label: str) -> bool:
-    """Check if a pane is showing a dialog/prompt requiring input.
+    """True if Copilot shows a ╭╰ dialog box with numbered options."""
+    content = read_pane(label, 20)
+    if _is_at_main_prompt(content):
+        return False
+    has_box = any("╰─" in l or "╭─" in l for l in content.split("\n"))
+    has_opt = any(
+        any(l.strip().startswith(f"{n}.") or f"❯ {n}." in l for n in range(1, 7))
+        for l in content.split("\n")
+    )
+    return has_box and has_opt
 
-    Detects common Copilot CLI dialogs by reading terminal content.
-    """
-    content = read_pane(label, 10)
-    dialog_indicators = [
-        "? ",          # Copilot question prompt
-        "(y/n)",       # Yes/No dialog
-        "[Y/n]",       # Default-yes dialog
-        "[y/N]",       # Default-no dialog
-        "Press Enter",
-        "Continue?",
-    ]
-    return any(indicator in content for indicator in dialog_indicators)
+
+def is_in_dialog_stable(label: str) -> bool:
+    """Double-check: read twice with 1s gap. Both must show dialog."""
+    if not is_in_dialog(label):
+        return False
+    _time.sleep(1.0)
+    return is_in_dialog(label)
 
 
 def wait_for_idle(label: str, timeout: float = 30.0, poll_interval: float = 1.0) -> bool:
-    """Wait until a pane appears idle (no new output for poll_interval).
-
-    Returns True if idle detected, False if timeout reached.
-    """
+    """Wait until pane output stabilizes."""
     previous = ""
     elapsed = 0.0
     while elapsed < timeout:
@@ -171,52 +194,61 @@ def wait_for_idle(label: str, timeout: float = 30.0, poll_interval: float = 1.0)
 
 
 def wait_for_dialog(label: str, timeout: float = 300, interval: float = 5) -> bool:
-    """Wait until Copilot shows an ask_user dialog.
-
-    Returns True if dialog appeared, False if timeout.
-    NEVER interact with Copilot until this returns True.
-    """
-    import time
+    """Wait for STABLE dialog (double-checked)."""
     elapsed = 0.0
     while elapsed < timeout:
-        if is_in_dialog(label):
+        if is_in_dialog_stable(label):
             return True
-        time.sleep(interval)
+        _time.sleep(interval)
         elapsed += interval
     return False
 
 
-def select_dialog_option(label: str, option: str) -> None:
-    """Safely select an option in a Copilot ask_user dialog.
-
-    ONLY call this when is_in_dialog() returns True.
-    Raises RuntimeError if Copilot is not in dialog mode.
-    """
-    if not is_in_dialog(label):
+def safe_enter(label: str) -> None:
+    """Press Enter ONLY if NOT at ❯ prompt. Raises otherwise."""
+    content = read_pane(label, 20)
+    if _is_at_main_prompt(content):
         raise RuntimeError(
-            f"SAFETY: Copilot pane '{label}' is NOT in dialog mode. "
-            "Sending input now would consume a Premium Request. "
-            "Wait for ask_user dialog to appear."
+            f"BLOCKED: '{label}' at ❯ prompt. Enter = PR consumed. REFUSED."
         )
-    type_text(label, option)
-    read_pane(label, 5)
     send_keys(label, "Enter")
+
+
+def select_dialog_option(label: str, option: str) -> None:
+    """Select dialog option with triple safety."""
+    if not is_in_dialog_stable(label):
+        raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
+    type_text(label, option)
+    safe_enter(label)
 
 
 # === Composite operations ===
 
 
-def send_prompt(label: str, prompt: str) -> None:
-    """Full read→type→read→Enter cycle (smux core pattern).
+def send_shell_command(label: str, command: str) -> None:
+    """Send to SHELL (before Copilot starts). No PR cost."""
+    read_pane(label, 5)
+    type_text(label, command)
+    read_pane(label, 5)
+    send_keys(label, "Enter")
 
-    WARNING: This sends to the main ❯ prompt and consumes a Premium Request.
-    Only use for the FIRST message (bootstrap) or when explicitly intended.
-    For continuation, use select_dialog_option() instead.
-    """
-    read_pane(label, 5)          # 1. satisfy read guard
-    type_text(label, prompt)     # 2. type text (clears guard)
-    read_pane(label, 5)          # 3. verify text landed (re-satisfy guard)
-    send_keys(label, "Enter")    # 4. submit
+
+def send_bootstrap(label: str, prompt: str) -> None:
+    """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use."""
+    if label in _BOOTSTRAP_DONE:
+        raise RuntimeError(
+            f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK."
+        )
+    read_pane(label, 5)
+    type_text(label, prompt)
+    read_pane(label, 5)
+    send_keys(label, "Enter")
+    _BOOTSTRAP_DONE.add(label)
+
+
+def send_prompt(label: str, prompt: str) -> None:
+    """BANNED. Always raises."""
+    raise RuntimeError("send_prompt() BANNED. Use send_shell_command/send_bootstrap/select_dialog_option.")
 
 
 def send_message(label: str, text: str) -> None:

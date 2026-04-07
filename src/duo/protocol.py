@@ -27,6 +27,8 @@ TASKS_DIR = DUO_DIR / "tasks"
 
 
 class TaskStatus(str, Enum):
+    """FSM states for a task's lifecycle."""
+
     CREATED = "created"
     QUEUED = "queued"
     SESSION_STARTING = "session_starting"
@@ -65,6 +67,8 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
 
 @dataclass
 class Subtask:
+    """A single step within a task, with its scope and acceptance criteria."""
+
     step_id: int
     description: str
     target_files: list[str]
@@ -75,6 +79,8 @@ class Subtask:
 
 @dataclass
 class SecurityPolicy:
+    """Security constraints enforced during verification."""
+
     writable_paths: list[str] = field(default_factory=list)
     secret_patterns: list[str] = field(default_factory=lambda: ["API_KEY=", "password=", "token="])
     forbidden_commands: list[str] = field(default_factory=list)
@@ -86,6 +92,8 @@ class SecurityPolicy:
 
 @dataclass
 class Task:
+    """Core task model holding FSM state, subtasks, and file-protocol paths."""
+
     id: str
     description: str
     worktree: str
@@ -103,26 +111,33 @@ class Task:
 
     @property
     def dir(self) -> Path:
+        """Return the task's root directory under ~/.duo/tasks/."""
         return TASKS_DIR / self.id
 
     @property
     def journal_path(self) -> Path:
+        """Return the path to this task's append-only event journal."""
         return self.dir / "journal.jsonl"
 
     @property
     def heartbeat_path(self) -> Path:
+        """Return the path to this task's heartbeat file."""
         return self.dir / "heartbeat.json"
 
     def step_dir(self, step: int) -> Path:
+        """Return the directory for a given step number."""
         return self.dir / "steps" / f"step-{step:04d}"
 
     def ack_path(self, step: int, attempt: int) -> Path:
+        """Return the path to the ack file for a step and attempt."""
         return self.step_dir(step) / f"ack-attempt-{attempt:02d}.json"
 
     def result_path(self, step: int, attempt: int) -> Path:
+        """Return the path to the result file for a step and attempt."""
         return self.step_dir(step) / f"result-attempt-{attempt:02d}.json"
 
     def prompt_path(self, step: int, attempt: int) -> Path:
+        """Return the path to the saved prompt file for a step and attempt."""
         return self.step_dir(step) / f"prompt-attempt-{attempt:02d}.txt"
 
 
@@ -354,6 +369,8 @@ def list_tasks() -> list[Task]:
 
 @dataclass
 class Heartbeat:
+    """Parsed heartbeat.json written by the executor session."""
+
     ts: str
     incarnation: str
     step: int
@@ -363,6 +380,8 @@ class Heartbeat:
 
 @dataclass
 class AckResult:
+    """Parsed acknowledgement written by the executor for a step attempt."""
+
     step: int
     attempt: int
     incarnation: str
@@ -372,6 +391,8 @@ class AckResult:
 
 @dataclass
 class StepResult:
+    """Parsed result written by the executor after completing a step attempt."""
+
     step: int
     attempt: int
     incarnation: str

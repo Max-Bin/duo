@@ -24,6 +24,8 @@ HEARTBEAT_TIMEOUT = 90.0  # seconds without heartbeat before declaring timeout
 
 
 class PollResult(str, Enum):
+    """Outcome of a single poll cycle for a task."""
+
     RESULT_READY = "result_ready"
     WORKING = "working"
     HEARTBEAT_TIMEOUT = "heartbeat_timeout"
@@ -33,14 +35,16 @@ class PollResult(str, Enum):
 # === Helpers ===
 
 
-def age(iso_ts: str) -> float:
+def age(iso_ts: str | None) -> float:
     """Return seconds elapsed since an ISO-8601 timestamp."""
+    if iso_ts is None:
+        return float("inf")
     try:
         dt = datetime.fromisoformat(iso_ts)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - dt).total_seconds()
-    except (ValueError, TypeError):
+    except ValueError:
         return float("inf")
 
 
@@ -63,6 +67,13 @@ class AdaptivePoller:
         max_interval: float = MAX_INTERVAL,
         heartbeat_timeout: float = HEARTBEAT_TIMEOUT,
     ) -> None:
+        """Initialize poller with configurable timing parameters.
+
+        Args:
+            base_interval: Starting poll interval in seconds.
+            max_interval: Upper bound for the poll interval.
+            heartbeat_timeout: Seconds without a heartbeat before timeout.
+        """
         self.base_interval = base_interval
         self.max_interval = max_interval
         self.heartbeat_timeout = heartbeat_timeout

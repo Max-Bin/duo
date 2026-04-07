@@ -1,6 +1,6 @@
 [project]
 name = "duo"
-version = "0.4.0"
+version = "0.5.0"
 description = "Agent Orchestration Runtime — Commander 指挥，Executor 执行"
 readme = "README.md"
 authors = [

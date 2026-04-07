@@ -33,9 +33,9 @@ from duo.transport import (
     is_process_alive,
     name_pane,
     read_pane,
-    send_keys,
-    send_prompt,
-    type_text,
+    select_dialog_option,
+    send_bootstrap,
+    send_shell_command,
 )
 from duo.verifier import Correction, Pass, verify_step
 
@@ -82,6 +82,7 @@ SESSION_BOOTSTRAP_TEMPLATE = """\
 
 
 def build_bootstrap_prompt(task: Task) -> str:
+    """Build the initial session bootstrap prompt with file protocol instructions."""
     return SESSION_BOOTSTRAP_TEMPLATE.format(
         task_dir=str(task.dir),
         incarnation=task.incarnation_id,
@@ -95,6 +96,8 @@ def build_task_prompt(task: Task) -> str:
     """Build prompt for current step+attempt."""
     step = task.current_step
     attempt = task.current_attempt
+    if step < 1 or step > len(task.subtasks):
+        raise ValueError(f"Step {step} out of range (1..{len(task.subtasks)})")
     subtask = task.subtasks[step - 1]
 
     target_list = "\n".join(f"- {f}" for f in subtask.target_files)
@@ -182,14 +185,14 @@ def start_session(task: Task) -> None:
     name_pane(pane_id, task.pane_label)
 
     # Tile layout for balance
-    subprocess.run(["tmux", "select-layout", "tiled"])
+    subprocess.run(["tmux", "select-layout", "tiled"], capture_output=True)
 
     # cd to worktree, then start copilot (no -C flag available)
     time.sleep(0.5)
-    send_prompt(task.pane_label, f"cd {task.worktree}")
+    send_shell_command(task.pane_label, f"cd {task.worktree}")
     time.sleep(0.3)
     copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
-    send_prompt(task.pane_label, copilot_cmd)
+    send_shell_command(task.pane_label, copilot_cmd)
 
     append_event(task, "session_started", {
         "incarnation": task.incarnation_id,
@@ -203,12 +206,12 @@ def start_session(task: Task) -> None:
 
     # Auto-approve all operations to avoid interactive prompts
     click.echo("Sending /allow-all...")
-    send_prompt(task.pane_label, "/allow-all")
+    send_shell_command(task.pane_label, "/allow-all")
     time.sleep(2)  # Wait for it to be processed
 
-    # Send bootstrap prompt (this is the first message in the conversation)
+    # Send bootstrap prompt (this is the first and only ❯ prompt message)
     bootstrap = build_bootstrap_prompt(task)
-    send_prompt(task.pane_label, bootstrap)
+    send_bootstrap(task.pane_label, bootstrap)
 
     transition(task, TaskStatus.PROMPT_SENT)
 
@@ -237,8 +240,8 @@ def send_task_prompt(task: Task, prompt: str) -> None:
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt)
 
-    # Send via tmux-bridge
-    send_prompt(task.pane_label, prompt)
+    # Send via dialog option (all post-bootstrap interaction goes through dialog)
+    select_dialog_option(task.pane_label, prompt)
 
     task.last_prompt_sent_at = now_iso()
     save_task(task)
@@ -258,7 +261,7 @@ def resend_last_prompt(task: Task) -> None:
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
     if prompt_path.exists():
         prompt = prompt_path.read_text()
-        send_prompt(task.pane_label, prompt)
+        select_dialog_option(task.pane_label, prompt)
         task.last_prompt_sent_at = now_iso()
         save_task(task)
         append_event(task, "prompt_resent", {
@@ -388,7 +391,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                     "incarnation": inc,
                     "terminal": terminal[-500:],
                 })
-                send_prompt(task.pane_label, "请重试上一个操作")
+                select_dialog_option(task.pane_label, "请重试上一个操作")
 
     elif poll_result == PollResult.UNKNOWN:
         # Check if ack is missing

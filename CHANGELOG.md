@@ -3,6 +3,19 @@
 All notable changes to Duo are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.5.0] — 2025-07-18
+
+### Added
+- `duo dashboard` — Rich live terminal dashboard with real-time task monitoring
+- `duo export` — task report export in JSON and text formats
+- `duo cleanup` — clean completed/failed tasks with journal preservation option
+- `duo version` — show installed version
+- Premium Request zero-cost safety: `send_bootstrap` one-time lock, `send_prompt` BANNED, `safe_enter` prompt guard, `is_in_dialog_stable` double-check
+- Deep code review fixes: retry init, bounds check, tmux error handling, age() type safety
+- Complete docstrings for all modules
+- Updated README covering all 17 commands
+- Updated `install.sh` with `--check`, `--force`, verification, summary table
+
 ## [0.4.0] — 2025-07-15
 
 ### Added

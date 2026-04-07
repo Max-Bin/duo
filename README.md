@@ -74,6 +74,10 @@ duo status my-task
 
 # 5. 任务完成后合并到主分支
 duo merge my-task
+
+# 其他常用命令
+duo dashboard            # 实时仪表盘
+duo version              # 查看版本
 ```
 
 ### 全部命令
@@ -84,18 +88,19 @@ duo merge my-task
 | `duo send <name> <prompt>` | 向任务发送工作指令 |
 | `duo status [name]` | 查看单个任务或所有任务状态 |
 | `duo list` | 表格形式列出所有任务（ID / STATUS / STEP / INCARNATION） |
-| `duo inspect <name>` | 查看任务详细信息（状态、心跳、ack/result、近期事件） |
-| `duo logs <name> [-n N] [--all]` | 查看任务事件流（默认最近 20 条） |
 | `duo monitor [names...]` | 启动自适应轮询监控（可指定任务，默认全部） |
 | `duo recover` | 从 journal 回放恢复中断的任务 |
 | `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |
 | `duo kill <name>` | 终止任务，清理 worktree 和分支 |
 | `duo batch <file> --repo <path>` | 从 JSON/YAML 文件批量创建任务 |
 | `duo queue` | 查看并行队列状态（活跃/排队任务数） |
-| `duo config list` | 查看所有配置项及当前值 |
-| `duo config get <key>` | 查看单个配置值 |
-| `duo config set <key> <value>` | 修改配置值 |
-| `duo config reset [key]` | 重置所有或单个配置到默认值 |
+| `duo dashboard [names...] --refresh <sec>` | Rich 实时终端仪表盘（默认刷新间隔 2s） |
+| `duo logs <name> [-n N] [--all]` | 查看任务事件流（默认最近 20 条） |
+| `duo inspect <name>` | 查看任务详细信息（状态、心跳、ack/result、近期事件） |
+| `duo export <name> --format json\|text [-o file]` | 导出任务报告（事件、变更文件、摘要） |
+| `duo cleanup [--all] [--force] [--keep-journal]` | 清理已完成/失败的任务（worktree + 状态目录） |
+| `duo config list\|get\|set\|reset` | 配置管理（查看/修改/重置配置项） |
+| `duo version` | 显示 Duo 版本号 |
 
 ### 全局选项
 
@@ -122,18 +127,35 @@ duo start auth-module --repo . --desc "实现用户认证模块"
 # 4. 发送具体指令
 duo send auth-module "在 src/auth.py 中实现 JWT 认证，包括 login/logout/refresh 端点"
 
-# 5. 监控进度
+# 5. 实时仪表盘监控
+duo dashboard auth-module
+
+# 6. 或者自适应轮询监控
 duo monitor auth-module
 
-# 6. 查看状态
+# 7. 查看状态
 duo status auth-module
 duo list
 
-# 7. 任务完成后合并
+# 8. 查看详情和事件流
+duo inspect auth-module
+duo logs auth-module -n 50
+
+# 9. 导出任务报告
+duo export auth-module --format json -o report.json
+duo export auth-module --format text
+
+# 10. 任务完成后合并
 duo merge auth-module
 
-# 8. 清理失败的任务
+# 11. 清理已完成的任务
+duo cleanup --all --force
+
+# 12. 清理单个失败的任务
 duo kill failed-task
+
+# 13. 查看版本
+duo version
 ```
 
 ## 配置管理
@@ -158,6 +180,7 @@ duo config reset copilot_model  # 重置单个配置
 | `poll_base_interval` | `5.0` | 轮询基础间隔 |
 | `poll_max_interval` | `120.0` | 轮询最大间隔 |
 | `auto_allow_all` | `true` | 自动发送 /allow-all |
+| `max_parallel` | `3` | 最大并行任务数 |
 
 ## 并行调度
 
@@ -228,17 +251,19 @@ Commander 发送 prompt → Executor 写入 ack → Executor 写入 heartbeat（
 
 ### FSM（有限状态机）
 
-Task 有 11 个状态，所有转换经过校验并记录到 journal：
+Task 有 13 个状态，所有转换经过校验并记录到 journal：
 
 ```
-CREATED → SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING
-                                                                                    │
-                                    ┌───────────────────────────────────────────────┘
-                                    ▼
-                              ┌─ COMPLETED（终态）
-                              ├─ CORRECTING → 重试
-                              ├─ BLOCKED → ESCALATED / 重试
-                              └─ ESCALATED → 人工介入
+CREATED → QUEUED（排队等待） / SESSION_STARTING（直接启动）
+QUEUED → SESSION_STARTING（有空位时调度） / FAILED
+SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING
+                                                                          │
+                                      ┌───────────────────────────────────┘
+                                      ▼
+                                ┌─ COMPLETED（终态）
+                                ├─ CORRECTING → 重试
+                                ├─ BLOCKED → ESCALATED / 重试
+                                └─ ESCALATED → 人工介入
 
 FAILED → SESSION_STARTING（自动重启）
 ```
@@ -247,13 +272,15 @@ FAILED → SESSION_STARTING（自动重启）
 
 | 模块 | 行数 | 职责 |
 |------|------|------|
-| `cli.py` | ~340 | Click CLI 入口，9 个命令 + config 子命令，git worktree/branch 管理 |
-| `protocol.py` | ~440 | FSM 状态机 + 数据模型（dataclass） + 文件 I/O + journal |
-| `commander.py` | ~430 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
-| `config.py` | ~80 | 配置管理：持久化配置读写，类型自动转换，默认值 |
-| `transport.py` | ~160 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
+| `cli.py` | ~780 | Click CLI 入口，17 个命令 + config 子命令，git worktree/branch 管理 |
+| `protocol.py` | ~449 | FSM 状态机（13 状态） + 数据模型（dataclass） + 文件 I/O + journal |
+| `commander.py` | ~469 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
+| `config.py` | ~77 | 配置管理：持久化配置读写，类型自动转换，默认值 |
+| `scheduler.py` | ~129 | 并行调度器：FIFO 队列、max_parallel 限流、自动出队 |
+| `dashboard.py` | ~158 | Rich 实时仪表盘：任务状态表格、心跳进度、自动刷新 |
+| `transport.py` | ~264 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
 | `poller.py` | ~120 | 自适应轮询器，指数退避 + 心跳超时检测 |
-| `verifier.py` | ~230 | 质量门禁：安全边界、secret 检测、未跟踪文件、验收测试 |
+| `verifier.py` | ~239 | 质量门禁：安全边界、secret 检测、未跟踪文件、验收测试 |
 
 ### protocol.py — 数据模型
 
@@ -332,6 +359,11 @@ python -m pytest tests/test_protocol.py -v
 python -m pytest tests/test_verifier.py -v
 python -m pytest tests/test_poller.py -v
 python -m pytest tests/test_commander.py -v
+python -m pytest tests/test_cli.py -v
+python -m pytest tests/test_config.py -v
+python -m pytest tests/test_scheduler.py -v
+python -m pytest tests/test_dashboard.py -v
+python -m pytest tests/test_transport.py -v
 ```
 
 ## 项目结构
@@ -343,18 +375,25 @@ duo/
 ├── CLAUDE.md
 ├── src/duo/
 │   ├── __init__.py
-│   ├── cli.py          # CLI 入口
+│   ├── cli.py          # CLI 入口（17 个命令）
 │   ├── config.py       # 配置管理
 │   ├── protocol.py     # FSM + 数据模型 + 文件 I/O
 │   ├── commander.py    # 编排逻辑
+│   ├── scheduler.py    # 并行调度器
+│   ├── dashboard.py    # Rich 实时仪表盘
 │   ├── transport.py    # tmux-bridge 封装
 │   ├── poller.py       # 自适应轮询
 │   └── verifier.py     # 质量门禁
 └── tests/
+    ├── test_cli.py
     ├── test_protocol.py
-    ├── test_verifier.py
+    ├── test_commander.py
+    ├── test_config.py
+    ├── test_scheduler.py
+    ├── test_dashboard.py
+    ├── test_transport.py
     ├── test_poller.py
-    └── test_commander.py
+    └── test_verifier.py
 ```
 
 ## License

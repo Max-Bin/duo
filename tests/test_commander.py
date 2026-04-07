@@ -243,7 +243,7 @@ class TestVerifyAndAdvance:
         }
         write_json(result_path, data)
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_no_result_does_nothing(self, mock_verify, mock_send):
         task = _make_task()
@@ -254,7 +254,7 @@ class TestVerifyAndAdvance:
         # Status unchanged
         assert task.status == TaskStatus.PROMPT_SENT
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_blocked_result_transitions_to_blocked(self, mock_verify, mock_send):
         task = _make_task()
@@ -265,7 +265,7 @@ class TestVerifyAndAdvance:
         assert task.status == TaskStatus.BLOCKED
         mock_verify.assert_not_called()
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_pass_last_step_completes(self, mock_verify, mock_send):
         task = _make_task()  # single subtask → step 1 is the last step
@@ -276,7 +276,7 @@ class TestVerifyAndAdvance:
         verify_and_advance(task)
         assert task.status == TaskStatus.COMPLETED
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_pass_advances_to_next_step(self, mock_verify, mock_send):
         task = _make_task(subtasks=[_make_subtask(1), _make_subtask(2)])
@@ -288,12 +288,12 @@ class TestVerifyAndAdvance:
 
         assert task.current_step == 2
         assert task.current_attempt == 1
-        # send_task_prompt calls send_prompt internally
+        # send_task_prompt calls select_dialog_option internally
         mock_send.assert_called()
         # Should end in PROMPT_SENT after sending continuation
         assert task.status == TaskStatus.PROMPT_SENT
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_correction_increments_attempt(self, mock_verify, mock_send):
         task = _make_task()
@@ -307,7 +307,7 @@ class TestVerifyAndAdvance:
         mock_send.assert_called()
         assert task.status == TaskStatus.PROMPT_SENT
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_three_corrections_escalates(self, mock_verify, mock_send):
         task = _make_task()
@@ -321,7 +321,7 @@ class TestVerifyAndAdvance:
         verify_and_advance(task)
         assert task.status == TaskStatus.ESCALATED
 
-    @patch("duo.commander.send_prompt")
+    @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
     def test_error_result_transitions_to_blocked(self, mock_verify, mock_send):
         task = _make_task()

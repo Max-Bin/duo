@@ -87,6 +87,18 @@ class TestMainGroup:
 
 
 # ---------------------------------------------------------------------------
+# version command
+# ---------------------------------------------------------------------------
+
+
+class TestVersion:
+    def test_version_output(self, runner: CliRunner):
+        result = runner.invoke(main, ["version"])
+        assert result.exit_code == 0
+        assert "duo" in result.output
+
+
+# ---------------------------------------------------------------------------
 # status command
 # ---------------------------------------------------------------------------
 

@@ -113,7 +113,7 @@ def start(name: str, repo: str, desc: str) -> None:
 
     if action == "queued":
         qs = queue_status()
-        click.echo(f"  Queued (position #{qs['queued_count']}). {qs['active_count']}/{qs['max_parallel']} slots in use.")
+        click.echo(f"  Queued ({qs['queued_count']} in queue). {qs['active_count']}/{qs['max_parallel']} slots in use.")
         click.echo("  Task will start automatically when a slot opens.")
         click.echo("  Run 'duo monitor' to manage the queue.")
         return
