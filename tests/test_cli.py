@@ -3424,6 +3424,59 @@ class TestInspectIncludeFiles:
         assert data["untracked_files"] == []
         assert "diff content" in data["diff_preview"]
 
+    def test_inspect_json_include_files_truncates_diff(self, runner: CliRunner):
+        """inspect --json-output --include-files truncates diff > 500 chars."""
+        _make_task("incl-trunc")
+        big_diff = "x" * 600
+        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="a.py\n", stderr="")
+        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout=big_diff, stderr="")
+
+        def fake_run_git(args, cwd, *, check=True):
+            if args[:2] == ["diff", "--name-only"]:
+                return changed
+            if args[0] == "ls-files":
+                return untracked
+            return diff
+
+        with patch("duo.cli._run_git", side_effect=fake_run_git), \
+             patch("os.path.isdir", return_value=True):
+            result = runner.invoke(main, ["inspect", "incl-trunc", "--json-output", "--include-files"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["diff_preview"].endswith("... (truncated)")
+        assert len(data["diff_preview"].split("\n... (truncated)")[0]) == 500
+
+    def test_inspect_json_include_files_no_worktree(self, runner: CliRunner):
+        """inspect --json-output --include-files sets files_error when worktree missing."""
+        _make_task("incl-nodir-json")
+        result = runner.invoke(main, ["inspect", "incl-nodir-json", "--json-output", "--include-files"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "files_error" in data
+        assert "Worktree not found" in data["files_error"]
+
+    def test_inspect_text_include_files_truncates_diff(self, runner: CliRunner):
+        """inspect --include-files (text) truncates diff > 500 chars."""
+        _make_task("incl-trunc-text")
+        big_diff = "y" * 600
+        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="b.py\n", stderr="")
+        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout=big_diff, stderr="")
+
+        def fake_run_git(args, cwd, *, check=True):
+            if args[:2] == ["diff", "--name-only"]:
+                return changed
+            if args[0] == "ls-files":
+                return untracked
+            return diff
+
+        with patch("duo.cli._run_git", side_effect=fake_run_git), \
+             patch("os.path.isdir", return_value=True):
+            result = runner.invoke(main, ["inspect", "incl-trunc-text", "--include-files"])
+        assert result.exit_code == 0
+        assert "... (truncated)" in result.output
+
 
 # ---------------------------------------------------------------------------
 # _fmt_ts helper
