@@ -589,13 +589,56 @@ class TestStartSessionError:
             start_session(task)
             assert task.status == TaskStatus.PROMPT_SENT
 
+    def test_start_session_transport_failure(self):
+        """start_session transitions to FAILED when send_shell_command raises."""
+        task = _make_task()
 
-# ---------------------------------------------------------------------------
-# send_task_prompt
-# ---------------------------------------------------------------------------
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch(
+                "duo.commander.send_shell_command",
+                side_effect=RuntimeError("tmux bridge error"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%99\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
 
+            with pytest.raises(RuntimeError, match="tmux bridge error"):
+                start_session(task)
 
-class TestSendTaskPrompt:
+            assert task.status == TaskStatus.FAILED
+            events = read_jsonl(task.journal_path)
+            assert any(
+                e.get("event") == "session_start_failed" for e in events
+            )
+
+    def test_restart_session_transport_failure(self):
+        """restart_session transitions to FAILED on transport error."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.RUNNING)
+
+        with (
+            patch(
+                "duo.commander.start_session",
+                side_effect=RuntimeError("tmux died"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            with pytest.raises(RuntimeError, match="tmux died"):
+                restart_session(task)
+
+            assert task.status == TaskStatus.FAILED
+            events = read_jsonl(task.journal_path)
+            assert any(
+                e.get("event") == "session_restart_failed" for e in events
+            )
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     def test_send_task_prompt_success(self, mock_select, mock_wait):

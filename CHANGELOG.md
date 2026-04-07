@@ -6,12 +6,26 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- 100% test coverage across all modules
-- Coverage CI enforcement (`fail_under=95`) in GitHub Actions and Makefile
+- `duo diff` — Show git diff for a task's worktree changes
+- `--dry-run` flag on `duo batch` and `duo merge` commands
+- `duo --version` flag (standard CLI behavior, in addition to `duo version`)
+- Categorized command help: 22 commands organized into 7 sections
+- 551 tests with 100% coverage
+- 41 edge case tests (protocol, scheduler, poller, config, CLI)
+- Expanded secret detection patterns (11 patterns)
+
+### Changed
+- Refactored git subprocess calls into `_run_git()` helper
+- Cleanup operations (merge/kill/cleanup) now show warnings on git failures
+- `resume` command logs warnings instead of silently swallowing exceptions
+- `load_task()` handles corrupted task.json gracefully (returns None)
+- Heartbeat cleared on `restart_session` to prevent stale reads
+- `fnmatch` replaced with `PurePosixPath.match()` for safer path matching
 
 ### Security
 - Path traversal protection in `write_json()` — rejects paths with `..` components
 - Pane label sanitisation in `resolve_label()` — rejects shell metacharacters
+- Replaced `fnmatch` with `PurePosixPath.match()` in verifier security scope checks
 
 ## [0.5.0] — 2025-07-18
 

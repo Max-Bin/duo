@@ -48,6 +48,9 @@ from duo.verifier import Correction, Pass, verify_step
 _SESSION_SPLIT_WAIT = 0.5
 _SESSION_CD_WAIT = 0.3
 
+_TERMINAL_SLICE = 500  # chars of terminal output to include in events
+_IDLE_GRACE_SECONDS = 30  # seconds before considering a prompted task idle
+
 # Dialog wait timeouts (seconds)
 _DIALOG_TIMEOUT_SEND = 60.0
 _DIALOG_TIMEOUT_RESEND = 30.0
@@ -220,10 +223,16 @@ def start_session(task: Task) -> None:
 
     # cd to worktree, then start copilot (no -C flag available)
     time.sleep(_SESSION_SPLIT_WAIT)
-    send_shell_command(task.pane_label, f"cd {task.worktree}")
-    time.sleep(_SESSION_CD_WAIT)
     copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
-    send_shell_command(task.pane_label, copilot_cmd)
+    try:
+        send_shell_command(task.pane_label, f"cd {task.worktree}")
+        time.sleep(_SESSION_CD_WAIT)
+        send_shell_command(task.pane_label, copilot_cmd)
+    except Exception as exc:
+        logger.warning("start_session transport error for '%s': %s", task.id, exc)
+        transition(task, TaskStatus.FAILED)
+        append_event(task, "session_start_failed", {"error": str(exc)})
+        raise
 
     append_event(
         task,
@@ -283,7 +292,13 @@ def restart_session(task: Task) -> None:
         },
     )
 
-    start_session(task)
+    try:
+        start_session(task)
+    except Exception as exc:
+        logger.warning("restart_session transport error for '%s': %s", task.id, exc)
+        transition(task, TaskStatus.FAILED)
+        append_event(task, "session_restart_failed", {"error": str(exc)})
+        raise
 
 
 def send_task_prompt(task: Task, prompt: str) -> None:
@@ -529,7 +544,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                     "api_error",
                     {
                         "incarnation": inc,
-                        "terminal": terminal[-500:],
+                        "terminal": terminal[-_TERMINAL_SLICE:],
                     },
                 )
                 if wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_MONITOR):
@@ -563,7 +578,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
         # Check if ack is missing
         ack = read_ack_for_step(task, step, attempt)
         if ack is None and task.last_prompt_sent_at:
-            if age(task.last_prompt_sent_at) > 30:
+            if age(task.last_prompt_sent_at) > _IDLE_GRACE_SECONDS:
                 resend_last_prompt(task)
 
     return poll_result
