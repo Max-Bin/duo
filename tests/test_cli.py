@@ -944,6 +944,33 @@ class TestKillSuccess:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    def test_kill_cleanup_warnings(self, runner: CliRunner, tmp_path: Path):
+        """kill shows warnings when git cleanup fails."""
+        task = _make_task("kill-warn")
+        wt_dir = tmp_path / "kill_warn_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/kill-warn"
+        save_task(task)
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = "worktree /main/repo\n\n"
+            if args[:3] == ["git", "worktree", "remove"]:
+                m.returncode = 1
+                m.stderr = "is dirty"
+            if args[:3] == ["git", "branch", "-D"]:
+                m.returncode = 1
+                m.stderr = "not found"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+            result = runner.invoke(main, ["kill", "kill-warn"])
+            assert result.exit_code == 0
+            assert "Warning: worktree removal failed" in result.output
+            assert "Warning: branch deletion failed" in result.output
+
 
 # ---------------------------------------------------------------------------
 # merge command
@@ -1116,6 +1143,42 @@ class TestMergeCommand:
         ):
             result = runner.invoke(main, ["merge", "merge-nomain"])
             assert result.exit_code != 0
+
+    def test_merge_cleanup_warnings(self, runner: CliRunner, tmp_path: Path):
+        """merge shows warnings when worktree/branch cleanup fails."""
+        task = _make_task("merge-warn")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "merge_warn_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/merge-warn"
+        save_task(task)
+
+        worktree_base = "/some/worktree/base"
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = (
+                    f"worktree /main/repo\n\nworktree {worktree_base}/merge-warn\n\n"
+                )
+            # Cleanup fails
+            if args[:3] == ["git", "worktree", "remove"]:
+                m.returncode = 1
+                m.stderr = "dirty worktree"
+            if args[:3] == ["git", "branch", "-d"]:
+                m.returncode = 1
+                m.stderr = "branch not found"
+            return m
+
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
+            patch("duo.cli.get_config", return_value=worktree_base),
+        ):
+            result = runner.invoke(main, ["merge", "merge-warn"])
+            assert result.exit_code == 0
+            assert "Warning: worktree removal failed" in result.output
+            assert "Warning: branch deletion failed" in result.output
 
     def test_merge_ff_only_fails(self, runner: CliRunner, tmp_path: Path):
         """merge exits when ff-only merge fails (lines 358-359)."""
@@ -1688,6 +1751,33 @@ class TestCleanupDetailed:
                 if len(c[0][0]) >= 3 and c[0][0][:3] == ["git", "worktree", "remove"]
             ]
             assert len(wt_remove_calls) >= 1
+
+    def test_cleanup_warns_on_git_failure(
+        self, runner: CliRunner, make_task, tmp_path: Path
+    ):
+        """cleanup shows warnings when git cleanup commands fail."""
+        task = make_task("cl-warn")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt_warn"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/cl-warn"
+        save_task(task)
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "remove"]:
+                m.returncode = 1
+                m.stderr = "is dirty"
+            if args[:3] == ["git", "branch", "-D"]:
+                m.returncode = 1
+                m.stderr = "not found"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+            result = runner.invoke(main, ["cleanup", "--force"])
+            assert result.exit_code == 0
+            assert "Warning: worktree removal failed" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -2485,3 +2575,37 @@ class TestDiffCommand:
             result = runner.invoke(main, ["diff", "diff-empty"])
             assert result.exit_code == 0
             assert "No changes" in result.output
+
+    def test_diff_with_output(self, runner: CliRunner, tmp_path: Path):
+        """diff shows actual git diff output."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+
+        sub = Subtask(
+            step_id=1, description="d", target_files=[], writable_paths=[]
+        )
+        create_task(
+            task_id="diff-output",
+            description="desc",
+            worktree=str(wt),
+            branch="main",
+            base_commit="abc",
+            subtasks=[sub],
+        )
+
+        import subprocess
+
+        original_run = subprocess.run
+        diff_text = "+++ b/file.py\n+new line\n"
+
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "git" and "diff" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=diff_text, stderr=""
+                )
+            return original_run(cmd, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["diff", "diff-output"])
+            assert result.exit_code == 0
+            assert "+new line" in result.output
