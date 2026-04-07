@@ -452,3 +452,51 @@ class TestCleanup:
         assert result.exit_code == 0
         # Journal should still exist
         assert task.journal_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# audit command
+# ---------------------------------------------------------------------------
+
+
+class TestAudit:
+    def test_audit_no_tasks(self, runner: CliRunner):
+        result = runner.invoke(main, ["audit"])
+        assert result.exit_code == 0
+        assert "No tasks" in result.output
+
+    def test_audit_single_task(self, runner: CliRunner, make_task):
+        from duo.protocol import append_event
+
+        task = make_task("audit-task")
+        save_task(task)
+        # Simulate PR consumption events
+        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        result = runner.invoke(main, ["audit", "audit-task"])
+        assert result.exit_code == 0
+        assert "PR consumed: 2" in result.output
+        assert "bootstrap" in result.output
+        assert "task_prompt" in result.output
+
+    def test_audit_all_tasks(self, runner: CliRunner, make_task):
+        from duo.protocol import append_event
+
+        t1 = make_task("task-a")
+        save_task(t1)
+        append_event(t1, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+
+        t2 = make_task("task-b")
+        save_task(t2)
+        append_event(t2, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+
+        result = runner.invoke(main, ["audit"])
+        assert result.exit_code == 0
+        assert "TOTAL" in result.output
+        assert "3" in result.output  # total PR count
+
+    def test_audit_not_found(self, runner: CliRunner):
+        result = runner.invoke(main, ["audit", "nope"])
+        assert result.exit_code != 0
+        assert "not found" in result.output

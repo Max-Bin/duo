@@ -448,6 +448,65 @@ def queue() -> None:
 
 
 @main.command()
+@click.argument("name", required=False)
+def audit(name: str | None = None) -> None:
+    """Show Premium Request consumption audit."""
+    from duo.protocol import read_jsonl
+    from duo.transport import get_pr_log
+
+    if name:
+        # Single task audit
+        task = load_task(name)
+        if task is None:
+            click.echo(f"Error: task '{name}' not found.", err=True)
+            sys.exit(1)
+        events = read_jsonl(task.journal_path)
+        pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
+        click.echo(f"Task: {task.id}")
+        click.echo(f"PR consumed: {len(pr_events)}")
+        if pr_events:
+            click.echo(f"\n{'TIME':<10} {'ACTION':<16} {'STEP':<6} {'ATTEMPT':<8}")
+            click.echo("-" * 42)
+            for ev in pr_events:
+                ts = ev.get("ts", "?")
+                if "T" in ts:
+                    ts = ts.split("T")[1][:8]
+                data = ev.get("data", {})
+                click.echo(
+                    f"{ts:<10} {data.get('action', '?'):<16} "
+                    f"{data.get('step', '?'):<6} {data.get('attempt', '?'):<8}"
+                )
+    else:
+        # All tasks audit
+        tasks = list_tasks()
+        if not tasks:
+            click.echo("No tasks.")
+            return
+
+        total_pr = 0
+        click.echo(f"{'TASK':<20} {'STATUS':<14} {'PR COUNT':<10}")
+        click.echo("-" * 46)
+        for t in tasks:
+            events = read_jsonl(t.journal_path)
+            pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
+            total_pr += pr_count
+            click.echo(f"{t.id:<20} {t.status.value:<14} {pr_count:<10}")
+
+        click.echo("-" * 46)
+        click.echo(f"{'TOTAL':<20} {'':<14} {total_pr:<10}")
+
+        # Show session-level log
+        pr_log = get_pr_log()
+        if pr_log:
+            click.echo(f"\nSession log ({len(pr_log)} entries):")
+            for entry in pr_log[-10:]:
+                ts = entry.get("ts", "?")
+                if "T" in ts:
+                    ts = ts.split("T")[1][:8]
+                click.echo(f"  {ts} {entry.get('action', '?')} [{entry.get('label', '?')}]")
+
+
+@main.command()
 @click.argument("names", nargs=-1)
 @click.option("--refresh", default=2.0, help="Refresh rate in seconds")
 def dashboard(names: tuple[str, ...], refresh: float) -> None:
@@ -578,6 +637,11 @@ def inspect(name: str) -> None:
 
     # Recent events
     events = read_jsonl(task.journal_path)
+
+    # PR consumption count
+    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
+    click.echo(f"\nPR Consumed:     {pr_count}")
+
     if events:
         recent = events[-5:]
         click.echo(f"\nRecent Events ({len(events)} total):")

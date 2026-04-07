@@ -144,6 +144,38 @@ def list_panes() -> list[PaneInfo]:
 
 _BOOTSTRAP_DONE: set[str] = set()
 
+# PR consumption audit — every PR-consuming action is recorded
+_PR_LOG: list[dict[str, str]] = []
+_pr_callback: Callable[[str, str, str], None] | None = None
+
+
+def set_pr_callback(callback: Callable[[str, str, str], None] | None) -> None:
+    """Register a callback for PR consumption events.
+
+    Callback receives (label, action, context).
+    """
+    global _pr_callback
+    _pr_callback = callback
+
+
+def _record_pr(label: str, action: str, context: str = "") -> None:
+    """Record a Premium Request consumption."""
+    import datetime as _dt
+    entry = {
+        "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "label": label,
+        "action": action,
+        "context": context,
+    }
+    _PR_LOG.append(entry)
+    if _pr_callback is not None:
+        _pr_callback(label, action, context)
+
+
+def get_pr_log() -> list[dict[str, str]]:
+    """Return the full PR consumption audit log."""
+    return list(_PR_LOG)
+
 
 def _is_at_main_prompt(content: str) -> bool:
     """True if pane shows Copilot ❯ prompt. ANY input here = PR consumed."""
@@ -220,6 +252,7 @@ def select_dialog_option(label: str, option: str) -> None:
         raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
     type_text(label, option)
     safe_enter(label)
+    _record_pr(label, "dialog_option", option[:80])
 
 
 # === Composite operations ===
@@ -252,6 +285,7 @@ def send_bootstrap(label: str, prompt: str) -> None:
     read_pane(label, 5)
     send_keys(label, "Enter")
     _BOOTSTRAP_DONE.add(label)
+    _record_pr(label, "bootstrap", prompt[:80])
 
 
 def send_prompt(label: str, prompt: str) -> None:

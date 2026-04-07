@@ -215,6 +215,11 @@ def start_session(task: Task) -> None:
     # Send bootstrap prompt (this is the first and only ❯ prompt message)
     bootstrap = build_bootstrap_prompt(task)
     send_bootstrap(task.pane_label, bootstrap)
+    append_event(task, "pr_consumed", {
+        "action": "bootstrap",
+        "step": task.current_step,
+        "attempt": task.current_attempt,
+    })
 
     transition(task, TaskStatus.PROMPT_SENT)
 
@@ -252,6 +257,12 @@ def send_task_prompt(task: Task, prompt: str) -> None:
         raise RuntimeError(f"Dialog timeout for '{task.pane_label}' — Copilot may be stuck")
     select_dialog_option(task.pane_label, prompt)
 
+    append_event(task, "pr_consumed", {
+        "action": "task_prompt",
+        "step": task.current_step,
+        "attempt": task.current_attempt,
+    })
+
     task.last_prompt_sent_at = now_iso()
     save_task(task)
 
@@ -274,6 +285,11 @@ def resend_last_prompt(task: Task) -> None:
             append_event(task, "dialog_timeout_resend", {"step": task.current_step})
             return
         select_dialog_option(task.pane_label, prompt)
+        append_event(task, "pr_consumed", {
+            "action": "resend_prompt",
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+        })
         task.last_prompt_sent_at = now_iso()
         save_task(task)
         append_event(task, "prompt_resent", {
@@ -405,6 +421,11 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                 })
                 if wait_for_dialog(task.pane_label, timeout=15):
                     select_dialog_option(task.pane_label, "请重试上一个操作")
+                    append_event(task, "pr_consumed", {
+                        "action": "error_retry",
+                        "step": step,
+                        "attempt": attempt,
+                    })
 
     elif poll_result == PollResult.UNKNOWN:
         # Check if ack is missing

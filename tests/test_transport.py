@@ -258,8 +258,12 @@ class TestSendBootstrap:
     def test_first_call_works(self, mock_run):
         mock_run.return_value = _ok()
         duo.transport._BOOTSTRAP_DONE.discard("agent")
+        duo.transport._PR_LOG.clear()
         send_bootstrap("agent", "bootstrap prompt")
         assert "agent" in duo.transport._BOOTSTRAP_DONE
+        # PR audit recorded
+        assert len(duo.transport._PR_LOG) >= 1
+        assert duo.transport._PR_LOG[-1]["action"] == "bootstrap"
 
     @patch("subprocess.run")
     def test_second_call_raises(self, mock_run):
@@ -414,6 +418,29 @@ class TestRetry:
         with pytest.raises(ValueError):
             fn()
         assert call_count == 1
+
+
+# ── PR audit ──────────────────────────────────────────────────────────
+
+
+class TestPRAudit:
+    def test_get_pr_log(self):
+        from duo.transport import get_pr_log, _record_pr
+        initial = len(get_pr_log())
+        _record_pr("test-pane", "test_action", "ctx")
+        log = get_pr_log()
+        assert len(log) == initial + 1
+        assert log[-1]["action"] == "test_action"
+        assert log[-1]["label"] == "test-pane"
+
+    def test_pr_callback(self):
+        from duo.transport import set_pr_callback, _record_pr
+        calls: list[tuple[str, str, str]] = []
+        set_pr_callback(lambda l, a, c: calls.append((l, a, c)))
+        _record_pr("pane", "act", "ctx")
+        assert len(calls) == 1
+        assert calls[0] == ("pane", "act", "ctx")
+        set_pr_callback(None)  # cleanup
 
 
 # ── is_in_dialog ─────────────────────────────────────────────────────
