@@ -284,3 +284,57 @@ def kill(name: str) -> None:
     from duo.protocol import save_task
     save_task(task)
     click.echo(f"Killed {name}.")
+
+
+@main.group()
+def config() -> None:
+    """Manage Duo configuration."""
+    pass
+
+
+@config.command("get")
+@click.argument("key")
+def config_get(key: str) -> None:
+    """Get a config value."""
+    from duo.config import get_config, DEFAULTS
+    value = get_config(key)
+    if value is None:
+        click.echo(f"Unknown key: {key}", err=True)
+        sys.exit(1)
+    click.echo(f"{key} = {value}")
+
+
+@config.command("set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str) -> None:
+    """Set a config value."""
+    from duo.config import set_config, DEFAULTS
+    if key not in DEFAULTS:
+        click.echo(f"Warning: '{key}' is not a known config key", err=True)
+    result = set_config(key, value)
+    click.echo(f"{key} = {result}")
+
+
+@config.command("list")
+def config_list() -> None:
+    """List all config values."""
+    from duo.config import load_config, DEFAULTS
+    config = load_config()
+    for key in sorted(DEFAULTS):
+        value = config.get(key, DEFAULTS[key])
+        default = DEFAULTS[key]
+        marker = "" if value == default else " (modified)"
+        click.echo(f"  {key} = {value}{marker}")
+
+
+@config.command("reset")
+@click.argument("key", required=False)
+def config_reset(key: str | None = None) -> None:
+    """Reset config to defaults (or reset a single key)."""
+    from duo.config import reset_config
+    reset_config(key)
+    if key:
+        click.echo(f"Reset {key} to default.")
+    else:
+        click.echo("All config reset to defaults.")

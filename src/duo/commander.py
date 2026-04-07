@@ -42,7 +42,13 @@ from duo.transport import (
 from duo.verifier import Correction, Pass, verify_step
 
 
-DEFAULT_COPILOT_MODEL = os.environ.get("DUO_COPILOT_MODEL", "claude-opus-4.6")
+def _get_copilot_model() -> str:
+    """Get copilot model from config, env var override, or default."""
+    from duo.config import get_config
+    env_model = os.environ.get("DUO_COPILOT_MODEL")
+    if env_model:
+        return env_model
+    return get_config("copilot_model") or "claude-opus-4.6"
 
 # === Session Bootstrap ===
 
@@ -186,7 +192,7 @@ def start_session(task: Task) -> None:
     time.sleep(0.5)
     send_prompt(task.pane_label, f"cd {task.worktree}")
     time.sleep(0.3)
-    copilot_cmd = f"copilot --model {DEFAULT_COPILOT_MODEL} --yolo"
+    copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
     send_prompt(task.pane_label, copilot_cmd)
 
     append_event(task, "session_started", {
@@ -198,6 +204,11 @@ def start_session(task: Task) -> None:
     # Wait for copilot to start and show its prompt
     click.echo("Waiting for Copilot to start...")
     time.sleep(8)
+
+    # Auto-approve all operations to avoid interactive prompts
+    click.echo("Sending /allow-all...")
+    send_prompt(task.pane_label, "/allow-all")
+    time.sleep(2)  # Wait for it to be processed
 
     # Send bootstrap prompt (this is the first message in the conversation)
     bootstrap = build_bootstrap_prompt(task)

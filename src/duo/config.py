@@ -1,0 +1,75 @@
+"""Configuration management — persistent settings in ~/.duo/config.json."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from duo.protocol import DUO_DIR
+
+CONFIG_PATH = DUO_DIR / "config.json"
+
+# Default values for all config keys
+DEFAULTS: dict[str, Any] = {
+    "copilot_model": "claude-opus-4.6",
+    "max_corrections": 3,
+    "heartbeat_timeout": 90,
+    "poll_base_interval": 5.0,
+    "poll_max_interval": 120.0,
+    "auto_allow_all": True,
+}
+
+
+def load_config() -> dict[str, Any]:
+    """Load config, falling back to defaults for missing keys."""
+    config = dict(DEFAULTS)
+    if CONFIG_PATH.exists():
+        try:
+            stored = json.loads(CONFIG_PATH.read_text())
+            config.update(stored)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return config
+
+
+def save_config(config: dict[str, Any]) -> None:
+    """Save config to disk."""
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+
+
+def get_config(key: str) -> Any:
+    """Get a single config value."""
+    config = load_config()
+    return config.get(key)
+
+
+def set_config(key: str, value: str) -> Any:
+    """Set a config value with type coercion based on defaults."""
+    config = load_config()
+    # Type coerce based on default type
+    if key in DEFAULTS:
+        default_type = type(DEFAULTS[key])
+        if default_type is bool:
+            value = value.lower() in ("true", "1", "yes")
+        elif default_type is int:
+            value = int(value)
+        elif default_type is float:
+            value = float(value)
+    config[key] = value
+    save_config(config)
+    return value
+
+
+def reset_config(key: str | None = None) -> None:
+    """Reset one key or all keys to defaults."""
+    if key is None:
+        save_config(dict(DEFAULTS))
+    else:
+        config = load_config()
+        if key in DEFAULTS:
+            config[key] = DEFAULTS[key]
+        elif key in config:
+            del config[key]
+        save_config(config)
