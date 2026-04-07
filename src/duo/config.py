@@ -19,6 +19,7 @@ DEFAULTS: dict[str, Any] = {
     "poll_max_interval": 120.0,
     "auto_allow_all": True,
     "max_parallel": 3,
+    "pr_budget": 0,  # 0 = unlimited, >0 = max PR per task
 }
 
 

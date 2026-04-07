@@ -500,3 +500,19 @@ class TestAudit:
         result = runner.invoke(main, ["audit", "nope"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+
+# ---------------------------------------------------------------------------
+# config set pr_budget
+# ---------------------------------------------------------------------------
+
+
+class TestConfigSetPRBudget:
+    def test_set_pr_budget(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "set", "pr_budget", "10"])
+        assert result.exit_code == 0
+        assert "pr_budget = 10" in result.output

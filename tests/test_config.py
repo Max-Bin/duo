@@ -34,6 +34,11 @@ class TestLoadConfig:
         cfg = config_mod.load_config()
         assert cfg == config_mod.DEFAULTS
 
+    def test_pr_budget_in_defaults(self):
+        """Verify pr_budget is present in DEFAULTS."""
+        assert "pr_budget" in config_mod.DEFAULTS
+        assert config_mod.DEFAULTS["pr_budget"] == 0
+
 
 class TestSaveConfig:
     def test_round_trip(self, isolated_config):
@@ -93,6 +98,11 @@ class TestSetConfig:
         result = config_mod.set_config("custom_key", "hello")
         assert result == "hello"
         assert config_mod.get_config("custom_key") == "hello"
+
+    def test_coerces_pr_budget_int(self):
+        result = config_mod.set_config("pr_budget", "10")
+        assert result == 10
+        assert isinstance(result, int)
 
 
 class TestResetConfig:

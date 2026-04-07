@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from duo.commander import (
+    _check_pr_budget,
     _count_corrections,
     build_bootstrap_prompt,
     build_continue_prompt,
@@ -338,3 +339,56 @@ class TestVerifyAndAdvance:
         verify_and_advance(task)
         assert task.status == TaskStatus.BLOCKED
         mock_verify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _check_pr_budget
+# ---------------------------------------------------------------------------
+
+
+class TestPRBudget:
+    def test_unlimited_budget_allows(self, monkeypatch: pytest.MonkeyPatch):
+        """Budget=0 means unlimited."""
+        task = _make_task()
+        monkeypatch.setattr("duo.commander.get_config", lambda k: 0 if k == "pr_budget" else None)
+        assert _check_pr_budget(task) is True
+
+    def test_under_budget_allows(self, monkeypatch: pytest.MonkeyPatch):
+        """Under budget allows PR consumption."""
+        task = _make_task()
+        monkeypatch.setattr("duo.commander.get_config", lambda k: 5 if k == "pr_budget" else None)
+        # Add 2 pr_consumed events (under budget of 5)
+        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        assert _check_pr_budget(task) is True
+
+    def test_at_budget_blocks(self, monkeypatch: pytest.MonkeyPatch):
+        """At budget limit blocks further PR consumption."""
+        task = _make_task()
+        monkeypatch.setattr("duo.commander.get_config", lambda k: 2 if k == "pr_budget" else None)
+        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        assert _check_pr_budget(task) is False
+
+    def test_over_budget_blocks(self, monkeypatch: pytest.MonkeyPatch):
+        """Over budget blocks further PR consumption."""
+        task = _make_task()
+        monkeypatch.setattr("duo.commander.get_config", lambda k: 1 if k == "pr_budget" else None)
+        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        assert _check_pr_budget(task) is False
+
+    def test_negative_budget_treated_as_unlimited(self, monkeypatch: pytest.MonkeyPatch):
+        """Negative budget treated as unlimited."""
+        task = _make_task()
+        monkeypatch.setattr("duo.commander.get_config", lambda k: -1 if k == "pr_budget" else None)
+        assert _check_pr_budget(task) is True
+
+    def test_ignores_non_pr_events(self, monkeypatch: pytest.MonkeyPatch):
+        """Only pr_consumed events count toward budget."""
+        task = _make_task()
+        monkeypatch.setattr("duo.commander.get_config", lambda k: 2 if k == "pr_budget" else None)
+        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(task, "prompt_sent", {"step": 1, "attempt": 1})
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        assert _check_pr_budget(task) is True

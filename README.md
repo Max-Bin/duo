@@ -181,6 +181,7 @@ duo config reset copilot_model  # 重置单个配置
 | `poll_max_interval` | `120.0` | 轮询最大间隔 |
 | `auto_allow_all` | `true` | 自动发送 /allow-all |
 | `max_parallel` | `3` | 最大并行任务数 |
+| `pr_budget` | `0` | 每任务最大 PR 消耗（0=无限制） |
 
 ## 并行调度
 

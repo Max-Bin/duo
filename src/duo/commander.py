@@ -24,6 +24,7 @@ from duo.protocol import (
     now_iso,
     prompt_hash,
     read_ack_for_step,
+    read_jsonl,
     read_result_for_step,
     save_task,
     transition,
@@ -162,6 +163,19 @@ def build_correction_prompt(task: Task, reason: str) -> str:
     )
 
 
+# === PR Budget ===
+
+
+def _check_pr_budget(task: Task) -> bool:
+    """Check if task has exceeded its PR budget. Returns True if OK to proceed."""
+    budget = int(get_config("pr_budget"))
+    if budget <= 0:
+        return True  # unlimited
+    events = read_jsonl(task.journal_path)
+    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
+    return pr_count < budget
+
+
 # === Session Management ===
 
 
@@ -251,6 +265,16 @@ def send_task_prompt(task: Task, prompt: str) -> None:
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt)
 
+    # Check PR budget before consuming a Premium Request
+    if not _check_pr_budget(task):
+        append_event(task, "pr_budget_exceeded", {
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+        })
+        transition(task, TaskStatus.ESCALATED)
+        click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+        return
+
     # Wait for dialog then send (all post-bootstrap interaction goes through dialog)
     if not wait_for_dialog(task.pane_label, timeout=60):
         append_event(task, "dialog_timeout", {"step": task.current_step})
@@ -281,6 +305,15 @@ def resend_last_prompt(task: Task) -> None:
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
     if prompt_path.exists():
         prompt = prompt_path.read_text()
+        # Check PR budget before consuming a Premium Request
+        if not _check_pr_budget(task):
+            append_event(task, "pr_budget_exceeded", {
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+            })
+            transition(task, TaskStatus.ESCALATED)
+            click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+            return
         if not wait_for_dialog(task.pane_label, timeout=30):
             append_event(task, "dialog_timeout_resend", {"step": task.current_step})
             return
@@ -377,7 +410,6 @@ def _count_corrections(task: Task, step: int) -> int:
     Reads events in reverse to avoid scanning the entire journal for
     long-running tasks.
     """
-    from duo.protocol import read_jsonl
     events = read_jsonl(task.journal_path)
     count = 0
     for ev in reversed(events):
@@ -420,6 +452,15 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                     "terminal": terminal[-500:],
                 })
                 if wait_for_dialog(task.pane_label, timeout=15):
+                    # Check PR budget before consuming a Premium Request
+                    if not _check_pr_budget(task):
+                        append_event(task, "pr_budget_exceeded", {
+                            "step": step,
+                            "attempt": attempt,
+                        })
+                        transition(task, TaskStatus.ESCALATED)
+                        click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+                        return poll_result
                     select_dialog_option(task.pane_label, "请重试上一个操作")
                     append_event(task, "pr_consumed", {
                         "action": "error_retry",
