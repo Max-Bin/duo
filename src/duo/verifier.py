@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 
@@ -43,8 +44,9 @@ def git_diff_names(worktree: str) -> set[str]:
         text=True,
     )
     if proc.returncode != 0:
-        import sys
-        print(f"[duo] Warning: git diff failed in {worktree}: {proc.stderr.strip()}", file=sys.stderr)
+        raise RuntimeError(
+            f"git diff --name-only failed in {worktree}: {proc.stderr.strip()}"
+        )
     return {
         line
         for line in proc.stdout.strip().splitlines()
@@ -61,8 +63,9 @@ def git_diff(worktree: str) -> str:
         text=True,
     )
     if proc.returncode != 0:
-        import sys
-        print(f"[duo] Warning: git diff failed in {worktree}: {proc.stderr.strip()}", file=sys.stderr)
+        raise RuntimeError(
+            f"git diff failed in {worktree}: {proc.stderr.strip()}"
+        )
     return proc.stdout
 
 
@@ -75,8 +78,9 @@ def git_untracked(worktree: str) -> list[str]:
         text=True,
     )
     if proc.returncode != 0:
-        import sys
-        print(f"[duo] Warning: git ls-files failed in {worktree}: {proc.stderr.strip()}", file=sys.stderr)
+        raise RuntimeError(
+            f"git ls-files failed in {worktree}: {proc.stderr.strip()}"
+        )
     return [
         line
         for line in proc.stdout.strip().splitlines()
@@ -85,10 +89,10 @@ def git_untracked(worktree: str) -> list[str]:
 
 
 def run_in_worktree(worktree: str, command: str) -> int:
-    """Run a shell command inside *worktree* and return its exit code."""
+    """Run a command inside *worktree* and return its exit code."""
     proc = subprocess.run(
-        command,
-        shell=True,
+        shlex.split(command),
+        shell=False,
         cwd=worktree,
     )
     return proc.returncode
@@ -202,8 +206,11 @@ def verify_step(task: Task, result: StepResult) -> VerifyResult:
         return Correction(f"No subtask found for step {task.current_step}")
 
     worktree = task.worktree
-    changed = git_diff_names(worktree)
-    diff_content = git_diff(worktree)
+    try:
+        changed = git_diff_names(worktree)
+        diff_content = git_diff(worktree)
+    except RuntimeError as exc:
+        return Correction(f"Git operation failed: {exc}")
 
     # (a) Security scope — HARD
     err = _check_security_scope(task, changed, subtask.writable_paths)

@@ -410,6 +410,66 @@ class TestExport:
         assert "written to" in result.output
         assert (tmp_path / "report.txt").exists()
 
+    def test_export_collects_all_attempts_for_completed_steps(
+        self, runner: CliRunner
+    ):
+        """Export collects all attempt results for completed (non-current) steps."""
+        import json
+
+        task = create_task(
+            task_id="export-attempts",
+            description="Multi-attempt test",
+            worktree="/fake/worktree",
+            branch="duo/export-attempts",
+            base_commit="abc123",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="Step one",
+                    target_files=[],
+                    writable_paths=["*"],
+                ),
+                Subtask(
+                    step_id=2,
+                    description="Step two",
+                    target_files=[],
+                    writable_paths=["*"],
+                ),
+            ],
+        )
+        # Simulate: step 1 completed after 3 attempts, now on step 2 attempt 1
+        task.current_step = 2
+        task.current_attempt = 1
+        save_task(task)
+
+        # Write 3 result files for step 1
+        step_dir = task.step_dir(1)
+        step_dir.mkdir(parents=True, exist_ok=True)
+        for attempt in range(1, 4):
+            task.result_path(1, attempt).write_text(
+                json.dumps(
+                    {
+                        "step": 1,
+                        "attempt": attempt,
+                        "incarnation": "test",
+                        "status": "fail" if attempt < 3 else "pass",
+                        "files_changed": [f"file{attempt}.py"],
+                        "summary": f"Attempt {attempt}",
+                    }
+                )
+            )
+
+        result = runner.invoke(
+            main, ["export", "export-attempts", "--format", "json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        step1_results = [r for r in data["results"] if r["step"] == 1]
+        assert len(step1_results) == 3, (
+            f"Expected 3 results for step 1, got {len(step1_results)}"
+        )
+        assert [r["attempt"] for r in step1_results] == [1, 2, 3]
+
 
 # ---------------------------------------------------------------------------
 # cleanup command

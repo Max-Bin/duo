@@ -470,7 +470,7 @@ def audit(name: str | None = None) -> None:
             for ev in pr_events:
                 ts = ev.get("ts", "?")
                 if "T" in ts:
-                    ts = ts.split("T")[1][:8]
+                    ts = ts.split("T", 1)[1][:8]
                 data = ev.get("data", {})
                 click.echo(
                     f"{ts:<10} {data.get('action', '?'):<16} "
@@ -502,7 +502,7 @@ def audit(name: str | None = None) -> None:
             for entry in pr_log[-10:]:
                 ts = entry.get("ts", "?")
                 if "T" in ts:
-                    ts = ts.split("T")[1][:8]
+                    ts = ts.split("T", 1)[1][:8]
                 click.echo(f"  {ts} {entry.get('action', '?')} [{entry.get('label', '?')}]")
 
 
@@ -547,7 +547,7 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
         ts = ev.get("ts", "?")
         # Shorten timestamp for display
         if "T" in ts:
-            ts = ts.split("T")[1][:8]  # HH:MM:SS
+            ts = ts.split("T", 1)[1][:8]  # HH:MM:SS
         event_type = ev.get("event", "?")
         data = ev.get("data", {})
 
@@ -648,7 +648,7 @@ def inspect(name: str) -> None:
         for ev in recent:
             ts = ev.get("ts", "?")
             if "T" in ts:
-                ts = ts.split("T")[1][:8]
+                ts = ts.split("T", 1)[1][:8]
             click.echo(f"  {ts} {ev.get('event', '?')}")
 
 
@@ -746,8 +746,16 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
         # Collect results for each step
         results = []
         for s in task.subtasks:
-            max_attempt = task.current_attempt + 1 if s.step_id == task.current_step else 2
-            for attempt in range(1, max_attempt):
+            if s.step_id == task.current_step:
+                attempt_list = list(range(1, task.current_attempt + 1))
+            else:
+                # Scan for all result files in completed steps
+                step_dir = task.step_dir(s.step_id)
+                attempt_list = sorted(
+                    int(p.stem.split("-")[-1])
+                    for p in step_dir.glob("result-attempt-*.json")
+                ) if step_dir.is_dir() else []
+            for attempt in attempt_list:
                 result = read_result_for_step(task, s.step_id, attempt)
                 if result:
                     results.append({
@@ -786,7 +794,7 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
         for ev in events[-20:]:
             ts = ev.get("ts", "?")
             if "T" in ts:
-                ts = ts.split("T")[1][:8]
+                ts = ts.split("T", 1)[1][:8]
             lines.append(f"  {ts} {ev.get('event', '?')}")
 
         output = "\n".join(lines)

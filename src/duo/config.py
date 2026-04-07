@@ -56,9 +56,19 @@ def set_config(key: str, value: str) -> Any:
         if default_type is bool:
             coerced = value.lower() in ("true", "1", "yes")
         elif default_type is int:
-            coerced = int(value)
+            try:
+                coerced = int(value)
+            except ValueError:
+                raise ValueError(
+                    f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
+                )
         elif default_type is float:
-            coerced = float(value)
+            try:
+                coerced = float(value)
+            except ValueError:
+                raise ValueError(
+                    f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
+                )
     config[key] = coerced
     save_config(config)
     return coerced

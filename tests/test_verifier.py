@@ -18,6 +18,7 @@ from duo.verifier import (
     git_diff_names,
     git_diff,
     git_untracked,
+    run_in_worktree,
     _check_security_scope,
     _check_task_scope,
     _check_secret_leak,
@@ -94,6 +95,15 @@ class TestGitDiffNames:
         mock_run.return_value = _mock_proc("a.py\n\nb.py\n\n")
         assert git_diff_names("/w") == {"a.py", "b.py"}
 
+    @patch("duo.verifier.subprocess.run")
+    def test_raises_on_git_failure(self, mock_run):
+        proc = _mock_proc("")
+        proc.returncode = 128
+        proc.stderr = "fatal: not a git repository"
+        mock_run.return_value = proc
+        with pytest.raises(RuntimeError, match="git diff --name-only failed"):
+            git_diff_names("/w")
+
 
 class TestGitDiff:
     @patch("duo.verifier.subprocess.run")
@@ -112,6 +122,25 @@ class TestGitUntracked:
     def test_empty(self, mock_run):
         mock_run.return_value = _mock_proc("")
         assert git_untracked("/w") == []
+
+
+# ---------------------------------------------------------------------------
+# run_in_worktree
+# ---------------------------------------------------------------------------
+
+class TestRunInWorktree:
+    def test_simple_command(self, tmp_path):
+        """A basic command like 'echo hello' should succeed."""
+        assert run_in_worktree(str(tmp_path), "echo hello") == 0
+
+    def test_shell_metacharacters_not_interpreted(self, tmp_path):
+        """Shell metacharacters must NOT be interpreted (no injection)."""
+        marker = tmp_path / "injected.txt"
+        # With shell=True this would execute the second command and create the file.
+        # With shell=False via shlex.split, the semicollon and rest are passed
+        # as literal arguments to echo, so the file must NOT be created.
+        run_in_worktree(str(tmp_path), f"echo hello; touch {marker}")
+        assert not marker.exists(), "Shell injection was executed!"
 
 
 # ---------------------------------------------------------------------------
@@ -351,3 +380,10 @@ class TestVerifyStep:
         result = verify_step(task, self._result())
         assert isinstance(result, Correction)
         assert "Acceptance" in result.reason
+
+    @patch("duo.verifier.git_diff_names", side_effect=RuntimeError("git diff --name-only failed"))
+    def test_git_failure_returns_correction(self, _names):
+        task = _make_task()
+        result = verify_step(task, self._result())
+        assert isinstance(result, Correction)
+        assert "Git operation failed" in result.reason

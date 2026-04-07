@@ -22,6 +22,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Ruff linting integrated (unused imports, f-strings cleaned)
 - Integration tests simulating full task lifecycle
 
+### Security
+- Fix command injection: `run_in_worktree` now uses `shlex.split()` + `shell=False`
+- Fix export off-by-one: completed steps now scan all result files (not just attempt 1)
+- Git failures in verifier now raise `RuntimeError` instead of silently passing
+- Config `set_config` validates type coercion (catches invalid int/float input)
+- Timestamp parsing uses explicit `split("T", 1)` maxsplit
+
 ## [0.4.0] — 2025-07-15
 
 ### Added

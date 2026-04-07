@@ -104,6 +104,14 @@ class TestSetConfig:
         assert result == 10
         assert isinstance(result, int)
 
+    def test_invalid_int_raises_value_error(self):
+        with pytest.raises(ValueError, match="Cannot convert 'abc' to int"):
+            config_mod.set_config("max_corrections", "abc")
+
+    def test_invalid_float_raises_value_error(self):
+        with pytest.raises(ValueError, match="Cannot convert 'xyz' to float"):
+            config_mod.set_config("poll_base_interval", "xyz")
+
 
 class TestResetConfig:
     def test_reset_single_key(self):
