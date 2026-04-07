@@ -44,15 +44,14 @@ Commander 通过文件协议与 Executor 通信：Executor 写入 ack/heartbeat/
 
 ```bash
 git clone https://github.com/user/duo.git && cd duo
-uv sync
-
-# 确保 tmux-bridge (smux) 已安装并在 PATH 中
-# https://github.com/user/smux
+bash install.sh
 ```
+
+`install.sh` 会自动检测环境、安装 uv（如缺失）、同步依赖并安装 `duo` CLI。
 
 需要：
 - Python ≥ 3.12
-- [uv](https://docs.astral.sh/uv/) 包管理器
+- [uv](https://docs.astral.sh/uv/) 包管理器（install.sh 会自动安装）
 - tmux + [smux](https://github.com/user/smux)（提供 tmux-bridge）
 - [Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) 或 Claude Code
 
@@ -89,6 +88,65 @@ duo merge my-task
 | `duo recover` | 从 journal 回放恢复中断的任务 |
 | `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |
 | `duo kill <name>` | 终止任务，清理 worktree 和分支 |
+| `duo config list` | 查看所有配置项及当前值 |
+| `duo config get <key>` | 查看单个配置值 |
+| `duo config set <key> <value>` | 修改配置值 |
+| `duo config reset [key]` | 重置所有或单个配置到默认值 |
+
+## 完整使用示例
+
+一个端到端的工作流：
+
+```bash
+# 1. 安装
+bash install.sh
+
+# 2. 配置（可选）
+duo config set copilot_model claude-sonnet-4-20250514
+duo config list
+
+# 3. 在 tmux 中创建任务
+duo start auth-module --repo . --desc "实现用户认证模块"
+
+# 4. 发送具体指令
+duo send auth-module "在 src/auth.py 中实现 JWT 认证，包括 login/logout/refresh 端点"
+
+# 5. 监控进度
+duo monitor auth-module
+
+# 6. 查看状态
+duo status auth-module
+duo list
+
+# 7. 任务完成后合并
+duo merge auth-module
+
+# 8. 清理失败的任务
+duo kill failed-task
+```
+
+## 配置管理
+
+配置文件位于 `~/.duo/config.json`，通过 `duo config` 子命令管理：
+
+```bash
+duo config list              # 查看所有配置
+duo config get copilot_model # 查看单个配置
+duo config set copilot_model claude-sonnet-4-20250514  # 修改配置
+duo config reset             # 重置所有配置
+duo config reset copilot_model  # 重置单个配置
+```
+
+### 可用配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `copilot_model` | `claude-opus-4.6` | Copilot 模型 |
+| `max_corrections` | `3` | 最大纠错次数 |
+| `heartbeat_timeout` | `90` | 心跳超时秒数 |
+| `poll_base_interval` | `5.0` | 轮询基础间隔 |
+| `poll_max_interval` | `120.0` | 轮询最大间隔 |
+| `auto_allow_all` | `true` | 自动发送 /allow-all |
 
 ## 核心概念
 
@@ -142,9 +200,10 @@ FAILED → SESSION_STARTING（自动重启）
 
 | 模块 | 行数 | 职责 |
 |------|------|------|
-| `cli.py` | ~290 | Click CLI 入口，8 个命令，git worktree/branch 管理 |
+| `cli.py` | ~340 | Click CLI 入口，9 个命令 + config 子命令，git worktree/branch 管理 |
 | `protocol.py` | ~440 | FSM 状态机 + 数据模型（dataclass） + 文件 I/O + journal |
 | `commander.py` | ~430 | 编排大脑：prompt 构建、会话管理、轮询调度、纠错循环 |
+| `config.py` | ~80 | 配置管理：持久化配置读写，类型自动转换，默认值 |
 | `transport.py` | ~160 | tmux-bridge 封装，所有 tmux 交互的唯一入口 |
 | `poller.py` | ~120 | 自适应轮询器，指数退避 + 心跳超时检测 |
 | `verifier.py` | ~230 | 质量门禁：安全边界、secret 检测、未跟踪文件、验收测试 |
@@ -212,16 +271,14 @@ Grace period: prompt 发送后 90s 内不判超时
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `DUO_COPILOT_MODEL` | `claude-opus-4.6` | Copilot CLI 使用的模型 |
+| `DUO_COPILOT_MODEL` | `claude-opus-4.6` | 覆盖 config 中的 `copilot_model` |
 
 ## 开发
 
 ```bash
-# 安装依赖
-uv sync
-
-# 运行全部测试（157 个测试）
-python -m pytest tests/ -v
+bash install.sh              # 安装
+python -m pytest tests/ -v   # 运行测试
+duo --help                   # 查看命令
 
 # 运行单个模块测试
 python -m pytest tests/test_protocol.py -v
@@ -240,6 +297,7 @@ duo/
 ├── src/duo/
 │   ├── __init__.py
 │   ├── cli.py          # CLI 入口
+│   ├── config.py       # 配置管理
 │   ├── protocol.py     # FSM + 数据模型 + 文件 I/O
 │   ├── commander.py    # 编排逻辑
 │   ├── transport.py    # tmux-bridge 封装

@@ -14,6 +14,8 @@ python -m pytest tests/test_verifier.py -v
 python -m pytest tests/test_poller.py -v
 python -m pytest tests/test_commander.py -v
 duo --help                           # see CLI commands
+duo config list                      # list all config values
+duo config set copilot_model <model> # change config value
 ```
 
 ## Architecture
@@ -25,7 +27,8 @@ src/duo/
 ├── transport.py   — tmux-bridge wrapper (never call tmux directly)
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
-└── cli.py         — thin Click CLI entry point (8 commands: start/send/status/list/monitor/recover/merge/kill)
+├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
+└── cli.py         — thin Click CLI entry point (9 commands + config subcommands: start/send/status/list/monitor/recover/merge/kill/config)
 ```
 
 ### Key data flow
