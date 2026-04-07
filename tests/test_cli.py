@@ -2203,6 +2203,29 @@ class TestMonitorCommand:
             assert result.exit_code == 0
             mock_mon.assert_called_once_with(["task-a", "task-b"])
 
+    def test_monitor_max_time_sets_config(self, runner: CliRunner):
+        """--max-time sets task_timeout config before calling monitor."""
+        with (
+            patch("duo.commander.monitor") as mock_mon,
+            patch("duo.config.set_config") as mock_set,
+        ):
+            mock_mon.return_value = None
+            result = runner.invoke(main, ["monitor", "--max-time", "60"])
+            assert result.exit_code == 0
+            mock_set.assert_called_once_with("task_timeout", "60")
+            mock_mon.assert_called_once()
+
+    def test_monitor_max_time_zero_no_set(self, runner: CliRunner):
+        """--max-time=0 (default) does not call set_config."""
+        with (
+            patch("duo.commander.monitor") as mock_mon,
+            patch("duo.config.set_config") as mock_set,
+        ):
+            mock_mon.return_value = None
+            result = runner.invoke(main, ["monitor"])
+            assert result.exit_code == 0
+            mock_set.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # dashboard command

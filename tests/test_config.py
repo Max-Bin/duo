@@ -217,3 +217,25 @@ class TestSetConfigValidation:
     def test_set_config_negative_poll_interval(self):
         with pytest.raises(ValueError, match="poll_base_interval.*> 0"):
             config_mod.set_config("poll_base_interval", "-1.0")
+
+    def test_set_config_negative_task_timeout(self):
+        with pytest.raises(ValueError, match="task_timeout.*>= 0"):
+            config_mod.set_config("task_timeout", "-1")
+
+    def test_set_config_zero_task_timeout(self):
+        result = config_mod.set_config("task_timeout", "0")
+        assert result == 0
+
+    def test_set_config_positive_task_timeout(self):
+        result = config_mod.set_config("task_timeout", "300")
+        assert result == 300
+
+
+class TestTaskTimeoutDefault:
+    def test_task_timeout_in_defaults(self):
+        assert "task_timeout" in config_mod.DEFAULTS
+        assert config_mod.DEFAULTS["task_timeout"] == 0
+
+    def test_task_timeout_default_value(self):
+        cfg = config_mod.load_config()
+        assert cfg["task_timeout"] == 0

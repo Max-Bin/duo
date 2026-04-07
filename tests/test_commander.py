@@ -1256,6 +1256,103 @@ class TestMonitorPollResultBranches:
 
 
 # ---------------------------------------------------------------------------
+# monitor — task timeout enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestMonitorTaskTimeout:
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_no_timeout_when_disabled(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        """task_timeout=0 (default) does not trigger timeout."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        # Even with an old created_at, no timeout when disabled
+        task.created_at = "2020-01-01T00:00:00+00:00"
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch("duo.commander.get_config", return_value=0),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # poll_task was called (not skipped by timeout)
+        mock_poll.assert_called_once()
+        assert task.status == TaskStatus.PROMPT_SENT
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_timeout_triggers_on_old_task(
+        self, mock_list, mock_promote, mock_poll, mock_sleep, capsys
+    ):
+        """task_timeout=1 triggers timeout on a task created far in the past."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        task.created_at = "2020-01-01T00:00:00+00:00"
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch("duo.commander.get_config", return_value=1),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # poll_task should NOT have been called (timeout skipped it)
+        mock_poll.assert_not_called()
+        assert task.status == TaskStatus.FAILED
+        # Verify journal has timeout_exceeded event
+        events = read_jsonl(task.journal_path)
+        timeout_events = [e for e in events if e["event"] == "timeout_exceeded"]
+        assert len(timeout_events) == 1
+        assert timeout_events[0]["data"]["limit"] == 1
+        # Verify log output
+        captured = capsys.readouterr()
+        assert "timeout" in captured.out
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_no_timeout_when_within_limit(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        """task_timeout set but task is still within the limit."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        # created_at is now_iso() (just created), so age < 99999
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch("duo.commander.get_config", return_value=99999),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # poll_task was called (not timed out)
+        mock_poll.assert_called_once()
+        assert task.status == TaskStatus.PROMPT_SENT
+
+
+# ---------------------------------------------------------------------------
 # start_session — orphaned pane cleanup
 # ---------------------------------------------------------------------------
 

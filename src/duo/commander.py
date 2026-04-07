@@ -650,6 +650,28 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 break
 
         for task in active:
+            # Enforce task_timeout before polling
+            task_timeout = get_config("task_timeout")
+            if task_timeout and task_timeout > 0:
+                elapsed = age(task.created_at)
+                if elapsed > task_timeout:
+                    logger.warning(
+                        "Task %s exceeded timeout (%ds > %ds)",
+                        task.id,
+                        int(elapsed),
+                        task_timeout,
+                    )
+                    _log_monitor(
+                        "⏱", task.id, f"timeout ({int(elapsed)}s > {task_timeout}s)"
+                    )
+                    append_event(
+                        task,
+                        "timeout_exceeded",
+                        {"elapsed": int(elapsed), "limit": task_timeout},
+                    )
+                    transition(task, TaskStatus.FAILED)
+                    continue
+
             if task.id not in pollers:
                 pollers[task.id] = AdaptivePoller()
 

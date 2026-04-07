@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "auto_allow_all": True,
     "max_parallel": 3,
     "pr_budget": 0,  # 0 = unlimited, >0 = max PR per task
+    "task_timeout": 0,  # 0 = disabled, >0 = max seconds per task
     "worktree_base_path": "/tmp/duo-worktrees",
 }
 
@@ -79,6 +80,7 @@ def set_config(key: str, value: str) -> bool | int | float | str:
             "max_corrections": 1,
             "heartbeat_timeout": 1,
             "pr_budget": 0,
+            "task_timeout": 0,
         }
         _FLOAT_MINIMUMS: dict[str, float] = {
             "poll_base_interval": 0,

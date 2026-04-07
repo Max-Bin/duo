@@ -366,10 +366,19 @@ def list_cmd(as_json: bool) -> None:
 
 @main.command()
 @click.argument("names", nargs=-1)
-def monitor(names: tuple[str, ...]) -> None:
+@click.option(
+    "--max-time",
+    type=int,
+    default=0,
+    help="Max seconds before timing out tasks (overrides config).",
+)
+def monitor(names: tuple[str, ...], max_time: int) -> None:
     """Start adaptive polling monitor."""
     from duo.commander import monitor as run_monitor
+    from duo.config import set_config
 
+    if max_time > 0:
+        set_config("task_timeout", str(max_time))
     task_ids = list(names) if names else None
     click.echo("[duo] Starting monitor...")
     try:
