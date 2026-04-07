@@ -11,6 +11,9 @@ import pytest
 
 from duo.protocol import (
     TRANSITIONS,
+    AckResult,
+    Heartbeat,
+    StepResult,
     Subtask,
     TaskStatus,
     append_event,
@@ -19,8 +22,11 @@ from duo.protocol import (
     new_incarnation,
     now_iso,
     prompt_hash,
+    read_ack_for_step,
+    read_heartbeat,
     read_json,
     read_jsonl,
+    read_result_for_step,
     replay_state,
     save_task,
     transition,
@@ -501,3 +507,115 @@ class TestSaveTaskRoundtrip:
             loaded.security_policy.secret_patterns
             == task.security_policy.secret_patterns
         )
+
+
+# ---------------------------------------------------------------------------
+# read_heartbeat
+# ---------------------------------------------------------------------------
+
+
+class TestReadHeartbeat:
+    def test_read_heartbeat_valid(self):
+        """Write a valid heartbeat JSON, read it back, verify fields."""
+        task = create_task("hb-valid", "d", "/w", "b", "c", [_make_subtask()])
+        write_json(task.heartbeat_path, {
+            "ts": "2025-01-01T00:00:00+00:00",
+            "incarnation": "abcd1234",
+            "step": 1,
+            "status": "running",
+            "current_file": "main.py",
+        })
+        hb = read_heartbeat(task)
+        assert hb is not None
+        assert isinstance(hb, Heartbeat)
+        assert hb.ts == "2025-01-01T00:00:00+00:00"
+        assert hb.incarnation == "abcd1234"
+        assert hb.step == 1
+        assert hb.status == "running"
+        assert hb.current_file == "main.py"
+
+    def test_read_heartbeat_missing(self):
+        """No heartbeat file exists, returns None."""
+        task = create_task("hb-miss", "d", "/w", "b", "c", [_make_subtask()])
+        assert read_heartbeat(task) is None
+
+    def test_read_heartbeat_malformed(self):
+        """Write invalid JSON, verify graceful handling (returns None)."""
+        task = create_task("hb-bad", "d", "/w", "b", "c", [_make_subtask()])
+        task.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        task.heartbeat_path.write_text("not valid json {{{")
+        assert read_heartbeat(task) is None
+
+
+# ---------------------------------------------------------------------------
+# read_ack_for_step
+# ---------------------------------------------------------------------------
+
+
+class TestReadAckForStep:
+    def test_read_ack_valid(self):
+        """Write valid ack JSON, read back, verify fields."""
+        task = create_task("ack-valid", "d", "/w", "b", "c", [_make_subtask()])
+        write_json(task.ack_path(1, 1), {
+            "step": 1,
+            "attempt": 1,
+            "incarnation": "beef0001",
+            "prompt_hash": "aabb1122",
+            "acked_at": "2025-01-01T00:00:00+00:00",
+        })
+        ack = read_ack_for_step(task, 1, 1)
+        assert ack is not None
+        assert isinstance(ack, AckResult)
+        assert ack.step == 1
+        assert ack.attempt == 1
+        assert ack.incarnation == "beef0001"
+        assert ack.prompt_hash == "aabb1122"
+        assert ack.acked_at == "2025-01-01T00:00:00+00:00"
+
+    def test_read_ack_missing(self):
+        """No ack file, returns None."""
+        task = create_task("ack-miss", "d", "/w", "b", "c", [_make_subtask()])
+        assert read_ack_for_step(task, 1, 1) is None
+
+
+# ---------------------------------------------------------------------------
+# read_result_for_step
+# ---------------------------------------------------------------------------
+
+
+class TestReadResultForStep:
+    def test_read_result_valid(self):
+        """Write valid result JSON with status/summary/files_changed, read back."""
+        task = create_task("res-valid", "d", "/w", "b", "c", [_make_subtask()])
+        write_json(task.result_path(1, 1), {
+            "step": 1,
+            "attempt": 1,
+            "incarnation": "dead0001",
+            "status": "completed",
+            "files_changed": ["src/main.py", "tests/test_main.py"],
+            "summary": "Implemented feature X",
+            "reason": "",
+        })
+        result = read_result_for_step(task, 1, 1)
+        assert result is not None
+        assert isinstance(result, StepResult)
+        assert result.step == 1
+        assert result.attempt == 1
+        assert result.incarnation == "dead0001"
+        assert result.status == "completed"
+        assert result.files_changed == ["src/main.py", "tests/test_main.py"]
+        assert result.summary == "Implemented feature X"
+        assert result.reason == ""
+
+    def test_read_result_missing(self):
+        """No result file, returns None."""
+        task = create_task("res-miss", "d", "/w", "b", "c", [_make_subtask()])
+        assert read_result_for_step(task, 1, 1) is None
+
+    def test_read_result_malformed(self):
+        """Invalid JSON, graceful handling (returns None)."""
+        task = create_task("res-bad", "d", "/w", "b", "c", [_make_subtask()])
+        step_dir = task.result_path(1, 1).parent
+        step_dir.mkdir(parents=True, exist_ok=True)
+        task.result_path(1, 1).write_text("corrupt data!!!")
+        assert read_result_for_step(task, 1, 1) is None

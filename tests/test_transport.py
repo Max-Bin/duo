@@ -17,12 +17,14 @@ from duo.transport import (
     doctor,
     get_pane_id,
     is_in_dialog,
+    is_in_dialog_stable,
     is_process_alive,
     list_panes,
     name_pane,
     read_pane,
     resolve_label,
     safe_enter,
+    select_dialog_option,
     send_bootstrap,
     send_eof,
     send_keys,
@@ -30,6 +32,7 @@ from duo.transport import (
     send_prompt,
     send_shell_command,
     type_text,
+    wait_for_dialog,
     wait_for_idle,
 )
 
@@ -556,3 +559,76 @@ class TestWaitForIdle:
 
         mock_run.side_effect = changing_output
         assert wait_for_idle("test-pane", timeout=0.05, poll_interval=0.01) is False
+
+
+# ── is_in_dialog_stable ──────────────────────────────────────────────
+
+
+class TestIsInDialogStable:
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    def test_is_in_dialog_stable_both_true(self, mock_dialog, mock_time):
+        """Both reads return True with 1s gap → returns True."""
+        mock_time.sleep = MagicMock()
+        mock_dialog.return_value = True
+        assert is_in_dialog_stable("test-pane") is True
+        assert mock_dialog.call_count == 2
+        mock_time.sleep.assert_called_once_with(1.0)
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    def test_is_in_dialog_stable_first_true_second_false(self, mock_dialog, mock_time):
+        """First True, second False → returns False."""
+        mock_time.sleep = MagicMock()
+        mock_dialog.side_effect = [True, False]
+        assert is_in_dialog_stable("test-pane") is False
+
+
+# ── wait_for_dialog ──────────────────────────────────────────────────
+
+
+class TestWaitForDialog:
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_wait_for_dialog_immediate(self, mock_stable, mock_time):
+        """is_in_dialog_stable returns True on first call."""
+        mock_time.sleep = MagicMock()
+        mock_stable.return_value = True
+        assert wait_for_dialog("test-pane", timeout=10, interval=1) is True
+        assert mock_stable.call_count == 1
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_wait_for_dialog_timeout(self, mock_stable, mock_time):
+        """Always returns False → returns False after timeout."""
+        mock_time.sleep = MagicMock()
+        mock_stable.return_value = False
+        assert wait_for_dialog("test-pane", timeout=0.01, interval=0.01) is False
+
+
+# ── select_dialog_option ─────────────────────────────────────────────
+
+
+class TestSelectDialogOption:
+    @patch("subprocess.run")
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_select_dialog_option_success(self, mock_stable, mock_time, mock_run):
+        """Mock is_in_dialog_stable True, verify type_text and send_keys called, PR recorded."""
+        mock_time.sleep = MagicMock()
+        mock_stable.return_value = True
+        # safe_enter reads pane to check prompt — return non-prompt content
+        mock_run.return_value = MagicMock(returncode=0, stdout="some output", stderr="")
+
+        from duo.transport import get_pr_log
+
+        initial_count = len(get_pr_log())
+        select_dialog_option("test-pane", "1")
+
+        # Verify subprocess calls were made (type_text + send_keys for Enter)
+        assert mock_run.call_count >= 2
+        # Verify PR was recorded
+        log = get_pr_log()
+        assert len(log) == initial_count + 1
+        assert log[-1]["action"] == "dialog_option"
+        assert log[-1]["label"] == "test-pane"

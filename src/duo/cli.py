@@ -434,7 +434,7 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
 
     if file_path.suffix in (".yaml", ".yml"):
         try:
-            import yaml  # type: ignore[import-untyped]
+            import yaml  # type: ignore[import-untyped,unused-ignore]
 
             tasks_data = yaml.safe_load(content)
         except ImportError:

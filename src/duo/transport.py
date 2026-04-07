@@ -13,9 +13,27 @@ import subprocess
 import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 _F = TypeVar("_F", bound=Callable[..., Any])
+
+
+class TransportBridge(Protocol):
+    """Protocol for tmux-bridge command execution."""
+
+    def __call__(self, cmd: list[str], *, check: bool = True) -> str: ...
+
+
+class PaneReader(Protocol):
+    """Protocol for reading tmux pane content."""
+
+    def __call__(self, label: str, lines: int = 50) -> str: ...
+
+
+class DialogDetector(Protocol):
+    """Protocol for detecting dialog state in a pane."""
+
+    def __call__(self, label: str) -> bool: ...
 
 
 def _find_bridge() -> str:
