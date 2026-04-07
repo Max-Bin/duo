@@ -29,7 +29,7 @@ from duo.protocol import (
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
-    "Monitoring": ["list", "monitor", "dashboard", "logs", "inspect"],
+    "Monitoring": ["list", "monitor", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
     "Recovery": ["recover", "resume"],
     "Data & Audit": ["export", "audit", "cleanup"],
@@ -162,12 +162,17 @@ def completion(shell: str) -> None:
 @click.argument("name")
 @click.option("--repo", default=".", help="Git repo path to create worktree from")
 @click.option("--desc", default="", help="Task description")
-def start(name: str, repo: str, desc: str) -> None:
+@click.option("--model", default=None, help="Override copilot model for this task")
+@click.option("--queue", "start_queued", is_flag=True, help="Create task in queued state")
+def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool) -> None:
     """Create a task with worktree + Copilot session."""
     from duo.commander import start_session
 
     _validate_task_name(name)
     repo = os.path.abspath(repo)
+
+    if model:
+        os.environ["DUO_COPILOT_MODEL"] = model
 
     # Check for duplicate task
     existing = load_task(name)
@@ -202,6 +207,12 @@ def start(name: str, repo: str, desc: str) -> None:
     click.echo(f"  Worktree: {worktree}")
     click.echo(f"  Branch: {branch}")
     click.echo(f"  Incarnation: {task.incarnation_id}")
+
+    if start_queued:
+        from duo.protocol import transition
+        transition(task, TaskStatus.QUEUED)
+        click.echo(f"Task '{name}' queued.")
+        return
 
     # Check if we should queue or start
     from duo.scheduler import enqueue_or_start, queue_status
@@ -907,6 +918,43 @@ def inspect(name: str) -> None:
             if "T" in ts:
                 ts = ts.split("T", 1)[1][:8]
             click.echo(f"  {ts} {ev.get('event', '?')}")
+
+
+@main.command()
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def stats(as_json: bool) -> None:
+    """Show task statistics summary."""
+    from collections import Counter
+
+    tasks = list_tasks()
+    counts = Counter(t.status.value for t in tasks)
+    total = len(tasks)
+
+    if as_json:
+        output: dict[str, Any] = {"total": total, "by_status": dict(counts)}
+        click.echo(json.dumps(output, indent=2))
+        return
+
+    click.echo(f"Tasks: {total}")
+    if total == 0:
+        return
+
+    for status_val in [
+        "running",
+        "queued",
+        "blocked",
+        "prompt_sent",
+        "acked",
+        "verifying",
+        "correcting",
+        "completed",
+        "failed",
+        "escalated",
+        "created",
+    ]:
+        count = counts.get(status_val, 0)
+        if count > 0:
+            click.echo(f"  {status_val}: {count}")
 
 
 @main.command()

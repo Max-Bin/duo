@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -2770,3 +2771,70 @@ class TestJsonOutput:
         assert result.exit_code == 0
         assert "normal-task" in result.output
         assert "Status:" in result.output
+
+
+class TestStats:
+    def test_stats_empty(self, runner: CliRunner):
+        result = runner.invoke(main, ["stats"])
+        assert result.exit_code == 0
+        assert "Tasks: 0" in result.output
+
+    def test_stats_with_tasks(self, runner: CliRunner):
+        t1 = _make_task("stats-1")
+        t1.status = TaskStatus.RUNNING
+        save_task(t1)
+        t2 = _make_task("stats-2")
+        t2.status = TaskStatus.COMPLETED
+        save_task(t2)
+        result = runner.invoke(main, ["stats"])
+        assert result.exit_code == 0
+        assert "Tasks: 2" in result.output
+        assert "running: 1" in result.output
+        assert "completed: 1" in result.output
+
+    def test_stats_json(self, runner: CliRunner):
+        _make_task("stats-j")
+        result = runner.invoke(main, ["stats", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total"] == 1
+        assert "by_status" in data
+
+
+class TestStartFlags:
+    def test_start_with_queue(self, runner: CliRunner, tmp_path: Path):
+        """start --queue creates task in QUEUED state without starting a session."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session") as mock_start,
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "q-task"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "q-task", "--queue", "--repo", str(tmp_path)],
+            )
+            assert result.exit_code == 0
+            assert "queued" in result.output.lower()
+            mock_start.assert_not_called()
+
+        task = load_task("q-task")
+        assert task is not None
+        assert task.status == TaskStatus.QUEUED
+
+    def test_start_with_model(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """start --model sets DUO_COPILOT_MODEL env var."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session"),
+            patch("duo.scheduler.enqueue_or_start", return_value="started"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "m-task"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "m-task", "--model", "gpt-4", "--repo", str(tmp_path)],
+            )
+            assert result.exit_code == 0
+            assert os.environ.get("DUO_COPILOT_MODEL") == "gpt-4"
+
+        # Clean up env var
+        monkeypatch.delenv("DUO_COPILOT_MODEL", raising=False)
