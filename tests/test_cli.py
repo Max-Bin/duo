@@ -106,6 +106,35 @@ class TestVersion:
 
 
 # ---------------------------------------------------------------------------
+# completion command
+# ---------------------------------------------------------------------------
+
+
+class TestCompletion:
+    def test_completion_bash(self, runner: CliRunner):
+        result = runner.invoke(main, ["completion", "bash"])
+        assert result.exit_code == 0
+        assert "_DUO_COMPLETE" in result.output
+        assert "bash_source" in result.output
+
+    def test_completion_zsh(self, runner: CliRunner):
+        result = runner.invoke(main, ["completion", "zsh"])
+        assert result.exit_code == 0
+        assert "_DUO_COMPLETE" in result.output
+        assert "zsh_source" in result.output
+
+    def test_completion_fish(self, runner: CliRunner):
+        result = runner.invoke(main, ["completion", "fish"])
+        assert result.exit_code == 0
+        assert "_DUO_COMPLETE" in result.output
+        assert "fish_source" in result.output
+
+    def test_completion_invalid_shell(self, runner: CliRunner):
+        result = runner.invoke(main, ["completion", "powershell"])
+        assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
 # status command
 # ---------------------------------------------------------------------------
 
@@ -1870,3 +1899,384 @@ class TestLogsFormatting:
         result = runner.invoke(main, ["logs", "log-warn"])
         assert result.exit_code == 0
         assert "⚠" in result.output
+
+
+# ---------------------------------------------------------------------------
+# init command
+# ---------------------------------------------------------------------------
+
+
+class TestInit:
+    def test_init_creates_duo_dir(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init creates ~/.duo directory."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        assert "Initialized" in result.output
+        # DUO_DIR is monkeypatched to tmp_path which should exist
+        assert (tmp_path).exists()
+
+    def test_init_creates_project_duo_dir(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init creates .duo/ inside the repo."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        assert (repo / ".duo").is_dir()
+
+    def test_init_creates_instructions(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init creates .duo/instructions.md with template content."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        instructions = repo / ".duo" / "instructions.md"
+        assert instructions.exists()
+        content = instructions.read_text()
+        assert "# Duo Project Instructions" in content
+        assert "## Project Overview" in content
+        assert "## Coding Conventions" in content
+        assert "## Testing" in content
+        assert "## Important Notes" in content
+
+    def test_init_adds_gitignore(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init adds .duo/ to .gitignore."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        gitignore = repo / ".gitignore"
+        assert gitignore.exists()
+        assert ".duo/" in gitignore.read_text()
+
+    def test_init_already_initialized(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Re-running duo init shows 'Already initialized'."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".duo").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        assert "Already initialized" in result.output
+
+    def test_init_not_git_repo(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init in a non-git directory shows error."""
+        repo = tmp_path / "not-a-repo"
+        repo.mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code != 0
+        assert "git init" in result.output or "git init" in (result.output + str(result.exception or ""))
+
+    def test_init_gitignore_no_duplicate(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init does not duplicate .duo/ entry in .gitignore."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".gitignore").write_text("node_modules/\n.duo/\n")
+        # First init
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        content = (repo / ".gitignore").read_text()
+        assert content.count(".duo/") == 1
+
+    def test_init_creates_tasks_dir(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init creates ~/.duo/tasks/ directory."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        # TASKS_DIR is monkeypatched to tmp_path / "tasks"
+        assert (tmp_path / "tasks").is_dir()
+
+    def test_init_gitignore_no_trailing_newline(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When .gitignore exists without trailing newline, a newline is prepended before .duo/."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".gitignore").write_text("foo")
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        content = (repo / ".gitignore").read_text()
+        assert content == "foo\n.duo/\n"
+
+
+# ---------------------------------------------------------------------------
+# doctor command
+# ---------------------------------------------------------------------------
+
+
+class TestDoctor:
+    def test_doctor_all_pass(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """All checks pass when everything is available."""
+        # Write valid config
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+
+        def fake_which(name: str) -> str | None:
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        result = runner.invoke(main, ["doctor"])
+        assert result.exit_code == 0
+        assert "✓" in result.output
+        assert "8/8 checks passed" in result.output
+
+    def test_doctor_missing_tmux(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Missing tmux shows fix suggestion and exits 1."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+
+        def fake_which(name: str) -> str | None:
+            if name == "tmux":
+                return None
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1),
+        )
+        result = runner.invoke(main, ["doctor"])
+        assert result.exit_code != 0
+        assert "brew install tmux" in result.output
+
+    def test_doctor_missing_uv(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Missing uv shows fix suggestion."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+
+        def fake_which(name: str) -> str | None:
+            if name == "uv":
+                return None
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        result = runner.invoke(main, ["doctor"])
+        assert "astral.sh" in result.output
+
+    def test_doctor_summary_count(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Doctor output ends with X/Y checks passed."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+
+        def fake_which(name: str) -> str | None:
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        result = runner.invoke(main, ["doctor"])
+        assert "/8 checks passed" in result.output
+
+    def test_doctor_tmux_bridge_fallback_path(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """tmux-bridge found via ~/.smux/bin/tmux-bridge when not in PATH."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+
+        def fake_which(name: str) -> str | None:
+            if name == "tmux-bridge":
+                return None
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        # Create the fallback path
+        smux_bin = tmp_path / "fakehome" / ".smux" / "bin"
+        smux_bin.mkdir(parents=True)
+        (smux_bin / "tmux-bridge").touch()
+        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path / "fakehome")
+        result = runner.invoke(main, ["doctor"])
+        assert result.exit_code == 0
+        # tmux-bridge should show as installed via fallback
+        assert "tmux-bridge" in result.output
+        assert "not found" not in result.output
+
+    def test_doctor_invalid_config_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Invalid JSON in config.json shows 'missing or invalid' message."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text("not valid json {{{")
+
+        def fake_which(name: str) -> str | None:
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        result = runner.invoke(main, ["doctor"])
+        assert "missing or invalid" in result.output
+
+
+# ---------------------------------------------------------------------------
+# resume command
+# ---------------------------------------------------------------------------
+
+
+class TestResume:
+    def test_resume_specific_task(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Resume a named task calls restart or start session."""
+        task = _make_task("resume-me")
+        # Set to a non-terminal state
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr(
+            "duo.transport.is_process_alive",
+            lambda label: False,
+        )
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_restart = MagicMock()
+        monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        result = runner.invoke(main, ["resume", "resume-me"])
+        assert result.exit_code == 0
+        assert "Resumed task 'resume-me'" in result.output
+        mock_start.assert_called_once()
+
+    def test_resume_no_tasks(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """No interrupted tasks shows appropriate message."""
+        result = runner.invoke(main, ["resume"])
+        assert result.exit_code == 0
+        assert "No interrupted tasks found" in result.output
+
+    def test_resume_completed_task(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Resuming a completed task shows already completed."""
+        task = _make_task("done-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["resume", "done-task"])
+        assert result.exit_code == 0
+        assert "already completed" in result.output
+
+    def test_resume_all_interrupted(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Resume without name finds and resumes all non-terminal tasks."""
+        t1 = _make_task("task-a", "Task A")
+        t1.status = TaskStatus.RUNNING
+        save_task(t1)
+
+        t2 = _make_task("task-b", "Task B")
+        t2.status = TaskStatus.PROMPT_SENT
+        save_task(t2)
+
+        t3 = _make_task("task-c", "Task C")
+        t3.status = TaskStatus.COMPLETED
+        save_task(t3)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_restart = MagicMock()
+        monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        result = runner.invoke(main, ["resume"])
+        assert result.exit_code == 0
+        assert "task-a" in result.output
+        assert "task-b" in result.output
+        assert "task-c" not in result.output
+        assert mock_start.call_count == 2
+
+    def test_resume_task_not_found(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Resuming a non-existent task shows error."""
+        result = runner.invoke(main, ["resume", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_resume_pane_alive_restarts(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When pane is alive, restart_session is called instead of start_session."""
+        task = _make_task("alive-task")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: True)
+        mock_restart = MagicMock()
+        monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        result = runner.invoke(main, ["resume", "alive-task"])
+        assert result.exit_code == 0
+        assert "restarted session" in result.output
+        mock_restart.assert_called_once()
+
+    def test_resume_is_process_alive_exception(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When is_process_alive raises, pane_alive stays False and start_session is called."""
+        task = _make_task("error-task")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        def raise_error(label: str) -> bool:
+            raise RuntimeError("tmux not available")
+
+        monkeypatch.setattr("duo.transport.is_process_alive", raise_error)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_restart = MagicMock()
+        monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        result = runner.invoke(main, ["resume", "error-task"])
+        assert result.exit_code == 0
+        assert "started new session" in result.output
+        mock_start.assert_called_once()
+        mock_restart.assert_not_called()

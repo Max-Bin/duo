@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -95,6 +96,30 @@ def version() -> None:
     except (ImportError, AttributeError):
         ver = "0.5.0-dev"
     click.echo(f"duo {ver}")
+
+
+@main.command()
+@click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
+def completion(shell: str) -> None:
+    """Generate shell completion script.
+
+    \b
+    Add to your shell profile:
+      # Bash (~/.bashrc)
+      eval "$(duo completion bash)"
+
+      # Zsh (~/.zshrc)
+      eval "$(duo completion zsh)"
+
+      # Fish (~/.config/fish/config.fish)
+      duo completion fish | source
+    """
+    scripts = {
+        "bash": 'eval "$(_DUO_COMPLETE=bash_source duo)"',
+        "zsh": 'eval "$(_DUO_COMPLETE=zsh_source duo)"',
+        "fish": "set -x _DUO_COMPLETE fish_source\nduo | source\nset -e _DUO_COMPLETE",
+    }
+    click.echo(scripts[shell])
 
 
 @main.command()
@@ -791,6 +816,249 @@ def inspect(name: str) -> None:
             if "T" in ts:
                 ts = ts.split("T", 1)[1][:8]
             click.echo(f"  {ts} {ev.get('event', '?')}")
+
+
+@main.command()
+@click.option("--repo", default=".", help="Git repository path to initialize")
+def init(repo: str) -> None:
+    """Initialize a project for Duo (creates .duo config and instructions)."""
+    from duo.config import load_config, save_config
+
+    repo_path = Path(repo).resolve()
+    project_duo = repo_path / ".duo"
+
+    # Already initialized?
+    if project_duo.exists():
+        click.echo("Already initialized.")
+        return
+
+    # Must be a git repo
+    if not (repo_path / ".git").exists():
+        click.echo("Error: not a git repository. Run 'git init' first.", err=True)
+        sys.exit(1)
+
+    created: list[str] = []
+
+    # 1. ~/.duo/
+    DUO_DIR.mkdir(parents=True, exist_ok=True)
+    created.append(str(DUO_DIR))
+
+    # 2. ~/.duo/config.json (only if missing)
+    config_path = DUO_DIR / "config.json"
+    if not config_path.exists():
+        save_config(load_config())
+        created.append(str(config_path))
+
+    # 3. ~/.duo/tasks/
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    created.append(str(TASKS_DIR))
+
+    # 4. .duo/ inside repo
+    project_duo.mkdir(parents=True, exist_ok=True)
+    created.append(str(project_duo))
+
+    # 5. .duo/instructions.md
+    instructions = project_duo / "instructions.md"
+    instructions.write_text(
+        "# Duo Project Instructions\n"
+        "\n"
+        "## Project Overview\n"
+        "<!-- Describe your project here -->\n"
+        "\n"
+        "## Coding Conventions\n"
+        "<!-- List your coding standards -->\n"
+        "\n"
+        "## Testing\n"
+        "<!-- How to run tests -->\n"
+        "\n"
+        "## Important Notes\n"
+        "<!-- Anything the executor should know -->\n"
+    )
+    created.append(str(instructions))
+
+    # 6. Add .duo/ to .gitignore
+    gitignore = repo_path / ".gitignore"
+    needs_entry = True
+    if gitignore.exists():
+        content = gitignore.read_text()
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped in (".duo/", ".duo"):
+                needs_entry = False
+                break
+    if needs_entry:
+        with open(gitignore, "a") as f:
+            if gitignore.exists() and gitignore.stat().st_size > 0:
+                existing = gitignore.read_text()
+                if not existing.endswith("\n"):
+                    f.write("\n")
+            f.write(".duo/\n")
+        created.append(str(gitignore) + " (updated)")
+
+    click.echo("Initialized Duo project:")
+    for item in created:
+        click.echo(f"  ✓ {item}")
+
+
+@main.command()
+def doctor() -> None:
+    """Check environment dependencies and configuration."""
+    checks_passed = 0
+    checks_total = 0
+    critical_failed = False
+
+    def _check(
+        name: str,
+        ok: bool,
+        ok_msg: str,
+        fail_msg: str,
+        *,
+        critical: bool = False,
+    ) -> None:
+        nonlocal checks_passed, checks_total, critical_failed
+        checks_total += 1
+        if ok:
+            checks_passed += 1
+            click.echo(click.style(f"  ✓ {name}: {ok_msg}", fg="green"))
+        else:
+            click.echo(click.style(f"  ✗ {name}: {fail_msg}", fg="red"))
+            if critical:
+                critical_failed = True
+
+    # 1. Python version
+    vi = sys.version_info
+    _check(
+        "Python",
+        vi >= (3, 12),
+        f"{vi.major}.{vi.minor}.{vi.micro}",
+        f"{vi.major}.{vi.minor}.{vi.micro} — Requires >= 3.12",
+    )
+
+    # 2. tmux
+    _check(
+        "tmux",
+        shutil.which("tmux") is not None,
+        "installed",
+        "not found — Install with: brew install tmux (macOS) or apt install tmux (Linux)",
+        critical=True,
+    )
+
+    # 3. tmux-bridge
+    bridge_found = shutil.which("tmux-bridge") is not None
+    if not bridge_found:
+        smux_path = Path.home() / ".smux" / "bin" / "tmux-bridge"
+        bridge_found = smux_path.exists()
+    _check(
+        "tmux-bridge",
+        bridge_found,
+        "installed",
+        "not found — Install from: https://github.com/anthropic-ai/tmux-bridge",
+        critical=True,
+    )
+
+    # 4. Copilot CLI
+    copilot_found = (
+        shutil.which("github-copilot-cli") is not None
+        or shutil.which("copilot") is not None
+    )
+    _check(
+        "Copilot CLI",
+        copilot_found,
+        "installed",
+        "not found — Install from: https://github.com/github/copilot-cli",
+    )
+
+    # 5. uv
+    _check(
+        "uv",
+        shutil.which("uv") is not None,
+        "installed",
+        "not found — Install with: curl -LsSf https://astral.sh/uv/install.sh | sh",
+    )
+
+    # 6. ~/.duo directory
+    _check(
+        "~/.duo directory",
+        DUO_DIR.exists(),
+        "exists",
+        "missing — Run: duo init",
+    )
+
+    # 7. Config file
+    config_ok = False
+    config_path = DUO_DIR / "config.json"
+    if config_path.exists():
+        try:
+            json.loads(config_path.read_text())
+            config_ok = True
+        except (json.JSONDecodeError, OSError):
+            pass
+    _check(
+        "Config file",
+        config_ok,
+        "valid",
+        "missing or invalid — Run: duo config reset",
+    )
+
+    # 8. Active tmux session
+    tmux_ok = False
+    if shutil.which("tmux"):
+        result = subprocess.run(
+            ["tmux", "list-sessions"],
+            capture_output=True,
+            text=True,
+        )
+        tmux_ok = result.returncode == 0
+    _check(
+        "tmux session",
+        tmux_ok,
+        "active",
+        "no active session — Start tmux first",
+    )
+
+    click.echo(f"\n{checks_passed}/{checks_total} checks passed")
+    if critical_failed:
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("name", required=False)
+def resume(name: str | None) -> None:
+    """Resume interrupted task sessions."""
+    from duo.commander import restart_session, start_session
+    from duo.transport import is_process_alive
+
+    TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+
+    if name is not None:
+        task = load_task(name)
+        if task is None:
+            click.echo(f"Error: task '{name}' not found.", err=True)
+            sys.exit(1)
+        if task.status in TERMINAL_STATES:
+            click.echo(f"Task '{name}' is already completed.")
+            return
+        targets = [task]
+    else:
+        all_tasks = list_tasks()
+        targets = [t for t in all_tasks if t.status not in TERMINAL_STATES]
+        if not targets:
+            click.echo("No interrupted tasks found.")
+            return
+
+    for task in targets:
+        pane_alive = False
+        try:
+            pane_alive = is_process_alive(task.pane_label)
+        except Exception:
+            pass
+
+        if pane_alive:
+            restart_session(task)
+            click.echo(f"Resumed task '{task.id}' — restarted session")
+        else:
+            start_session(task)
+            click.echo(f"Resumed task '{task.id}' — started new session")
 
 
 @main.group()
