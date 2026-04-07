@@ -7,6 +7,7 @@ list_panes() is diagnostic only — scheduling truth comes from the file protoco
 from __future__ import annotations
 
 import functools
+import logging
 import os
 import re
 import shutil
@@ -16,6 +17,8 @@ import time as _time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
+
+logger = logging.getLogger(__name__)
 
 _SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
@@ -103,11 +106,17 @@ def bridge(cmd: list[str], *, check: bool = True) -> str:
         cmd: Arguments passed to the tmux-bridge binary (e.g. ``["read", "my-label", "50"]``).
         check: If *True* (default), raise ``RuntimeError`` on non-zero exit.
     """
-    result = subprocess.run(
-        [_bridge_bin(), *cmd],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [_bridge_bin(), *cmd],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"tmux-bridge {cmd[0]} timed out after 30s"
+        ) from exc
     if check and result.returncode != 0:
         raise RuntimeError(f"tmux-bridge {cmd[0]} failed: {result.stderr.strip()}")
     return result.stdout
@@ -197,6 +206,8 @@ def list_panes() -> list[PaneInfo]:
         parts = line.split()
         if len(parts) >= 6:
             panes.append(PaneInfo(*parts[:6]))
+        else:
+            logger.debug("Skipping unparseable tmux line: %s", line)
     return panes
 
 

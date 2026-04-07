@@ -230,6 +230,14 @@ def start_session(task: Task) -> None:
         time.sleep(_SESSION_CD_WAIT)
         send_shell_command(task.pane_label, copilot_cmd)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        # Kill orphaned pane if it was created
+        try:
+            subprocess.run(
+                ["tmux", "kill-pane", "-t", pane_id],
+                capture_output=True, check=False,
+            )
+        except Exception:
+            pass
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_start_failed", {"error": str(exc)})
@@ -661,4 +669,5 @@ def monitor(task_ids: list[str] | None = None) -> None:
             (pollers[t.id].interval for t in active if t.id in pollers),
             default=5.0,
         )
-        time.sleep(min_interval)
+        interval = max(1.0, min_interval)
+        time.sleep(interval)

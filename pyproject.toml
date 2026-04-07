@@ -15,9 +15,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
-    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Software Distribution",
     "Topic :: System :: Systems Administration",
     "Typing :: Typed",
     "Operating System :: POSIX",
@@ -38,6 +37,7 @@ duo = "duo.cli:main"
 Homepage = "https://github.com/maxbin/duo"
 Repository = "https://github.com/maxbin/duo"
 Issues = "https://github.com/maxbin/duo/issues"
+Changelog = "https://github.com/maxbin/duo/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11.0"]

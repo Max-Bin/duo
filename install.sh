@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ─── Platform Detection ──────────────────────────────────────────────────────
+OS="$(uname -s)"
+
+# ─── Repository URLs (override via environment) ──────────────────────────────
+DUO_REPO="${DUO_REPO:-https://github.com/maxbin/duo}"
+SMUX_REPO="${SMUX_REPO:-https://github.com/anthropic-ai/tmux-bridge}"
+
 # ─── Colors & Symbols ────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -64,7 +71,7 @@ for arg in "$@"; do
 done
 
 # ─── Error Handler ────────────────────────────────────────────────────────────
-trap 'err "Installation failed at line $LINENO. See output above for details."; hint "Re-run with --check to verify prerequisites, or file an issue at https://github.com/user/duo/issues"' ERR
+trap 'err "Installation failed at line $LINENO. See output above for details."; hint "Re-run with --check to verify prerequisites, or file an issue at ${DUO_REPO}/issues"' ERR
 
 # ─── Resolve Project Root ─────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -124,13 +131,21 @@ if command -v python3 &>/dev/null; then
         set_comp Python "$PY_FULL" "✅"
     else
         err "Python 3.12+ required, found ${PY_FULL}"
-        hint "Install via: brew install python@3.12  OR  https://www.python.org/downloads/"
+        if [ "$OS" = "Darwin" ]; then
+            hint "Install via: brew install python@3.12  OR  https://www.python.org/downloads/"
+        else
+            hint "Install via: sudo apt install python3.12  OR  https://www.python.org/downloads/"
+        fi
         set_comp Python "$PY_FULL" "❌"
         exit 1
     fi
 else
     err "Python 3 not found."
-    hint "Install via: brew install python@3.12  OR  https://www.python.org/downloads/"
+    if [ "$OS" = "Darwin" ]; then
+        hint "Install via: brew install python@3.12  OR  https://www.python.org/downloads/"
+    else
+        hint "Install via: sudo apt install python3.12  OR  https://www.python.org/downloads/"
+    fi
     set_comp Python "(not found)" "❌"
     exit 1
 fi
@@ -142,7 +157,11 @@ if command -v git &>/dev/null; then
     set_comp git "$GIT_VER" "✅"
 else
     err "git not found."
-    hint "Install via: brew install git  OR  https://git-scm.com/downloads"
+    if [ "$OS" = "Darwin" ]; then
+        hint "Install via: brew install git  OR  https://git-scm.com/downloads"
+    else
+        hint "Install via: sudo apt install git  OR  https://git-scm.com/downloads"
+    fi
     set_comp git "(not found)" "❌"
     exit 1
 fi
@@ -154,7 +173,11 @@ if command -v tmux &>/dev/null; then
     set_comp tmux "$TMUX_VER" "✅"
 else
     err "tmux not found."
-    hint "Install via: brew install tmux  OR  sudo apt install tmux"
+    if [ "$OS" = "Darwin" ]; then
+        hint "Install via: brew install tmux"
+    else
+        hint "Install via: sudo apt install tmux"
+    fi
     hint "Docs: https://github.com/tmux/tmux/wiki/Installing"
     set_comp tmux "(not found)" "❌"
     exit 1
@@ -195,8 +218,8 @@ if [ "$CHECK_ONLY" = true ]; then
     fi
     if [ "$BRIDGE_FOUND" = false ]; then
         warn "tmux-bridge (smux) not found"
-        hint "Install: git clone https://github.com/user/smux && cd smux && bash install.sh"
-        hint "Docs: https://github.com/user/smux"
+        hint "Install: git clone ${SMUX_REPO} && cd tmux-bridge && bash install.sh"
+        hint "Docs: ${SMUX_REPO}"
         set_comp tmux-bridge "(not found)" "⚠️"
     fi
 
@@ -217,13 +240,10 @@ else
     info "uv not found — installing..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     # Source the env so uv is available in this session
-    if [ -f "$HOME/.local/bin/env" ]; then
-        # shellcheck disable=SC1091
-        . "$HOME/.local/bin/env"
-    elif [ -f "$HOME/.cargo/env" ]; then
-        # shellcheck disable=SC1091
-        . "$HOME/.cargo/env"
-    fi
+    # shellcheck disable=SC1091
+    [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
+    # shellcheck disable=SC1091
+    [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
     if command -v uv &>/dev/null; then
@@ -277,7 +297,7 @@ else
         err "'uv run duo version' failed after install."
         hint "Try: source .venv/bin/activate && duo version"
         hint "Or:  uv run duo --help"
-        hint "File an issue: https://github.com/user/duo/issues"
+        hint "File an issue: ${DUO_REPO}/issues"
         set_comp duo "(verify failed)" "❌"
         exit 1
     fi
@@ -302,9 +322,9 @@ if [ "$BRIDGE_FOUND" = false ]; then
     warn "Duo uses smux for terminal interaction with Copilot CLI / Claude Code."
     printf "\n"
     info "To install smux, run:"
-    printf "   ${BOLD}git clone https://github.com/user/smux && cd smux && bash install.sh${RESET}\n"
+    printf "   ${BOLD}git clone ${SMUX_REPO} && cd tmux-bridge && bash install.sh${RESET}\n"
     printf "\n"
-    info "Or see: https://github.com/user/smux"
+    info "Or see: ${SMUX_REPO}"
     set_comp tmux-bridge "(not found)" "⚠️"
 fi
 
