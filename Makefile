@@ -12,7 +12,7 @@ test: ## Run tests
 
 coverage: ## Run tests with coverage report
 	uv run python -m coverage run -m pytest tests/ -q
-	uv run python -m coverage report --show-missing --fail-under=95
+	uv run python -m coverage report --show-missing --fail-under=100
 
 test-verbose: ## Run tests with verbose output
 	uv run python -m pytest tests/ -v

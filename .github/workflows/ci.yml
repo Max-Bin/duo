@@ -31,7 +31,7 @@ jobs:
       - name: Coverage
         run: |
           uv run python -m coverage run -m pytest tests/ -q
-          uv run python -m coverage report --fail-under=95
+          uv run python -m coverage report --fail-under=100
 
       - name: Type check
         run: |
