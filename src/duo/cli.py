@@ -879,6 +879,7 @@ def init(repo: str) -> None:
     # 6. Add .duo/ to .gitignore
     gitignore = repo_path / ".gitignore"
     needs_entry = True
+    content = ""
     if gitignore.exists():
         content = gitignore.read_text()
         for line in content.splitlines():
@@ -888,10 +889,8 @@ def init(repo: str) -> None:
                 break
     if needs_entry:
         with open(gitignore, "a") as f:
-            if gitignore.exists() and gitignore.stat().st_size > 0:
-                existing = gitignore.read_text()
-                if not existing.endswith("\n"):
-                    f.write("\n")
+            if content and not content.endswith("\n"):
+                f.write("\n")
             f.write(".duo/\n")
         created.append(str(gitignore) + " (updated)")
 
@@ -1051,7 +1050,7 @@ def resume(name: str | None) -> None:
         try:
             pane_alive = is_process_alive(task.pane_label)
         except Exception:
-            pass
+            click.echo(f"  Warning: could not check pane status for '{task.id}', assuming dead", err=True)
 
         if pane_alive:
             restart_session(task)

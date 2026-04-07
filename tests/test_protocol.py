@@ -301,6 +301,30 @@ class TestTaskCRUD:
     def test_load_missing_task(self):
         assert load_task("nonexistent-task") is None
 
+    def test_load_corrupted_task_json(self):
+        """load_task returns None for malformed task.json (missing keys)."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "corrupted-task"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text('{"id": "corrupted-task"}')
+        assert load_task("corrupted-task") is None
+
+    def test_load_invalid_status_task(self):
+        """load_task returns None when status value is invalid."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-status"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-status","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"INVALID_STATUS",'
+            '"current_step":0,"current_attempt":1,"subtasks":[],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-status") is None
+
     def test_save_updates_persisted_state(self):
         task = create_task("save-test", "d", "/w", "b", "c", [_make_subtask()])
         task.current_step = 5

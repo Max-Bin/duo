@@ -6,11 +6,11 @@ checks against the worktree.  Returns Pass or Correction.
 
 from __future__ import annotations
 
-import fnmatch
 import re
 import shlex
 import subprocess
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from duo.protocol import StepResult, Subtask, Task, append_event
 
@@ -104,7 +104,7 @@ def _check_security_scope(
 ) -> VerifyResult | None:
     """HARD reject if any changed file falls outside writable_paths."""
     for path in sorted(changed):
-        if not any(fnmatch.fnmatch(path, pat) for pat in writable_paths):
+        if not any(PurePosixPath(path).match(pat) for pat in writable_paths):
             reason = f"Security violation: '{path}' is outside writable paths {writable_paths}"
             append_event(
                 task,
@@ -125,7 +125,7 @@ def _check_task_scope(
 ) -> None:
     """SOFT warning when changes go beyond target_files (never rejects)."""
     for path in sorted(changed):
-        if not any(fnmatch.fnmatch(path, pat) for pat in target_files):
+        if not any(PurePosixPath(path).match(pat) for pat in target_files):
             append_event(
                 task,
                 "task_scope_warning",

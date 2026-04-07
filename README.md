@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-465%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-497%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander directs, Executor delivers**
@@ -91,11 +91,14 @@ duo version              # Show version
 
 | Command | Description |
 |---------|-------------|
+| `duo init [--repo PATH]` | Initialize a project for Duo |
+| `duo doctor` | Check environment dependencies |
 | `duo start <name> --repo <path> --desc <text>` | Create a task, initialize worktree and Copilot session |
 | `duo send <name> <prompt>` | Send a work instruction to a task |
 | `duo status [name]` | Show status for a single task or all tasks |
 | `duo list` | List all tasks in a table (ID / STATUS / STEP / INCARNATION) |
 | `duo monitor [names...]` | Start adaptive polling monitor (specify tasks, or default to all) |
+| `duo resume [NAME]` | Resume interrupted task sessions |
 | `duo recover` | Recover interrupted tasks by replaying journals |
 | `duo merge <name>` | Merge a completed task's worktree into the main branch (fetch + rebase + ff-only) |
 | `duo kill <name>` | Terminate a task and clean up its worktree and branch |
@@ -108,6 +111,7 @@ duo version              # Show version
 | `duo cleanup [--all] [--force] [--keep-journal]` | Clean up completed/failed tasks (worktree + state directory) |
 | `duo config list\|get\|set\|reset` | Manage configuration (view / modify / reset settings) |
 | `duo version` | Show the Duo version |
+| `duo completion SHELL` | Generate shell completion (bash/zsh/fish) |
 | `duo audit [name]` | View Premium Request usage audit (per-task or global) |
 
 ### Global Options
@@ -176,6 +180,19 @@ duo config get copilot_model # Get a single setting
 duo config set copilot_model claude-sonnet-4-20250514  # Update a setting
 duo config reset             # Reset all settings to defaults
 duo config reset copilot_model  # Reset a single setting
+```
+
+### Shell Completion
+
+```bash
+# Bash (~/.bashrc)
+eval "$(duo completion bash)"
+
+# Zsh (~/.zshrc)
+eval "$(duo completion zsh)"
+
+# Fish (~/.config/fish/config.fish)
+duo completion fish | source
 ```
 
 ### Available Settings
@@ -282,13 +299,13 @@ FAILED → SESSION_STARTING (auto-restart)
 
 | Module | Lines | Responsibility |
 |--------|-------|----------------|
-| `cli.py` | ~780 | Click CLI entry point — 17 commands + config subcommand, git worktree/branch management |
-| `protocol.py` | ~449 | FSM (13 states) + data models (dataclass) + file I/O + journal |
-| `commander.py` | ~469 | Orchestration brain: prompt construction, session management, poll scheduling, correction loop |
+| `cli.py` | ~1310 | Click CLI entry point — 17 commands + config subcommand, git worktree/branch management |
+| `protocol.py` | ~550 | FSM (13 states) + data models (dataclass) + file I/O + journal |
+| `commander.py` | ~640 | Orchestration brain: prompt construction, session management, poll scheduling, correction loop |
 | `config.py` | ~77 | Configuration management: persistent read/write, automatic type coercion, defaults |
 | `scheduler.py` | ~129 | Parallel scheduler: FIFO queue, max_parallel throttling, auto-dequeue |
 | `dashboard.py` | ~158 | Rich live dashboard: task status table, heartbeat progress, auto-refresh |
-| `transport.py` | ~264 | tmux-bridge wrapper — the sole entry point for all tmux interactions |
+| `transport.py` | ~400 | tmux-bridge wrapper — the sole entry point for all tmux interactions |
 | `poller.py` | ~120 | Adaptive poller: exponential backoff + heartbeat timeout detection |
 | `verifier.py` | ~239 | Quality gates: security boundaries, secret detection, untracked files, acceptance tests |
 

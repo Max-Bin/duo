@@ -180,7 +180,7 @@ def build_correction_prompt(task: Task, reason: str) -> str:
 
 def _check_pr_budget(task: Task) -> bool:
     """Check if task has exceeded its PR budget. Returns True if OK to proceed."""
-    budget = int(get_config("pr_budget"))
+    budget = int(get_config("pr_budget") or 0)
     if budget <= 0:
         return True  # unlimited
     events = read_jsonl(task.journal_path)
@@ -269,6 +269,10 @@ def restart_session(task: Task) -> None:
 
     # Clear bootstrap lock so new session can send bootstrap
     _BOOTSTRAP_DONE.discard(task.pane_label)
+
+    # Remove stale heartbeat from previous incarnation
+    hb = task.dir / "heartbeat.json"
+    hb.unlink(missing_ok=True)
 
     append_event(
         task,

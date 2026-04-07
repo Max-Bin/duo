@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import uuid
 from collections import deque
@@ -16,6 +17,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # === Constants ===
 
@@ -108,7 +111,14 @@ class SecurityPolicy:
 
     writable_paths: list[str] = field(default_factory=list)
     secret_patterns: list[str] = field(
-        default_factory=lambda: ["API_KEY=", "password=", "token="]
+        default_factory=lambda: [
+            "API_KEY=", "api_key=", "apikey=",
+            "PASSWORD=", "password=",
+            "TOKEN=", "token=",
+            "SECRET=", "secret=",
+            "PRIVATE_KEY", "private_key",
+            "Authorization: Bearer",
+        ]
     )
     forbidden_commands: list[str] = field(default_factory=list)
     allow_network: bool = False
@@ -388,22 +398,26 @@ def load_task(task_id: str) -> Task | None:
         require_human_approval=sp.get("require_human_approval", []),
     )
 
-    return Task(
-        id=data["id"],
-        description=data["description"],
-        worktree=data["worktree"],
-        branch=data["branch"],
-        base_commit=data["base_commit"],
-        pane_label=data["pane_label"],
-        incarnation_id=data["incarnation_id"],
-        status=TaskStatus(data["status"]),
-        current_step=data["current_step"],
-        current_attempt=data["current_attempt"],
-        subtasks=subtasks,
-        created_at=data["created_at"],
-        security_policy=security_policy,
-        last_prompt_sent_at=data.get("last_prompt_sent_at"),
-    )
+    try:
+        return Task(
+            id=data["id"],
+            description=data["description"],
+            worktree=data["worktree"],
+            branch=data["branch"],
+            base_commit=data["base_commit"],
+            pane_label=data["pane_label"],
+            incarnation_id=data["incarnation_id"],
+            status=TaskStatus(data["status"]),
+            current_step=data["current_step"],
+            current_attempt=data["current_attempt"],
+            subtasks=subtasks,
+            created_at=data["created_at"],
+            security_policy=security_policy,
+            last_prompt_sent_at=data.get("last_prompt_sent_at"),
+        )
+    except (KeyError, ValueError, TypeError) as exc:
+        logger.warning("Failed to load task '%s': %s", task_id, exc)
+        return None
 
 
 _task_cache: dict[str, tuple[float, Task]] = {}

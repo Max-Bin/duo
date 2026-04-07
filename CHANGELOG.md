@@ -16,6 +16,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.5.0] — 2025-07-18
 
 ### Added
+- `duo init` — Initialize a project for Duo (creates .duo config and instructions)
+- `duo doctor` — Check environment dependencies with actionable fix suggestions
+- `duo resume` — Resume interrupted task sessions (auto-detects live panes)
+- `duo completion` — Shell completion for bash, zsh, and fish
 - `duo dashboard` — Rich live terminal dashboard with real-time task monitoring
 - `duo export` — task report export in JSON and text formats
 - `duo cleanup` — clean completed/failed tasks with journal preservation option
