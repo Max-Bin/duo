@@ -37,8 +37,6 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Misc": ["version", "completion"],
 }
 
-_CMD_TO_SECTION = {cmd: sec for sec, cmds in _COMMAND_SECTIONS.items() for cmd in cmds}
-
 
 class _OrderedGroup(click.Group):
     """Click group that displays commands in categorized sections."""
@@ -72,6 +70,10 @@ class _OrderedGroup(click.Group):
 
 def _validate_task_name(name: str) -> None:
     """Validate that a task name contains only safe characters."""
+    if len(name) > 63:
+        raise click.BadParameter(
+            f"Task name must be at most 63 characters, got {len(name)}"
+        )
     if not re.match(r"^[a-zA-Z0-9_-]+$", name):
         raise click.BadParameter(
             f"Task name must contain only letters, numbers, dashes, underscores. Got: '{name}'"

@@ -6,27 +6,53 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- `duo stop` — Stop a task gracefully (preserves worktree for resume)
-- `duo diff` — Show git diff for a task's worktree changes
+- `duo retry` command for retrying failed/blocked tasks
+- `duo stop` command for graceful task stopping (preserves worktree for resume)
+- `duo stats` command with `--json-output` support
+- `duo diff` command for viewing worktree changes
+- `duo init` command for project initialization
+- `duo doctor` command for environment diagnostics
+- `duo resume` command for resuming interrupted sessions
+- Shell completion support (bash/zsh/fish) via `duo completion`
+- `--json-output` flag on list, status, logs, inspect, audit, stats
 - `--dry-run` flag on `duo batch` and `duo merge` commands
+- `--model` and `--queue` flags on `duo start`
+- `--queue` flag on `duo batch` for deferred task creation
 - `duo --version` flag (standard CLI behavior, in addition to `duo version`)
 - Categorized command help: 22 commands organized into 7 sections
-- 594 tests with 100% coverage
+- 630 tests with 100% coverage
 - 41 edge case tests (protocol, scheduler, poller, config, CLI)
 - Expanded secret detection patterns (11 patterns)
 
 ### Changed
-- Refactored git subprocess calls into `_run_git()` helper
+- Categorized CLI help output with 7 command sections
+- Deduplicated batch task creation into single `_create_single_task()` helper
+- Centralized git operations via `_run_git()` helper
+- Dashboard descriptions now show ellipsis when truncated
 - Cleanup operations (merge/kill/cleanup) now show warnings on git failures
 - `resume` command logs warnings instead of silently swallowing exceptions
 - `load_task()` handles corrupted task.json gracefully (returns None)
 - Heartbeat cleared on `restart_session` to prevent stale reads
-- `fnmatch` replaced with `PurePosixPath.match()` for safer path matching
+
+### Fixed
+- Thread safety: lock protection for transport globals
+- Durability: fsync on journal writes and atomic file saves
+- Crash on corrupted batch files (JSON/YAML parse errors)
+- Crash when git is not installed
+- Crash when TASKS_DIR cannot be created
+- Orphaned tmux pane cleanup on session start failure
+- Bridge subprocess timeout (30s) prevents hangs
+- Monitor polling interval floor (≥1.0s)
+- Empty prompt rejection on `duo send`
+- Task name validation on kill/merge/diff/batch commands
 
 ### Security
+- Replaced `fnmatch` with `PurePosixPath.match()` for safer path matching
+- Expanded secret detection patterns (11 patterns)
+- Input validation on all user-facing commands
+- `load_task()` schema validation for corrupted JSON
 - Path traversal protection in `write_json()` — rejects paths with `..` components
 - Pane label sanitisation in `resolve_label()` — rejects shell metacharacters
-- Replaced `fnmatch` with `PurePosixPath.match()` in verifier security scope checks
 
 ## [0.5.0] — 2025-07-18
 

@@ -180,3 +180,32 @@ class TestConfigEdgeCases:
         isolated_config.write_text("")
         cfg = config_mod.load_config()
         assert cfg == config_mod.DEFAULTS
+
+
+# ---------------------------------------------------------------------------
+# Numeric range validation
+# ---------------------------------------------------------------------------
+
+
+class TestSetConfigValidation:
+    """Verify numeric range checks on set_config()."""
+
+    def test_set_config_negative_max_parallel(self):
+        with pytest.raises(ValueError, match="max_parallel.*>= 1"):
+            config_mod.set_config("max_parallel", "-1")
+
+    def test_set_config_zero_max_parallel(self):
+        with pytest.raises(ValueError, match="max_parallel.*>= 1"):
+            config_mod.set_config("max_parallel", "0")
+
+    def test_set_config_negative_pr_budget(self):
+        with pytest.raises(ValueError, match="pr_budget.*>= 0"):
+            config_mod.set_config("pr_budget", "-1")
+
+    def test_set_config_zero_heartbeat_timeout(self):
+        with pytest.raises(ValueError, match="heartbeat_timeout.*>= 1"):
+            config_mod.set_config("heartbeat_timeout", "0")
+
+    def test_set_config_negative_poll_interval(self):
+        with pytest.raises(ValueError, match="poll_base_interval.*> 0"):
+            config_mod.set_config("poll_base_interval", "-1.0")

@@ -846,6 +846,13 @@ class TestValidateTaskName:
             with pytest.raises(click.BadParameter):
                 _validate_task_name(name)
 
+    def test_task_name_too_long(self, runner: CliRunner, tmp_path: Path):
+        """A 100-character name exceeds the 63-char limit and is rejected."""
+        long_name = "a" * 100
+        result = runner.invoke(main, ["start", long_name, "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "at most 63 characters" in result.output
+
 
 # ---------------------------------------------------------------------------
 # _create_worktree helper

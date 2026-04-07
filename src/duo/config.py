@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import Any
 
 from duo.protocol import DUO_DIR
@@ -47,10 +48,10 @@ def get_config(key: str) -> Any:
     return config.get(key)
 
 
-def set_config(key: str, value: str) -> Any:
+def set_config(key: str, value: str) -> bool | int | float | str:
     """Set a config value with type coercion based on defaults."""
     config = load_config()
-    coerced: Any = value
+    coerced: bool | int | float | str = value
     # Type coerce based on default type
     if key in DEFAULTS:
         default_type = type(DEFAULTS[key])
@@ -70,10 +71,32 @@ def set_config(key: str, value: str) -> Any:
                 raise ValueError(
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
                 ) from err
+        # Validate numeric ranges
+        _INT_MINIMUMS: dict[str, int] = {
+            "max_parallel": 1,
+            "max_corrections": 1,
+            "heartbeat_timeout": 1,
+            "pr_budget": 0,
+        }
+        _FLOAT_MINIMUMS: dict[str, float] = {
+            "poll_base_interval": 0,
+            "poll_max_interval": 0,
+        }
+        if key in _INT_MINIMUMS:
+            assert isinstance(coerced, int)
+            minimum = _INT_MINIMUMS[key]
+            if coerced < minimum:
+                raise ValueError(
+                    f"'{key}' must be >= {minimum}, got {coerced}"
+                )
+        if key in _FLOAT_MINIMUMS:
+            assert isinstance(coerced, float)
+            if coerced <= 0:
+                raise ValueError(
+                    f"'{key}' must be > 0, got {coerced}"
+                )
     if key not in DEFAULTS:
-        import sys as _sys
-
-        print(f"[duo] Warning: '{key}' is not a known config key", file=_sys.stderr)
+        print(f"[duo] Warning: '{key}' is not a known config key", file=sys.stderr)
     config[key] = coerced
     save_config(config)
     return coerced
