@@ -1425,6 +1425,26 @@ class TestLoadBatchFile:
             assert result[0]["name"] == "y1"
             mock_yaml.safe_load.assert_called_once()
 
+    def test_load_batch_file_read_error(self):
+        """_load_batch_file exits when the file cannot be read."""
+        with pytest.raises(SystemExit):
+            _load_batch_file("/no/such/path/batch.json")
+
+    def test_load_batch_yaml_parse_error(self, tmp_path: Path):
+        """_load_batch_file exits on yaml.YAMLError."""
+        import sys
+
+        f = tmp_path / "bad.yaml"
+        f.write_text("{: bad yaml:}")
+        mock_yaml = MagicMock()
+        yaml_error = type("YAMLError", (Exception,), {})
+        mock_yaml.YAMLError = yaml_error
+        mock_yaml.safe_load.side_effect = yaml_error("parse error")
+
+        with patch.dict(sys.modules, {"yaml": mock_yaml}):
+            with pytest.raises(SystemExit):
+                _load_batch_file(str(f))
+
 
 # ---------------------------------------------------------------------------
 # _create_single_task helper
@@ -2613,6 +2633,7 @@ class TestHelpTexts:
             ["config", "--help"],
             ["export", "--help"],
             ["cleanup", "--help"],
+            ["retry", "--help"],
             ["config", "get", "--help"],
             ["config", "set", "--help"],
             ["config", "list", "--help"],
@@ -3274,3 +3295,102 @@ class TestBatchInvalidName:
         )
         result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
         assert "invalid task name" in result.output.lower() or result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Error handling tests
+# ---------------------------------------------------------------------------
+
+
+class TestBatchCorruptedJson:
+    def test_batch_corrupted_json(self, runner: CliRunner, tmp_path: Path):
+        """batch with corrupted JSON content shows a friendly error."""
+        bad = tmp_path / "corrupt.json"
+        bad.write_text("{bad json")
+        result = runner.invoke(main, ["batch", str(bad), "--repo", "."])
+        assert result.exit_code != 0
+        out = result.output.lower() + (result.stderr if result.stderr else "").lower()
+        assert "invalid json" in out or "error" in out
+
+
+class TestBatchCorruptedYaml:
+    def test_batch_corrupted_yaml(self, runner: CliRunner, tmp_path: Path):
+        """batch with corrupted YAML content shows a friendly error."""
+        pytest.importorskip("yaml")
+        bad = tmp_path / "tasks.yaml"
+        bad.write_text("{: bad yaml:}")
+        result = runner.invoke(main, ["batch", str(bad), "--repo", "."])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "Error" in out or "invalid" in out.lower() or "error" in out.lower()
+
+
+class TestBatchFileNotFound:
+    def test_batch_file_not_found(self, runner: CliRunner):
+        """batch with a nonexistent file shows a friendly error."""
+        result = runner.invoke(main, ["batch", "/nonexistent/file.json", "--repo", "."])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "Error" in out or "No such file" in out or "error" in out.lower()
+
+
+class TestRunGitNotInstalled:
+    def test_run_git_not_installed(self, runner: CliRunner, tmp_path: Path):
+        """When git is not found, a friendly error is shown."""
+        with patch("subprocess.run", side_effect=FileNotFoundError("git not found")):
+            result = runner.invoke(main, ["start", "sometask", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "git is not installed" in out
+
+
+class TestMainTasksDirPermissionDenied:
+    def test_main_tasks_dir_permission_denied(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When TASKS_DIR.mkdir raises PermissionError, a friendly error is shown."""
+        original_mkdir = Path.mkdir
+
+        def _raise_permission(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, N805
+            if "tasks" in str(self):
+                raise PermissionError("Permission denied")
+            return original_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", _raise_permission)
+        result = runner.invoke(main, ["status"])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "Error" in out or "Permission" in out
+
+
+class TestRetry:
+    def test_retry_success(self, runner: CliRunner):
+        """retry a FAILED task succeeds."""
+        task = _make_task("retry-ok")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+        result = runner.invoke(main, ["retry", "retry-ok"])
+        assert result.exit_code == 0
+        assert "retry" in result.output.lower()
+
+    def test_retry_not_retryable(self, runner: CliRunner):
+        """retry a RUNNING task shows not-retryable error."""
+        task = _make_task("retry-running")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        result = runner.invoke(main, ["retry", "retry-running"])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "not retryable" in out.lower() or "not retryable" in out
+
+    def test_retry_not_found(self, runner: CliRunner):
+        """retry a nonexistent task shows not-found error."""
+        result = runner.invoke(main, ["retry", "nonexistent"])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "not found" in out.lower()
+
+    def test_retry_invalid_name(self, runner: CliRunner):
+        """retry with a path-traversal name is rejected."""
+        result = runner.invoke(main, ["retry", "../bad"])
+        assert result.exit_code != 0
