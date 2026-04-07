@@ -34,6 +34,18 @@ def main(ctx: click.Context, verbose: bool) -> None:
 
 
 @main.command()
+def version() -> None:
+    """Show Duo version."""
+    try:
+        from importlib.metadata import version as pkg_version
+
+        ver = pkg_version("duo")
+    except Exception:
+        ver = "0.5.0-dev"
+    click.echo(f"duo {ver}")
+
+
+@main.command()
 @click.argument("name")
 @click.option("--repo", default=".", help="Git repo path to create worktree from")
 @click.option("--desc", default="", help="Task description")
