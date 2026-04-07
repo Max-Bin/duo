@@ -97,6 +97,13 @@ duo merge my-task
 | `duo config set <key> <value>` | 修改配置值 |
 | `duo config reset [key]` | 重置所有或单个配置到默认值 |
 
+### 全局选项
+
+| 选项 | 说明 |
+|------|------|
+| `--verbose` | 启用详细输出，显示调试信息 |
+| `--help` | 显示帮助信息 |
+
 ## 完整使用示例
 
 一个端到端的工作流：

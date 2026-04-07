@@ -1,22 +1,27 @@
 [project]
 name = "duo"
 version = "0.4.0"
-description = "Agent Orchestration Runtime — Claude Code commands, Copilot CLI executes"
+description = "Agent Orchestration Runtime — Commander 指挥，Executor 执行"
 readme = "README.md"
 authors = [
     { name = "Max-Bin", email = "vborisw@gmail.com" }
 ]
 requires-python = ">=3.12"
 license = {text = "MIT"}
-keywords = ["agent", "orchestration", "copilot", "automation", "tmux"]
+keywords = ["agent", "orchestration", "copilot", "automation", "tmux", "parallel", "scheduler"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Systems Administration",
     "Typing :: Typed",
+    "Operating System :: POSIX",
+    "Environment :: Console",
 ]
 dependencies = [
     "click>=8.1",
@@ -38,6 +43,9 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.mypy]
 python_version = "3.12"
