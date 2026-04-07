@@ -436,6 +436,21 @@ def queue() -> None:
 
 
 @main.command()
+@click.argument("names", nargs=-1)
+@click.option("--refresh", default=2.0, help="Refresh rate in seconds")
+def dashboard(names: tuple[str, ...], refresh: float) -> None:
+    """Live terminal dashboard for task monitoring."""
+    try:
+        from duo.dashboard import run_dashboard
+    except ImportError:
+        click.echo("Error: 'rich' library required. Run: uv add rich", err=True)
+        sys.exit(1)
+
+    task_ids = list(names) if names else None
+    run_dashboard(task_ids, refresh_rate=refresh)
+
+
+@main.command()
 @click.argument("name")
 @click.option("-n", "--lines", default=20, help="Number of recent events to show")
 @click.option("--all", "show_all", is_flag=True, help="Show all events")
@@ -613,3 +628,153 @@ def config_reset(key: str | None = None) -> None:
         click.echo(f"Reset {key} to default.")
     else:
         click.echo("All config reset to defaults.")
+
+
+@main.command()
+@click.argument("name")
+@click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="text", help="Output format")
+@click.option("-o", "--output", "outfile", type=click.Path(), help="Write to file instead of stdout")
+def export(name: str, fmt: str, outfile: str | None) -> None:
+    """Export task report (events, files changed, summary)."""
+    from duo.protocol import read_jsonl, read_result_for_step
+
+    task = load_task(name)
+    if task is None:
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        sys.exit(1)
+
+    events = read_jsonl(task.journal_path)
+
+    if fmt == "json":
+        report: dict[str, object] = {
+            "task_id": task.id,
+            "description": task.description,
+            "status": task.status.value,
+            "branch": task.branch,
+            "worktree": task.worktree,
+            "incarnation": task.incarnation_id,
+            "created_at": task.created_at,
+            "steps": task.current_step,
+            "total_steps": len(task.subtasks),
+            "attempt": task.current_attempt,
+            "subtasks": [
+                {
+                    "step_id": s.step_id,
+                    "description": s.description,
+                    "target_files": s.target_files,
+                }
+                for s in task.subtasks
+            ],
+            "events": events,
+        }
+        # Collect results for each step
+        results = []
+        for s in task.subtasks:
+            max_attempt = task.current_attempt + 1 if s.step_id == task.current_step else 2
+            for attempt in range(1, max_attempt):
+                result = read_result_for_step(task, s.step_id, attempt)
+                if result:
+                    results.append({
+                        "step": result.step,
+                        "attempt": result.attempt,
+                        "status": result.status,
+                        "summary": result.summary,
+                        "files_changed": result.files_changed,
+                    })
+        report["results"] = results
+
+        output = json.dumps(report, ensure_ascii=False, indent=2)
+    else:
+        # Text format
+        lines = []
+        lines.append(f"Task Report: {task.id}")
+        lines.append(f"{'=' * 40}")
+        lines.append(f"Description: {task.description}")
+        lines.append(f"Status:      {task.status.value}")
+        lines.append(f"Branch:      {task.branch}")
+        lines.append(f"Created:     {task.created_at}")
+        lines.append(f"Step:        {task.current_step}/{len(task.subtasks)}")
+        lines.append(f"Attempt:     {task.current_attempt}")
+        lines.append("")
+
+        # Steps
+        lines.append("Steps:")
+        for s in task.subtasks:
+            lines.append(f"  {s.step_id}. {s.description}")
+            if s.target_files:
+                lines.append(f"     Files: {', '.join(s.target_files)}")
+        lines.append("")
+
+        # Events summary
+        lines.append(f"Events ({len(events)} total):")
+        for ev in events[-20:]:
+            ts = ev.get("ts", "?")
+            if "T" in ts:
+                ts = ts.split("T")[1][:8]
+            lines.append(f"  {ts} {ev.get('event', '?')}")
+
+        output = "\n".join(lines)
+
+    if outfile:
+        Path(outfile).write_text(output + "\n")
+        click.echo(f"Report written to {outfile}")
+    else:
+        click.echo(output)
+
+
+@main.command()
+@click.option("--all", "clean_all", is_flag=True, help="Clean all finished tasks (completed + failed)")
+@click.option("--force", is_flag=True, help="Skip confirmation")
+@click.option("--keep-journal", is_flag=True, help="Keep journal files")
+def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
+    """Clean up completed and failed tasks."""
+    import shutil
+
+    tasks = list_tasks()
+
+    if clean_all:
+        targets = [t for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)]
+    else:
+        targets = [t for t in tasks if t.status == TaskStatus.COMPLETED]
+
+    if not targets:
+        click.echo("No tasks to clean up.")
+        return
+
+    click.echo(f"Tasks to clean up ({len(targets)}):")
+    for t in targets:
+        click.echo(f"  {t.id} ({t.status.value})")
+
+    if not force:
+        click.confirm("Proceed?", abort=True)
+
+    cleaned = 0
+    for task in targets:
+        # Remove worktree if it exists
+        if os.path.exists(task.worktree):
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", task.worktree],
+                capture_output=True,
+            )
+
+        # Remove branch
+        subprocess.run(
+            ["git", "branch", "-D", task.branch],
+            capture_output=True,
+        )
+
+        # Remove task directory (or just non-journal files)
+        if keep_journal:
+            for item in task.dir.iterdir():
+                if item.name != "journal.jsonl":
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+        else:
+            shutil.rmtree(task.dir)
+
+        cleaned += 1
+        click.echo(f"  ✓ {task.id}")
+
+    click.echo(f"\nCleaned {cleaned} tasks.")

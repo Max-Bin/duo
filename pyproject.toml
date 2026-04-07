@@ -25,6 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "click>=8.1",
+    "rich>=14.3.3",
 ]
 
 [project.scripts]

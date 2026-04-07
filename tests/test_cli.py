@@ -59,6 +59,12 @@ def _make_task(task_id: str = "test-task", description: str = "Test task"):
     )
 
 
+@pytest.fixture()
+def make_task():
+    """Fixture wrapper around _make_task for use in test classes."""
+    return _make_task
+
+
 # ---------------------------------------------------------------------------
 # main group
 # ---------------------------------------------------------------------------
@@ -354,3 +360,83 @@ class TestEdgeCases:
         result = runner.invoke(main, ["merge", "merge-task"])
         assert result.exit_code != 0
         assert "does not exist" in result.output
+
+
+# ---------------------------------------------------------------------------
+# export command
+# ---------------------------------------------------------------------------
+
+
+class TestExport:
+    def test_task_not_found(self, runner: CliRunner):
+        result = runner.invoke(main, ["export", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_text_format(self, runner: CliRunner, make_task):
+        make_task("export-test")
+        result = runner.invoke(main, ["export", "export-test"])
+        assert result.exit_code == 0
+        assert "Task Report: export-test" in result.output
+        assert "Status:" in result.output
+
+    def test_json_format(self, runner: CliRunner, make_task):
+        import json
+
+        make_task("export-json")
+        result = runner.invoke(main, ["export", "export-json", "--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["task_id"] == "export-json"
+        assert "events" in data
+
+    def test_output_to_file(self, runner: CliRunner, make_task, tmp_path: Path):
+        make_task("export-file")
+        outfile = str(tmp_path / "report.txt")
+        result = runner.invoke(main, ["export", "export-file", "-o", outfile])
+        assert result.exit_code == 0
+        assert "written to" in result.output
+        assert (tmp_path / "report.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# cleanup command
+# ---------------------------------------------------------------------------
+
+
+class TestCleanup:
+    def test_no_tasks(self, runner: CliRunner):
+        result = runner.invoke(main, ["cleanup", "--force"])
+        assert "No tasks" in result.output
+
+    def test_cleanup_completed(self, runner: CliRunner, make_task):
+        task = make_task("done-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["cleanup", "--force"])
+        assert result.exit_code == 0
+        assert "done-task" in result.output
+        assert "Cleaned 1" in result.output
+
+    def test_cleanup_all_includes_failed(self, runner: CliRunner, make_task):
+        task = make_task("fail-task")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+        # Without --all, failed tasks not cleaned
+        result = runner.invoke(main, ["cleanup", "--force"])
+        assert "No tasks" in result.output
+        # With --all, failed included
+        result = runner.invoke(main, ["cleanup", "--all", "--force"])
+        assert "fail-task" in result.output
+
+    def test_keep_journal(self, runner: CliRunner, make_task):
+        from duo.protocol import append_event
+
+        task = make_task("journal-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        append_event(task, "test_event", {})
+        result = runner.invoke(main, ["cleanup", "--force", "--keep-journal"])
+        assert result.exit_code == 0
+        # Journal should still exist
+        assert task.journal_path.exists()
