@@ -3735,3 +3735,17 @@ class TestDoctorTaskTimeout:
         )
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
+
+    def test_doctor_invalid_task_timeout(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """doctor reports invalid task_timeout value."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        monkeypatch.setattr("duo.cli.get_config", lambda k: -1 if k == "task_timeout" else 0)
+        result = runner.invoke(main, ["doctor"])
+        assert "task_timeout" in result.output
+        assert "invalid" in result.output.lower()
