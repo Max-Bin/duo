@@ -693,18 +693,22 @@ def queue() -> None:
     from duo.scheduler import queue_status
 
     qs = queue_status()
-    click.echo(f"Slots: {qs['active_count']}/{qs['max_parallel']} in use")
-    if qs["active_tasks"]:
-        click.echo(f"Active: {', '.join(qs['active_tasks'])}")
-    if qs["queued_tasks"]:
-        click.echo(f"Queued: {', '.join(qs['queued_tasks'])}")
+
+    queued = qs["queued_tasks"]
+    if queued:
+        click.echo(f"Queue ({len(queued)} tasks):")
+        for i, name in enumerate(queued, 1):
+            click.echo(f"  {i}. {name}")
     else:
         click.echo("Queue: empty")
+
+    click.echo(f"Active: {qs['active_count']} / max_parallel: {qs['max_parallel']}")
 
 
 @main.command()
 @click.argument("name", required=False)
-def audit(name: str | None = None) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def audit(name: str | None = None, *, as_json: bool = False) -> None:
     """Show Premium Request consumption audit."""
     from duo.protocol import read_jsonl
     from duo.transport import get_pr_log
@@ -717,6 +721,16 @@ def audit(name: str | None = None) -> None:
             sys.exit(1)
         events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
+
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {"task": task.id, "pr_consumed": len(pr_events), "events": pr_events},
+                    indent=2,
+                )
+            )
+            return
+
         click.echo(f"Task: {task.id}")
         click.echo(f"PR consumed: {len(pr_events)}")
         if pr_events:
@@ -739,13 +753,27 @@ def audit(name: str | None = None) -> None:
             return
 
         total_pr = 0
-        click.echo(f"{'TASK':<20} {'STATUS':<14} {'PR COUNT':<10}")
-        click.echo("-" * 46)
+        task_rows: list[dict[str, Any]] = []
         for t in tasks:
             events = read_jsonl(t.journal_path)
             pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
             total_pr += pr_count
-            click.echo(f"{t.id:<20} {t.status.value:<14} {pr_count:<10}")
+            task_rows.append({"task": t.id, "status": t.status.value, "pr_count": pr_count})
+
+        if as_json:
+            pr_log = get_pr_log()
+            click.echo(
+                json.dumps(
+                    {"tasks": task_rows, "total_pr": total_pr, "session_log": pr_log},
+                    indent=2,
+                )
+            )
+            return
+
+        click.echo(f"{'TASK':<20} {'STATUS':<14} {'PR COUNT':<10}")
+        click.echo("-" * 46)
+        for row in task_rows:
+            click.echo(f"{row['task']:<20} {row['status']:<14} {row['pr_count']:<10}")
 
         click.echo("-" * 46)
         click.echo(f"{'TOTAL':<20} {'':<14} {total_pr:<10}")
