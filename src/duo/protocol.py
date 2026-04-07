@@ -1,0 +1,439 @@
+"""File protocol and FSM — the core state system.
+
+State truth lives in task directories and append-only journals.
+Sessions are disposable executors; this module is the durable state.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+
+# === Constants ===
+
+DUO_DIR = Path(os.path.expanduser("~/.duo"))
+TASKS_DIR = DUO_DIR / "tasks"
+
+
+# === FSM State Enum ===
+
+
+class TaskStatus(str, Enum):
+    CREATED = "created"
+    SESSION_STARTING = "session_starting"
+    PROMPT_SENT = "prompt_sent"
+    ACKED = "acked"
+    RUNNING = "running"
+    RESULT_REPORTED = "result_reported"
+    VERIFYING = "verifying"
+    CORRECTING = "correcting"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    COMPLETED = "completed"
+    ESCALATED = "escalated"
+
+
+# Legal state transitions
+TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
+    TaskStatus.CREATED: {TaskStatus.SESSION_STARTING},
+    TaskStatus.SESSION_STARTING: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
+    TaskStatus.PROMPT_SENT: {TaskStatus.ACKED, TaskStatus.PROMPT_SENT, TaskStatus.FAILED, TaskStatus.VERIFYING, TaskStatus.RUNNING, TaskStatus.BLOCKED},
+    TaskStatus.ACKED: {TaskStatus.RUNNING, TaskStatus.RESULT_REPORTED},
+    TaskStatus.RUNNING: {TaskStatus.RESULT_REPORTED, TaskStatus.BLOCKED, TaskStatus.FAILED},
+    TaskStatus.RESULT_REPORTED: {TaskStatus.VERIFYING},
+    TaskStatus.VERIFYING: {TaskStatus.PROMPT_SENT, TaskStatus.CORRECTING, TaskStatus.COMPLETED, TaskStatus.ESCALATED, TaskStatus.BLOCKED},
+    TaskStatus.CORRECTING: {TaskStatus.ACKED, TaskStatus.ESCALATED},
+    TaskStatus.BLOCKED: {TaskStatus.PROMPT_SENT, TaskStatus.ESCALATED, TaskStatus.FAILED},
+    TaskStatus.ESCALATED: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
+    TaskStatus.FAILED: {TaskStatus.SESSION_STARTING},
+    TaskStatus.COMPLETED: set(),
+}
+
+
+# === Data models ===
+
+
+@dataclass
+class Subtask:
+    step_id: int
+    description: str
+    target_files: list[str]
+    writable_paths: list[str]
+    acceptance: str = ""
+    forbidden_commands: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SecurityPolicy:
+    writable_paths: list[str] = field(default_factory=list)
+    secret_patterns: list[str] = field(default_factory=lambda: ["API_KEY=", "password=", "token="])
+    forbidden_commands: list[str] = field(default_factory=list)
+    allow_network: bool = False
+    require_human_approval: list[str] = field(default_factory=lambda: [
+        "delete_file", "modify_config", "change_dependency"
+    ])
+
+
+@dataclass
+class Task:
+    id: str
+    description: str
+    worktree: str
+    branch: str
+    base_commit: str
+    pane_label: str
+    incarnation_id: str
+    status: TaskStatus
+    current_step: int
+    current_attempt: int
+    subtasks: list[Subtask]
+    created_at: str
+    security_policy: SecurityPolicy = field(default_factory=SecurityPolicy)
+    last_prompt_sent_at: str | None = None
+
+    @property
+    def dir(self) -> Path:
+        return TASKS_DIR / self.id
+
+    @property
+    def journal_path(self) -> Path:
+        return self.dir / "journal.jsonl"
+
+    @property
+    def heartbeat_path(self) -> Path:
+        return self.dir / "heartbeat.json"
+
+    def step_dir(self, step: int) -> Path:
+        return self.dir / "steps" / f"step-{step:04d}"
+
+    def ack_path(self, step: int, attempt: int) -> Path:
+        return self.step_dir(step) / f"ack-attempt-{attempt:02d}.json"
+
+    def result_path(self, step: int, attempt: int) -> Path:
+        return self.step_dir(step) / f"result-attempt-{attempt:02d}.json"
+
+    def prompt_path(self, step: int, attempt: int) -> Path:
+        return self.step_dir(step) / f"prompt-attempt-{attempt:02d}.txt"
+
+
+# === Helper functions ===
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def new_incarnation() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def prompt_hash(prompt: str) -> str:
+    return hashlib.sha256(prompt.encode()).hexdigest()[:8]
+
+
+# === File I/O ===
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    """Read a JSON file, return None if missing or invalid."""
+    try:
+        return json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    """Write JSON atomically (write tmp then rename)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    tmp.rename(path)
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    """Read a JSONL file, return list of events."""
+    if not path.exists():
+        return []
+    events = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line:
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
+# === Event Journal ===
+
+
+def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> None:
+    """Append an event to the task's journal."""
+    task.journal_path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"ts": now_iso(), "event": event, "data": data or {}}
+    with open(task.journal_path, "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+# === State transitions ===
+
+
+def transition(task: Task, new_status: TaskStatus) -> None:
+    """Transition task to new status. Logs invalid transitions but doesn't crash."""
+    old = task.status
+    if new_status not in TRANSITIONS.get(old, set()):
+        append_event(task, "invalid_transition", {
+            "from": old.value, "to": new_status.value,
+            "incarnation": task.incarnation_id,
+        })
+        return
+    task.status = new_status
+    append_event(task, "status_changed", {
+        "from": old.value, "to": new_status.value,
+        "incarnation": task.incarnation_id,
+    })
+    save_task(task)
+
+
+# === Task CRUD ===
+
+
+def create_task(
+    task_id: str,
+    description: str,
+    worktree: str,
+    branch: str,
+    base_commit: str,
+    subtasks: list[Subtask],
+) -> Task:
+    """Create a new task with initial state."""
+    task = Task(
+        id=task_id,
+        description=description,
+        worktree=worktree,
+        branch=branch,
+        base_commit=base_commit,
+        pane_label=task_id,
+        incarnation_id=new_incarnation(),
+        status=TaskStatus.CREATED,
+        current_step=1,
+        current_attempt=1,
+        subtasks=subtasks,
+        created_at=now_iso(),
+    )
+
+    # Create directory structure
+    task.dir.mkdir(parents=True, exist_ok=True)
+    for st in subtasks:
+        task.step_dir(st.step_id).mkdir(parents=True, exist_ok=True)
+
+    save_task(task)
+    append_event(task, "task_created", {
+        "id": task_id,
+        "incarnation": task.incarnation_id,
+    })
+    return task
+
+
+def save_task(task: Task) -> None:
+    """Persist task.json."""
+    data = {
+        "id": task.id,
+        "description": task.description,
+        "worktree": task.worktree,
+        "branch": task.branch,
+        "base_commit": task.base_commit,
+        "pane_label": task.pane_label,
+        "incarnation_id": task.incarnation_id,
+        "status": task.status.value,
+        "current_step": task.current_step,
+        "current_attempt": task.current_attempt,
+        "created_at": task.created_at,
+        "last_prompt_sent_at": task.last_prompt_sent_at,
+        "subtasks": [
+            {
+                "step_id": s.step_id,
+                "description": s.description,
+                "target_files": s.target_files,
+                "writable_paths": s.writable_paths,
+                "acceptance": s.acceptance,
+                "forbidden_commands": s.forbidden_commands,
+            }
+            for s in task.subtasks
+        ],
+        "security_policy": {
+            "writable_paths": task.security_policy.writable_paths,
+            "secret_patterns": task.security_policy.secret_patterns,
+            "forbidden_commands": task.security_policy.forbidden_commands,
+            "allow_network": task.security_policy.allow_network,
+            "require_human_approval": task.security_policy.require_human_approval,
+        },
+    }
+    write_json(task.dir / "task.json", data)
+
+
+def load_task(task_id: str) -> Task | None:
+    """Load a task from its directory."""
+    data = read_json(TASKS_DIR / task_id / "task.json")
+    if data is None:
+        return None
+
+    subtasks = [
+        Subtask(
+            step_id=s["step_id"],
+            description=s["description"],
+            target_files=s["target_files"],
+            writable_paths=s["writable_paths"],
+            acceptance=s.get("acceptance", ""),
+            forbidden_commands=s.get("forbidden_commands", []),
+        )
+        for s in data.get("subtasks", [])
+    ]
+
+    sp = data.get("security_policy", {})
+    security_policy = SecurityPolicy(
+        writable_paths=sp.get("writable_paths", []),
+        secret_patterns=sp.get("secret_patterns", []),
+        forbidden_commands=sp.get("forbidden_commands", []),
+        allow_network=sp.get("allow_network", False),
+        require_human_approval=sp.get("require_human_approval", []),
+    )
+
+    return Task(
+        id=data["id"],
+        description=data["description"],
+        worktree=data["worktree"],
+        branch=data["branch"],
+        base_commit=data["base_commit"],
+        pane_label=data["pane_label"],
+        incarnation_id=data["incarnation_id"],
+        status=TaskStatus(data["status"]),
+        current_step=data["current_step"],
+        current_attempt=data["current_attempt"],
+        subtasks=subtasks,
+        created_at=data["created_at"],
+        security_policy=security_policy,
+        last_prompt_sent_at=data.get("last_prompt_sent_at"),
+    )
+
+
+def list_tasks() -> list[Task]:
+    """List all tasks."""
+    if not TASKS_DIR.exists():
+        return []
+    tasks = []
+    for d in sorted(TASKS_DIR.iterdir()):
+        if d.is_dir():
+            t = load_task(d.name)
+            if t:
+                tasks.append(t)
+    return tasks
+
+
+# === File protocol readers (step/attempt-aware) ===
+
+
+@dataclass
+class Heartbeat:
+    ts: str
+    incarnation: str
+    step: int
+    status: str
+    current_file: str
+
+
+@dataclass
+class AckResult:
+    step: int
+    attempt: int
+    incarnation: str
+    prompt_hash: str
+    acked_at: str
+
+
+@dataclass
+class StepResult:
+    step: int
+    attempt: int
+    incarnation: str
+    status: str
+    files_changed: list[str] = field(default_factory=list)
+    summary: str = ""
+    reason: str = ""
+
+
+def read_heartbeat(task: Task) -> Heartbeat | None:
+    """Read heartbeat.json."""
+    data = read_json(task.heartbeat_path)
+    if data is None:
+        return None
+    return Heartbeat(
+        ts=data.get("ts", ""),
+        incarnation=data.get("incarnation", ""),
+        step=data.get("step", 0),
+        status=data.get("status", ""),
+        current_file=data.get("current_file", ""),
+    )
+
+
+def read_ack_for_step(task: Task, step: int, attempt: int) -> AckResult | None:
+    """Read ack for a specific step+attempt."""
+    data = read_json(task.ack_path(step, attempt))
+    if data is None:
+        return None
+    return AckResult(
+        step=data.get("step", 0),
+        attempt=data.get("attempt", 0),
+        incarnation=data.get("incarnation", ""),
+        prompt_hash=data.get("prompt_hash", ""),
+        acked_at=data.get("acked_at", ""),
+    )
+
+
+def read_result_for_step(task: Task, step: int, attempt: int) -> StepResult | None:
+    """Read result for a specific step+attempt."""
+    data = read_json(task.result_path(step, attempt))
+    if data is None:
+        return None
+    return StepResult(
+        step=data.get("step", 0),
+        attempt=data.get("attempt", 0),
+        incarnation=data.get("incarnation", ""),
+        status=data.get("status", ""),
+        files_changed=data.get("files_changed", []),
+        summary=data.get("summary", ""),
+        reason=data.get("reason", ""),
+    )
+
+
+# === Journal replay ===
+
+
+def replay_state(task: Task) -> TaskStatus:
+    """Replay journal to determine current FSM state.
+
+    Reads the last few events to reconstruct where we are.
+    """
+    events = read_jsonl(task.journal_path)
+    if not events:
+        return TaskStatus.CREATED
+
+    status = TaskStatus.CREATED
+    for ev in events:
+        event_type = ev.get("event", "")
+        if event_type == "status_changed":
+            try:
+                status = TaskStatus(ev["data"]["to"])
+            except (KeyError, ValueError):
+                pass
+
+    return status
