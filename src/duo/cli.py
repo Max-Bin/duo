@@ -681,7 +681,6 @@ def batch(ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued:
     from duo.scheduler import queue_status
 
     repo = os.path.abspath(repo)
-    verbose = ctx.obj.get("verbose", False)
 
     task_defs = _load_batch_file(file)
 
