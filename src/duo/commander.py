@@ -168,10 +168,8 @@ def start_session(task: Task) -> None:
 
     # Create tmux pane and start copilot
     # Note: tmux must already be running (user starts duo inside tmux)
-    import subprocess as sp
-
     # Create a new window in the current tmux session
-    result = sp.run(
+    result = subprocess.run(
         ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
         capture_output=True, text=True,
     )
@@ -186,7 +184,7 @@ def start_session(task: Task) -> None:
     name_pane(pane_id, task.pane_label)
 
     # Tile layout for balance
-    sp.run(["tmux", "select-layout", "tiled"])
+    subprocess.run(["tmux", "select-layout", "tiled"])
 
     # cd to worktree, then start copilot (no -C flag available)
     time.sleep(0.5)

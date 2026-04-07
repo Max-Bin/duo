@@ -106,11 +106,77 @@ def list_panes() -> list[PaneInfo]:
     return panes
 
 
+# === Safety: dialog detection ===
+
+
+def is_in_dialog(label: str) -> bool:
+    """Check if Copilot is showing an ask_user dialog (safe to interact).
+
+    Returns True if the pane shows a numbered option dialog (╭───╮ box).
+    Returns False if Copilot is at the ❯ main prompt (UNSAFE — would consume PR).
+    """
+    output = read_pane(label, 20)
+    lines = output.strip().split("\n")
+
+    # Look for dialog box indicators (bottom-up)
+    for line in reversed(lines):
+        stripped = line.strip()
+        # Dialog box border
+        if "╰─" in stripped and "╯" in stripped:
+            return True
+        # Dialog option pattern
+        if stripped.startswith("❯") and ". " in stripped and stripped[0:5] != "❯  Ty":
+            return True
+        # Main prompt — STOP, not in dialog
+        if stripped.startswith("❯") and ("Type @" in stripped or stripped == "❯"):
+            return False
+
+    return False
+
+
+def wait_for_dialog(label: str, timeout: float = 300, interval: float = 5) -> bool:
+    """Wait until Copilot shows an ask_user dialog.
+
+    Returns True if dialog appeared, False if timeout.
+    NEVER interact with Copilot until this returns True.
+    """
+    import time
+    elapsed = 0.0
+    while elapsed < timeout:
+        if is_in_dialog(label):
+            return True
+        time.sleep(interval)
+        elapsed += interval
+    return False
+
+
+def select_dialog_option(label: str, option: str) -> None:
+    """Safely select an option in a Copilot ask_user dialog.
+
+    ONLY call this when is_in_dialog() returns True.
+    Raises RuntimeError if Copilot is not in dialog mode.
+    """
+    if not is_in_dialog(label):
+        raise RuntimeError(
+            f"SAFETY: Copilot pane '{label}' is NOT in dialog mode. "
+            "Sending input now would consume a Premium Request. "
+            "Wait for ask_user dialog to appear."
+        )
+    type_text(label, option)
+    read_pane(label, 5)
+    send_keys(label, "Enter")
+
+
 # === Composite operations ===
 
 
 def send_prompt(label: str, prompt: str) -> None:
-    """Full read→type→read→Enter cycle (smux core pattern)."""
+    """Full read→type→read→Enter cycle (smux core pattern).
+
+    WARNING: This sends to the main ❯ prompt and consumes a Premium Request.
+    Only use for the FIRST message (bootstrap) or when explicitly intended.
+    For continuation, use select_dialog_option() instead.
+    """
     read_pane(label, 5)          # 1. satisfy read guard
     type_text(label, prompt)     # 2. type text (clears guard)
     read_pane(label, 5)          # 3. verify text landed (re-satisfy guard)

@@ -42,6 +42,9 @@ def git_diff_names(worktree: str) -> set[str]:
         capture_output=True,
         text=True,
     )
+    if proc.returncode != 0:
+        import sys
+        print(f"[duo] Warning: git diff failed in {worktree}: {proc.stderr.strip()}", file=sys.stderr)
     return {
         line
         for line in proc.stdout.strip().splitlines()
@@ -57,6 +60,9 @@ def git_diff(worktree: str) -> str:
         capture_output=True,
         text=True,
     )
+    if proc.returncode != 0:
+        import sys
+        print(f"[duo] Warning: git diff failed in {worktree}: {proc.stderr.strip()}", file=sys.stderr)
     return proc.stdout
 
 
@@ -68,6 +74,9 @@ def git_untracked(worktree: str) -> list[str]:
         capture_output=True,
         text=True,
     )
+    if proc.returncode != 0:
+        import sys
+        print(f"[duo] Warning: git ls-files failed in {worktree}: {proc.stderr.strip()}", file=sys.stderr)
     return [
         line
         for line in proc.stdout.strip().splitlines()

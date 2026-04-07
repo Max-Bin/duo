@@ -49,10 +49,15 @@ def start(name: str, repo: str, desc: str) -> None:
     base_commit = result.stdout.strip()
 
     # Create worktree
-    subprocess.run(
+    result = subprocess.run(
         ["git", "worktree", "add", worktree, "-b", branch],
         cwd=repo,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        click.echo(f"Error: failed to create worktree: {result.stderr.strip()}", err=True)
+        sys.exit(1)
 
     # Create task with a placeholder subtask (user will send actual tasks)
     task = create_task(
@@ -201,7 +206,9 @@ def merge(name: str) -> None:
     r = subprocess.run(["git", "rebase", "origin/main"], cwd=worktree, capture_output=True, text=True)
     if r.returncode != 0:
         click.echo(f"Rebase conflict! Escalating to human.\n{r.stderr}", err=True)
-        subprocess.run(["git", "rebase", "--abort"], cwd=worktree)
+        abort = subprocess.run(["git", "rebase", "--abort"], cwd=worktree, capture_output=True, text=True)
+        if abort.returncode != 0:
+            click.echo(f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True)
         sys.exit(1)
 
     # Get parent repo from worktree

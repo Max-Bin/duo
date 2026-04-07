@@ -128,14 +128,17 @@ class Task:
 
 
 def now_iso() -> str:
+    """Return current UTC time as ISO 8601 timestamp."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def new_incarnation() -> str:
+    """Generate a unique 8-character hex session incarnation ID."""
     return uuid.uuid4().hex[:8]
 
 
 def prompt_hash(prompt: str) -> str:
+    """Return first 8 characters of SHA-256 hash of prompt text."""
     return hashlib.sha256(prompt.encode()).hexdigest()[:8]
 
 
@@ -154,8 +157,12 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     """Write JSON atomically (write tmp then rename)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
-    tmp.rename(path)
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        tmp.rename(path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
