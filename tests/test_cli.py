@@ -3665,3 +3665,73 @@ class TestNotFoundParametrized:
         result = runner.invoke(main, args)
         assert result.exit_code != 0
         assert "not found" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Cleanup --age tests
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupAge:
+    def test_cleanup_with_age(self, runner: CliRunner, make_task):
+        """--age filters to only tasks older than the given duration."""
+        old_task = make_task("old-task")
+        old_task.status = TaskStatus.COMPLETED
+        old_task.created_at = "2020-01-01T00:00:00"
+        save_task(old_task)
+
+        new_task = make_task("new-task")
+        new_task.status = TaskStatus.COMPLETED
+        save_task(new_task)
+
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["cleanup", "--age", "1d", "--force"])
+            assert result.exit_code == 0
+            assert "old-task" in result.output
+            assert "new-task" not in result.output
+            assert "Cleaned 1" in result.output
+
+    def test_cleanup_invalid_age(self, runner: CliRunner, make_task):
+        """--age with invalid format shows error."""
+        task = make_task("any-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["cleanup", "--age", "invalid", "--force"])
+        assert result.exit_code != 0
+        assert "invalid age format" in result.output.lower()
+
+    def test_cleanup_age_no_match(self, runner: CliRunner, make_task):
+        """--age with large duration matches nothing."""
+        task = make_task("recent-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["cleanup", "--age", "999d", "--force"])
+        assert result.exit_code == 0
+        assert "No tasks" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Doctor task_timeout check
+# ---------------------------------------------------------------------------
+
+
+class TestDoctorTaskTimeout:
+    def test_doctor_shows_task_timeout(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """doctor output includes task_timeout check."""
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+
+        def fake_which(name: str) -> str | None:
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        result = runner.invoke(main, ["doctor"])
+        assert "task_timeout" in result.output
