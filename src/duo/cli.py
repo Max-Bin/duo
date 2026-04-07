@@ -24,6 +24,7 @@ from duo.protocol import (
     create_task,
     list_tasks,
     load_task,
+    read_jsonl,
     replay_state,
 )
 
@@ -914,7 +915,8 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: boo
 @main.command()
 @click.argument("name")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def inspect(name: str, as_json: bool) -> None:
+@click.option("--include-files", is_flag=True, help="Show changed files and diff preview from worktree")
+def inspect(name: str, as_json: bool, include_files: bool) -> None:
     """Show detailed task information."""
     from duo.protocol import (
         read_ack_for_step,
@@ -973,6 +975,23 @@ def inspect(name: str, as_json: bool) -> None:
                 "summary": result.summary,
                 "files_changed": result.files_changed,
             }
+        if include_files:
+            worktree = task.worktree
+            if os.path.isdir(worktree):
+                r = _run_git(["diff", "--name-only", "HEAD"], cwd=worktree, check=False)
+                changed = [f for f in r.stdout.strip().splitlines() if f] if r.returncode == 0 else []
+                r2 = _run_git(["ls-files", "--others", "--exclude-standard"], cwd=worktree, check=False)
+                untracked = [f for f in r2.stdout.strip().splitlines() if f] if r2.returncode == 0 else []
+                r3 = _run_git(["diff", "HEAD"], cwd=worktree, check=False)
+                diff_preview = r3.stdout[:500] if r3.returncode == 0 else ""
+                if len(r3.stdout) > 500:
+                    diff_preview += "\n... (truncated)"
+                data["changed_files"] = changed
+                data["untracked_files"] = untracked
+                data["diff_preview"] = diff_preview
+            else:
+                data["files_error"] = f"Worktree not found: {worktree}"
+
         click.echo(json.dumps(data, indent=2))
         return
 
@@ -1036,6 +1055,31 @@ def inspect(name: str, as_json: bool) -> None:
         for ev in recent:
             ts = _fmt_ts(ev.get("ts", "?"))
             click.echo(f"  {ts} {ev.get('event', '?')}")
+
+    if include_files:
+        worktree = task.worktree
+        if os.path.isdir(worktree):
+            r = _run_git(["diff", "--name-only", "HEAD"], cwd=worktree, check=False)
+            changed = [f for f in r.stdout.strip().splitlines() if f] if r.returncode == 0 else []
+            r2 = _run_git(["ls-files", "--others", "--exclude-standard"], cwd=worktree, check=False)
+            untracked = [f for f in r2.stdout.strip().splitlines() if f] if r2.returncode == 0 else []
+            r3 = _run_git(["diff", "HEAD"], cwd=worktree, check=False)
+            diff_preview = r3.stdout[:500] if r3.returncode == 0 else ""
+            if len(r3.stdout) > 500:
+                diff_preview += "\n... (truncated)"
+            if changed:
+                click.echo(f"\nChanged files ({len(changed)}):")
+                for f in changed[:20]:
+                    click.echo(f"  M {f}")
+            if untracked:
+                click.echo(f"\nUntracked files ({len(untracked)}):")
+                for f in untracked[:20]:
+                    click.echo(f"  ? {f}")
+            if diff_preview:
+                click.echo("\nDiff preview:")
+                click.echo(diff_preview)
+        else:
+            click.echo(f"\n⚠ Worktree not found: {worktree}")
 
 
 @main.command()
@@ -1489,7 +1533,7 @@ def _export_as_text(task: Task) -> str:
 @click.option(
     "--format",
     "fmt",
-    type=click.Choice(["json", "text"]),
+    type=click.Choice(["text", "json", "jsonl"]),
     default="text",
     help="Output format",
 )
@@ -1509,6 +1553,26 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
             err=True,
         )
         sys.exit(1)
+
+    if fmt == "jsonl":
+        events = read_jsonl(task.journal_path) if task.journal_path.exists() else []
+        lines = []
+        for ev in events:
+            line = {
+                "task_id": task.id,
+                "timestamp": ev.get("ts", ""),
+                "event": ev.get("event", ""),
+                "data": ev.get("data", {}),
+            }
+            lines.append(json.dumps(line, ensure_ascii=False))
+        output = "\n".join(lines)
+        if outfile:
+            Path(outfile).write_text(output + "\n" if output else "")
+            click.echo(f"Report written to {outfile}")
+        else:
+            for l in lines:
+                click.echo(l)
+        return
 
     output = _export_as_json(task) if fmt == "json" else _export_as_text(task)
 

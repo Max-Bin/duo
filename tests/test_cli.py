@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1926,6 +1927,72 @@ class TestExportFormats:
         assert data["task_id"] == "exp-file"
 
 
+class TestExportJsonl:
+    def test_export_jsonl_format(self, runner: CliRunner):
+        """export --format jsonl outputs each event as a structured JSON line."""
+        task = create_task(
+            task_id="exp-jsonl",
+            description="JSONL test",
+            worktree="/fake/wt",
+            branch="duo/exp-jsonl",
+            base_commit="abc",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="Step 1",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        append_event(task, "started", {"step": 1})
+        append_event(task, "completed", {"step": 1, "result": "pass"})
+
+        result = runner.invoke(main, ["export", "exp-jsonl", "--format", "jsonl"])
+        assert result.exit_code == 0
+        lines = [l for l in result.output.strip().splitlines() if l.strip()]
+        assert len(lines) >= 3  # task_created + started + completed
+        for line in lines:
+            obj = json.loads(line)
+            assert obj["task_id"] == "exp-jsonl"
+            assert "timestamp" in obj
+            assert "event" in obj
+            assert "data" in obj
+        events = [json.loads(l)["event"] for l in lines]
+        assert "task_created" in events
+        assert "started" in events
+        assert "completed" in events
+
+    def test_export_jsonl_empty_journal(self, runner: CliRunner, make_task):
+        """export --format jsonl with only task_created event outputs one line."""
+        make_task("exp-jsonl-empty")
+        result = runner.invoke(main, ["export", "exp-jsonl-empty", "--format", "jsonl"])
+        assert result.exit_code == 0
+        lines = [l for l in result.output.strip().splitlines() if l.strip()]
+        # create_task appends a task_created event automatically
+        assert len(lines) == 1
+        obj = json.loads(lines[0])
+        assert obj["event"] == "task_created"
+
+    def test_export_json_format(self, runner: CliRunner, make_task):
+        """export --format json produces valid JSON with task_id and events."""
+        make_task("exp-json-fmt")
+        result = runner.invoke(main, ["export", "exp-json-fmt", "--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["task_id"] == "exp-json-fmt"
+        assert "events" in data
+        assert "subtasks" in data
+
+    def test_export_text_format_default(self, runner: CliRunner, make_task):
+        """export without --format defaults to text output."""
+        make_task("exp-text-def")
+        result = runner.invoke(main, ["export", "exp-text-def"])
+        assert result.exit_code == 0
+        assert "Task Report: exp-text-def" in result.output
+        assert "Status:" in result.output
+
+
 # ---------------------------------------------------------------------------
 # cleanup command — force, keep-journal
 # ---------------------------------------------------------------------------
@@ -3272,6 +3339,67 @@ class TestInspectJsonWithFiles:
         assert "heartbeat" in data
         assert "ack" in data
         assert "result" in data
+
+
+# ---------------------------------------------------------------------------
+# inspect --include-files
+# ---------------------------------------------------------------------------
+
+
+class TestInspectIncludeFiles:
+    def test_inspect_include_files(self, runner: CliRunner):
+        """inspect --include-files shows changed and untracked files."""
+        _make_task("incl-files")
+        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="src/a.py\nsrc/b.py\n", stderr="")
+        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="new.txt\n", stderr="")
+        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout="diff --git a/src/a.py\n+hello\n", stderr="")
+
+        def fake_run_git(args, cwd, *, check=True):
+            if args[:2] == ["diff", "--name-only"]:
+                return changed
+            if args[0] == "ls-files":
+                return untracked
+            return diff
+
+        with patch("duo.cli._run_git", side_effect=fake_run_git), \
+             patch("os.path.isdir", return_value=True):
+            result = runner.invoke(main, ["inspect", "incl-files", "--include-files"])
+        assert result.exit_code == 0
+        assert "Changed files (2):" in result.output
+        assert "M src/a.py" in result.output
+        assert "Untracked files (1):" in result.output
+        assert "? new.txt" in result.output
+        assert "Diff preview:" in result.output
+
+    def test_inspect_include_files_no_worktree(self, runner: CliRunner):
+        """inspect --include-files warns when worktree does not exist."""
+        _make_task("incl-nodir")
+        result = runner.invoke(main, ["inspect", "incl-nodir", "--include-files"])
+        assert result.exit_code == 0
+        assert "Worktree not found" in result.output
+
+    def test_inspect_include_files_json(self, runner: CliRunner):
+        """inspect --json-output --include-files populates JSON keys."""
+        _make_task("incl-json")
+        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="x.py\n", stderr="")
+        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout="diff content", stderr="")
+
+        def fake_run_git(args, cwd, *, check=True):
+            if args[:2] == ["diff", "--name-only"]:
+                return changed
+            if args[0] == "ls-files":
+                return untracked
+            return diff
+
+        with patch("duo.cli._run_git", side_effect=fake_run_git), \
+             patch("os.path.isdir", return_value=True):
+            result = runner.invoke(main, ["inspect", "incl-json", "--json-output", "--include-files"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["changed_files"] == ["x.py"]
+        assert data["untracked_files"] == []
+        assert "diff content" in data["diff_preview"]
 
 
 # ---------------------------------------------------------------------------
