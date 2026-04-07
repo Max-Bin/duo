@@ -47,5 +47,10 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Check formatting
-        run: uv run python -m py_compile src/duo/cli.py src/duo/commander.py src/duo/config.py src/duo/poller.py src/duo/protocol.py src/duo/transport.py src/duo/verifier.py
+      - name: Lint
+        run: |
+          uv run ruff check src/duo/ tests/ --select=F,E,W
+
+      - name: Format check
+        run: |
+          uv run ruff format src/duo/ tests/ --check --diff
