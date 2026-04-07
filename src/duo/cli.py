@@ -31,7 +31,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
     "Monitoring": ["list", "monitor", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
-    "Recovery": ["recover", "resume"],
+    "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cleanup"],
     "Setup": ["init", "doctor", "config"],
     "Misc": ["version", "completion"],
@@ -97,7 +97,11 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
     Returns:
         CompletedProcess result
     """
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    try:
+        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    except FileNotFoundError:
+        click.echo("Error: git is not installed. Install: brew install git (macOS) or apt install git (Linux)", err=True)
+        sys.exit(1)
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
         click.echo(f"Error: `{cmd_str}` failed: {result.stderr.strip()}", err=True)
@@ -117,7 +121,11 @@ def main(ctx: click.Context, verbose: bool) -> None:
         logging.basicConfig(
             level=logging.DEBUG, format="%(name)s %(levelname)s: %(message)s"
         )
-    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    except (OSError, PermissionError) as e:
+        click.echo(f"Error: cannot create tasks directory '{TASKS_DIR}': {e}", err=True)
+        sys.exit(1)
 
 
 def _create_worktree(name: str, repo: str) -> tuple[str, str]:
@@ -577,7 +585,11 @@ def kill(name: str) -> None:
 def _load_batch_file(file: str) -> list[dict[str, Any]]:
     """Read a JSON or YAML batch file and return the list of task definitions."""
     file_path = Path(file)
-    content = file_path.read_text()
+    try:
+        content = file_path.read_text()
+    except (FileNotFoundError, PermissionError, OSError) as e:
+        click.echo(f"Error: cannot read batch file '{file}': {e}", err=True)
+        sys.exit(1)
 
     if file_path.suffix in (".yaml", ".yml"):
         try:
@@ -590,8 +602,15 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
             )
             click.echo("Or use JSON format instead.", err=True)
             sys.exit(1)
+        except yaml.YAMLError as e:
+            click.echo(f"Error: invalid YAML in '{file}': {e}", err=True)
+            sys.exit(1)
     else:
-        tasks_data = json.loads(content)
+        try:
+            tasks_data = json.loads(content)
+        except json.JSONDecodeError as e:
+            click.echo(f"Error: invalid JSON in '{file}': {e}", err=True)
+            sys.exit(1)
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
         if isinstance(tasks_data, list):
@@ -1294,6 +1313,28 @@ def resume(name: str | None) -> None:
         else:
             start_session(task)
             click.echo(f"Resumed task '{task.id}' — started new session")
+
+
+@main.command()
+@click.argument("name")
+def retry(name: str) -> None:
+    """Retry a failed or blocked task from its current step."""
+    from duo.protocol import transition
+
+    _validate_task_name(name)
+    task = load_task(name)
+    if task is None:
+        click.echo(f"Error: task '{name}' not found.", err=True)
+        sys.exit(1)
+    if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
+        click.echo(
+            f"Error: task '{name}' is '{task.status.value}', not retryable."
+            " Only FAILED or BLOCKED tasks can be retried.",
+            err=True,
+        )
+        sys.exit(1)
+    transition(task, TaskStatus.SESSION_STARTING)
+    click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
 
 
 @main.group()
