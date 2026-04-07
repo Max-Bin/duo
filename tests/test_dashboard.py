@@ -60,6 +60,26 @@ class TestBuildTasksTable:
         table = _build_tasks_table([t1, t2])
         assert table.row_count == 2
 
+    def test_long_description_truncated(self):
+        """Descriptions longer than 40 chars get ellipsis truncation."""
+        from io import StringIO
+
+        from rich.console import Console
+
+        from duo.dashboard import _build_tasks_table
+
+        long_desc = "A" * 60
+        task = _make_task("trunc-task", long_desc)
+        table = _build_tasks_table([task])
+        # Render the table to a string and check for ellipsis
+        buf = StringIO()
+        console = Console(file=buf, width=200)
+        console.print(table)
+        rendered = buf.getvalue()
+        assert "..." in rendered
+        # The full 60-char description should NOT appear
+        assert long_desc not in rendered
+
 
 class TestBuildQueuePanel:
     def test_returns_panel(self):

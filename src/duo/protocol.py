@@ -218,6 +218,11 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     try:
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
         tmp.rename(path)
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except OSError:
         tmp.unlink(missing_ok=True)
         raise
@@ -257,6 +262,8 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
     entry = {"ts": now_iso(), "event": event, "data": data or {}}
     with open(task.journal_path, "a") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
 
 # === State transitions ===
@@ -376,6 +383,13 @@ def load_task(task_id: str) -> Task | None:
     """Load a task from its directory."""
     data = read_json(TASKS_DIR / task_id / "task.json")
     if data is None:
+        return None
+
+    if not isinstance(data.get("subtasks"), list):
+        logger.warning("Task '%s' has invalid subtasks field", task_id)
+        return None
+    if not isinstance(data.get("current_step"), int):
+        logger.warning("Task '%s' has invalid current_step field", task_id)
         return None
 
     subtasks = [

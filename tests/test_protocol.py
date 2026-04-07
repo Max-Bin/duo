@@ -370,6 +370,37 @@ class TestTaskCRUD:
         assert loaded.security_policy.allow_network is False
         assert "API_KEY=" in loaded.security_policy.secret_patterns
 
+    def test_load_task_invalid_subtasks(self):
+        """load_task returns None when subtasks is not a list."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-subtasks"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-subtasks","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,"subtasks":"not-a-list",'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-subtasks") is None
+
+    def test_load_task_invalid_current_step(self):
+        """load_task returns None when current_step is not an int."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-step"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-step","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":"not-an-int","current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-step") is None
+
 
 # ---------------------------------------------------------------------------
 # append_event

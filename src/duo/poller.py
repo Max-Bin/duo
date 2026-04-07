@@ -6,8 +6,11 @@ Resets to fast polling when state changes or timeouts occur.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from enum import StrEnum
+
+logger = logging.getLogger(__name__)
 
 from duo.protocol import Task, read_heartbeat, read_result_for_step
 
@@ -44,6 +47,7 @@ def age(iso_ts: str | None) -> float:
             dt = dt.replace(tzinfo=UTC)
         return (datetime.now(UTC) - dt).total_seconds()
     except ValueError:
+        logger.debug("Failed to parse timestamp: %s", iso_ts)
         return float("inf")
 
 

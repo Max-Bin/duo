@@ -275,6 +275,20 @@ class TestSend:
         assert result.exit_code != 0
         assert "Task name must contain only" in result.output
 
+    def test_send_empty_prompt(self, runner: CliRunner):
+        """Verify send() rejects empty prompts."""
+        _make_task("empty-prompt-task")
+        result = runner.invoke(main, ["send", "empty-prompt-task", ""])
+        assert result.exit_code != 0
+        assert "empty" in result.output.lower() or "empty" in (result.output + str(result.exception)).lower()
+
+    def test_send_whitespace_prompt(self, runner: CliRunner):
+        """Verify send() rejects whitespace-only prompts."""
+        _make_task("ws-prompt-task")
+        result = runner.invoke(main, ["send", "ws-prompt-task", "   "])
+        assert result.exit_code != 0
+        assert "empty" in result.output.lower() or "empty" in (result.output + str(result.exception)).lower()
+
 
 # ---------------------------------------------------------------------------
 # start command (error case)
@@ -323,6 +337,16 @@ class TestKill:
         result = runner.invoke(main, ["kill", "nope"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    def test_kill_invalid_name(self, runner: CliRunner):
+        """kill rejects task names containing path traversal characters."""
+        result = runner.invoke(main, ["kill", "../bad"])
+        assert result.exit_code != 0
+
+    def test_kill_invalid_name_slash(self, runner: CliRunner):
+        """kill rejects task names with slashes."""
+        result = runner.invoke(main, ["kill", "foo/bar"])
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------
@@ -1098,6 +1122,16 @@ class TestMergeCommand:
         result = runner.invoke(main, ["merge", "ghost"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    def test_merge_invalid_name(self, runner: CliRunner):
+        """merge rejects task names containing path traversal characters."""
+        result = runner.invoke(main, ["merge", "../bad"])
+        assert result.exit_code != 0
+
+    def test_merge_invalid_name_slash(self, runner: CliRunner):
+        """merge rejects task names with slashes."""
+        result = runner.invoke(main, ["merge", "foo/bar"])
+        assert result.exit_code != 0
 
     def test_merge_completed_task(self, runner: CliRunner, tmp_path: Path):
         """merge: happy path — fetch, rebase, ff-merge, cleanup."""
@@ -2695,6 +2729,16 @@ class TestDiffCommand:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    def test_diff_invalid_name(self, runner: CliRunner):
+        """diff rejects task names containing path traversal characters."""
+        result = runner.invoke(main, ["diff", "../bad"])
+        assert result.exit_code != 0
+
+    def test_diff_invalid_name_slash(self, runner: CliRunner):
+        """diff rejects task names with slashes."""
+        result = runner.invoke(main, ["diff", "foo/bar"])
+        assert result.exit_code != 0
+
     def test_diff_no_worktree(self, runner: CliRunner):
         """diff when worktree doesn't exist shows error."""
         sub = Subtask(
@@ -3210,3 +3254,23 @@ class TestFmtTs:
     def test_short_time_part(self):
         """Time portion shorter than 8 chars returns what's available."""
         assert _fmt_ts("2025-01-15T14:30") == "14:30"
+
+
+# ---------------------------------------------------------------------------
+# batch: invalid task name in batch file
+# ---------------------------------------------------------------------------
+
+
+class TestBatchInvalidName:
+    """Batch rejects task definitions with invalid names."""
+
+    def test_batch_invalid_name_traversal(self, runner: CliRunner, tmp_path: Path):
+        """Batch file with path-traversal task name is rejected."""
+        batch_file = tmp_path / "bad-names.json"
+        batch_file.write_text(
+            json.dumps(
+                {"tasks": [{"name": "../evil", "description": "bad"}]}
+            )
+        )
+        result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        assert "invalid task name" in result.output.lower() or result.exit_code != 0

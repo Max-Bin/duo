@@ -250,6 +250,9 @@ def send(name: str, prompt: str) -> None:
     from duo.commander import send_task_prompt
 
     _validate_task_name(name)
+    if not prompt or not prompt.strip():
+        click.echo("Error: prompt cannot be empty.", err=True)
+        sys.exit(1)
     task = load_task(name)
     if task is None:
         click.echo(
@@ -390,6 +393,7 @@ def recover() -> None:
 @click.option("--dry-run", is_flag=True, help="Preview merge without executing")
 def merge(name: str, dry_run: bool) -> None:
     """Merge a completed task's worktree to main."""
+    _validate_task_name(name)
     task = load_task(name)
     if task is None:
         click.echo(
@@ -518,6 +522,7 @@ def stop(name: str) -> None:
 @click.argument("name")
 def kill(name: str) -> None:
     """Kill a task and clean up."""
+    _validate_task_name(name)
     task = load_task(name)
     if task is None:
         click.echo(
@@ -617,6 +622,11 @@ def _create_single_task(
     directly into QUEUED state without starting a session.
     """
     name = defn["name"]
+    try:
+        _validate_task_name(name)
+    except (SystemExit, click.BadParameter):
+        click.echo(f"  ✗ {name}: invalid task name", err=True)
+        return None
     desc = defn.get("description", f"Task {name}")
     target_files = defn.get("target_files", [])
     writable = defn.get("writable_paths", ["*"])
@@ -1533,6 +1543,7 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
 @click.argument("name")
 def diff_cmd(name: str) -> None:
     """Show git diff for a task's worktree changes."""
+    _validate_task_name(name)
     task = load_task(name)
     if task is None:
         click.echo(f"Error: task '{name}' not found.", err=True)
