@@ -48,18 +48,19 @@ def get_config(key: str) -> Any:
 def set_config(key: str, value: str) -> Any:
     """Set a config value with type coercion based on defaults."""
     config = load_config()
+    coerced: Any = value
     # Type coerce based on default type
     if key in DEFAULTS:
         default_type = type(DEFAULTS[key])
         if default_type is bool:
-            value = value.lower() in ("true", "1", "yes")
+            coerced = value.lower() in ("true", "1", "yes")
         elif default_type is int:
-            value = int(value)
+            coerced = int(value)
         elif default_type is float:
-            value = float(value)
-    config[key] = value
+            coerced = float(value)
+    config[key] = coerced
     save_config(config)
-    return value
+    return coerced
 
 
 def reset_config(key: str | None = None) -> None:

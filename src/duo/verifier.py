@@ -11,7 +11,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-from duo.protocol import Task, StepResult, append_event
+from duo.protocol import Task, Subtask, StepResult, append_event
 
 
 # === Result types ===
@@ -97,7 +97,7 @@ def run_in_worktree(worktree: str, command: str) -> int:
 # === Verification checks ===
 
 
-def _current_subtask(task: Task) -> "Subtask | None":  # noqa: F821
+def _current_subtask(task: Task) -> Subtask | None:
     """Look up the subtask matching *task.current_step*."""
     for st in task.subtasks:
         if st.step_id == task.current_step:

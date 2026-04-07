@@ -10,6 +10,7 @@ import click
 
 from duo.protocol import (
     DUO_DIR,
+    Task,
     TASKS_DIR,
     TaskStatus,
     create_task,
@@ -123,7 +124,7 @@ def status(name: str | None = None) -> None:
             click.echo("")
 
 
-def _print_task(task) -> None:
+def _print_task(task: Task) -> None:
     click.echo(f"  {task.id}")
     click.echo(f"    Status:      {task.status.value}")
     click.echo(f"    Step:        {task.current_step}/{len(task.subtasks)}")
@@ -199,7 +200,7 @@ def merge(name: str) -> None:
 
     # Fetch and rebase
     click.echo("Fetching and rebasing...")
-    r = subprocess.run(["git", "fetch", "origin", "main"], cwd=worktree)
+    r = subprocess.run(["git", "fetch", "origin", "main"], cwd=worktree, capture_output=True, text=True)
     if r.returncode != 0:
         click.echo("Warning: fetch failed, proceeding with local state")
 

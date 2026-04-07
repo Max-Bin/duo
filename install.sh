@@ -16,6 +16,37 @@ err()  { printf "${RED}❌ %s${RESET}\n" "$*"; }
 info() { printf "${BLUE}ℹ️  %s${RESET}\n" "$*"; }
 step() { printf "\n${CYAN}${BOLD}▶ %s${RESET}\n" "$*"; }
 
+# --- Help ---
+usage() {
+    cat <<EOF
+Usage: bash install.sh [OPTIONS]
+
+One-click installer for Duo — Agent Orchestration Runtime.
+
+Options:
+  -h, --help    Show this help message and exit
+
+What it does:
+  1. Checks prerequisites (Python 3.12+, git, tmux)
+  2. Installs uv (if not found)
+  3. Runs uv sync to install dependencies
+  4. Installs duo CLI in editable mode
+  5. Checks for tmux-bridge (smux)
+
+Environment:
+  DUO_COPILOT_MODEL    Override default Copilot model
+EOF
+    exit 0
+}
+
+# Parse arguments
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help) usage ;;
+        *) echo "Unknown option: $arg"; usage ;;
+    esac
+done
+
 # ─── Error Handler ────────────────────────────────────────────────────────────
 trap 'err "Installation failed at line $LINENO. See output above for details."' ERR
 

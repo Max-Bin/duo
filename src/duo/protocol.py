@@ -148,7 +148,8 @@ def prompt_hash(prompt: str) -> str:
 def read_json(path: Path) -> dict[str, Any] | None:
     """Read a JSON file, return None if missing or invalid."""
     try:
-        return json.loads(path.read_text())
+        data: dict[str, Any] = json.loads(path.read_text())
+        return data
     except (FileNotFoundError, json.JSONDecodeError):
         return None
 
