@@ -124,7 +124,9 @@ def run_dashboard(task_ids: list[str] | None = None, refresh_rate: float = 2.0) 
     """Run the live dashboard."""
     console = Console()
 
-    with Live(console=console, refresh_per_second=1.0 / refresh_rate, screen=True) as live:
+    with Live(
+        console=console, refresh_per_second=1.0 / refresh_rate, screen=True
+    ) as live:
         try:
             while True:
                 tasks = list_tasks()
@@ -140,7 +142,10 @@ def run_dashboard(task_ids: list[str] | None = None, refresh_rate: float = 2.0) 
 
                 now = datetime.now().strftime("%H:%M:%S")
                 layout["header"].update(
-                    Text(f" Duo Dashboard — {now}  (Ctrl+C to exit)", style="bold white on blue")
+                    Text(
+                        f" Duo Dashboard — {now}  (Ctrl+C to exit)",
+                        style="bold white on blue",
+                    )
                 )
 
                 layout["body"].update(_build_tasks_table(tasks))

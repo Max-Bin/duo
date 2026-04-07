@@ -80,7 +80,9 @@ class TestBridge:
         mock_run.return_value = _ok("hello")
         assert bridge(["echo"]) == "hello"
         mock_run.assert_called_once_with(
-            [BRIDGE, "echo"], capture_output=True, text=True,
+            [BRIDGE, "echo"],
+            capture_output=True,
+            text=True,
         )
 
     @patch("subprocess.run")
@@ -105,7 +107,9 @@ class TestReadPane:
         mock_run.return_value = _ok("pane content")
         assert read_pane("editor", 100) == "pane content"
         mock_run.assert_called_once_with(
-            [BRIDGE, "read", "editor", "100"], capture_output=True, text=True,
+            [BRIDGE, "read", "editor", "100"],
+            capture_output=True,
+            text=True,
         )
 
     @patch("subprocess.run")
@@ -122,7 +126,8 @@ class TestTypeText:
         type_text("editor", "hello world")
         mock_run.assert_called_once_with(
             [BRIDGE, "type", "editor", "hello world"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
 
@@ -133,7 +138,8 @@ class TestSendKeys:
         send_keys("editor", "Enter")
         mock_run.assert_called_once_with(
             [BRIDGE, "keys", "editor", "Enter"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
     @patch("subprocess.run")
@@ -142,7 +148,8 @@ class TestSendKeys:
         send_keys("editor", "C-c", "Enter")
         mock_run.assert_called_once_with(
             [BRIDGE, "keys", "editor", "C-c", "Enter"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
 
@@ -153,7 +160,8 @@ class TestNamePane:
         name_pane("%5", "editor")
         mock_run.assert_called_once_with(
             [BRIDGE, "name", "%5", "editor"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
 
@@ -187,7 +195,9 @@ class TestListPanes:
         mock_run.return_value = _ok(LIST_OUTPUT)
         panes = list_panes()
         assert len(panes) == 3
-        assert panes[0] == PaneInfo("%1", "main:0", "80x24", "zsh", "shell", "/home/user")
+        assert panes[0] == PaneInfo(
+            "%1", "main:0", "80x24", "zsh", "shell", "/home/user"
+        )
         assert panes[1].label == "agent"
         assert panes[2].process == "python"
 
@@ -235,7 +245,9 @@ class TestSendShellCommand:
 
     @patch("subprocess.run")
     def test_rejects_at_main_prompt(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="❯ Type @ to mention files", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="❯ Type @ to mention files", stderr=""
+        )
         with pytest.raises(RuntimeError, match="BLOCKED"):
             send_shell_command("agent", "cd /tmp")
 
@@ -243,12 +255,16 @@ class TestSendShellCommand:
 class TestSafeEnter:
     @patch("subprocess.run")
     def test_allows_non_prompt(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="normal output", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="normal output", stderr=""
+        )
         safe_enter("agent")  # should not raise
 
     @patch("subprocess.run")
     def test_blocks_main_prompt(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="❯ Type @ to mention files", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="❯ Type @ to mention files", stderr=""
+        )
         with pytest.raises(RuntimeError, match="BLOCKED"):
             safe_enter("agent")
 
@@ -296,7 +312,9 @@ class TestCancelCurrent:
         calls = mock_run.call_args_list
         assert len(calls) == 2
         assert calls[1] == call(
-            [BRIDGE, "keys", "agent", "C-c"], capture_output=True, text=True,
+            [BRIDGE, "keys", "agent", "C-c"],
+            capture_output=True,
+            text=True,
         )
 
 
@@ -308,7 +326,9 @@ class TestSendEof:
         calls = mock_run.call_args_list
         assert len(calls) == 2
         assert calls[1] == call(
-            [BRIDGE, "keys", "agent", "C-d"], capture_output=True, text=True,
+            [BRIDGE, "keys", "agent", "C-d"],
+            capture_output=True,
+            text=True,
         )
 
 
@@ -334,37 +354,31 @@ class TestDiagnosePane:
         mock_run.return_value = _ok("diag output")
         assert diagnose_pane("agent") == "diag output"
         mock_run.assert_called_once_with(
-            [BRIDGE, "read", "agent", "200"], capture_output=True, text=True,
+            [BRIDGE, "read", "agent", "200"],
+            capture_output=True,
+            text=True,
         )
 
 
 class TestIsProcessAlive:
     @patch("subprocess.run")
     def test_shell_process_returns_false(self, mock_run):
-        mock_run.return_value = _ok(
-            "HEADER\n%1 main:0 80x24 zsh agent /home\n"
-        )
+        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 zsh agent /home\n")
         assert is_process_alive("agent") is False
 
     @patch("subprocess.run")
     def test_dash_shell_returns_false(self, mock_run):
-        mock_run.return_value = _ok(
-            "HEADER\n%1 main:0 80x24 -zsh agent /home\n"
-        )
+        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 -zsh agent /home\n")
         assert is_process_alive("agent") is False
 
     @patch("subprocess.run")
     def test_non_shell_returns_true(self, mock_run):
-        mock_run.return_value = _ok(
-            "HEADER\n%1 main:0 80x24 copilot agent /home\n"
-        )
+        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 copilot agent /home\n")
         assert is_process_alive("agent") is True
 
     @patch("subprocess.run")
     def test_unknown_label_returns_false(self, mock_run):
-        mock_run.return_value = _ok(
-            "HEADER\n%1 main:0 80x24 copilot other /home\n"
-        )
+        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 copilot other /home\n")
         assert is_process_alive("missing") is False
 
 
@@ -471,6 +485,7 @@ class TestRetry:
 class TestPRAudit:
     def test_get_pr_log(self):
         from duo.transport import get_pr_log, _record_pr
+
         initial = len(get_pr_log())
         _record_pr("test-pane", "test_action", "ctx")
         log = get_pr_log()
@@ -480,6 +495,7 @@ class TestPRAudit:
 
     def test_pr_callback(self):
         from duo.transport import set_pr_callback, _record_pr
+
         calls: list[tuple[str, str, str]] = []
         set_pr_callback(lambda l, a, c: calls.append((l, a, c)))
         _record_pr("pane", "act", "ctx")
@@ -500,12 +516,16 @@ class TestIsInDialog:
 
     @patch("subprocess.run")
     def test_no_dialog(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="$ normal prompt", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="$ normal prompt", stderr=""
+        )
         assert is_in_dialog("test-pane") is False
 
     @patch("subprocess.run")
     def test_main_prompt_rejected(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0, stdout="❯ Type @ to mention files", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="❯ Type @ to mention files", stderr=""
+        )
         assert is_in_dialog("test-pane") is False
 
 
@@ -518,7 +538,9 @@ class TestWaitForIdle:
     def test_detects_idle(self, mock_time, mock_run):
         mock_time.sleep = MagicMock()
         # Return same content twice = idle
-        mock_run.return_value = MagicMock(returncode=0, stdout="stable output", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="stable output", stderr=""
+        )
         assert wait_for_idle("test-pane", timeout=5.0, poll_interval=0.01) is True
 
     @patch("subprocess.run")

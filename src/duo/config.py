@@ -72,6 +72,7 @@ def set_config(key: str, value: str) -> Any:
                 )
     if key not in DEFAULTS:
         import sys as _sys
+
         print(f"[duo] Warning: '{key}' is not a known config key", file=_sys.stderr)
     config[key] = coerced
     save_config(config)

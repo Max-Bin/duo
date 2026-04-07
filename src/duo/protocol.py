@@ -49,13 +49,38 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.CREATED: {TaskStatus.SESSION_STARTING, TaskStatus.QUEUED},
     TaskStatus.QUEUED: {TaskStatus.SESSION_STARTING, TaskStatus.FAILED},
     TaskStatus.SESSION_STARTING: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
-    TaskStatus.PROMPT_SENT: {TaskStatus.ACKED, TaskStatus.PROMPT_SENT, TaskStatus.FAILED, TaskStatus.VERIFYING, TaskStatus.RUNNING, TaskStatus.BLOCKED},
+    TaskStatus.PROMPT_SENT: {
+        TaskStatus.ACKED,
+        TaskStatus.PROMPT_SENT,
+        TaskStatus.FAILED,
+        TaskStatus.VERIFYING,
+        TaskStatus.RUNNING,
+        TaskStatus.BLOCKED,
+    },
     TaskStatus.ACKED: {TaskStatus.RUNNING, TaskStatus.RESULT_REPORTED},
-    TaskStatus.RUNNING: {TaskStatus.RESULT_REPORTED, TaskStatus.BLOCKED, TaskStatus.FAILED},
+    TaskStatus.RUNNING: {
+        TaskStatus.RESULT_REPORTED,
+        TaskStatus.BLOCKED,
+        TaskStatus.FAILED,
+    },
     TaskStatus.RESULT_REPORTED: {TaskStatus.VERIFYING},
-    TaskStatus.VERIFYING: {TaskStatus.PROMPT_SENT, TaskStatus.CORRECTING, TaskStatus.COMPLETED, TaskStatus.ESCALATED, TaskStatus.BLOCKED},
-    TaskStatus.CORRECTING: {TaskStatus.ACKED, TaskStatus.ESCALATED, TaskStatus.PROMPT_SENT},
-    TaskStatus.BLOCKED: {TaskStatus.PROMPT_SENT, TaskStatus.ESCALATED, TaskStatus.FAILED},
+    TaskStatus.VERIFYING: {
+        TaskStatus.PROMPT_SENT,
+        TaskStatus.CORRECTING,
+        TaskStatus.COMPLETED,
+        TaskStatus.ESCALATED,
+        TaskStatus.BLOCKED,
+    },
+    TaskStatus.CORRECTING: {
+        TaskStatus.ACKED,
+        TaskStatus.ESCALATED,
+        TaskStatus.PROMPT_SENT,
+    },
+    TaskStatus.BLOCKED: {
+        TaskStatus.PROMPT_SENT,
+        TaskStatus.ESCALATED,
+        TaskStatus.FAILED,
+    },
     TaskStatus.ESCALATED: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
     TaskStatus.FAILED: {TaskStatus.SESSION_STARTING},
     TaskStatus.COMPLETED: set(),
@@ -82,12 +107,14 @@ class SecurityPolicy:
     """Security constraints enforced during verification."""
 
     writable_paths: list[str] = field(default_factory=list)
-    secret_patterns: list[str] = field(default_factory=lambda: ["API_KEY=", "password=", "token="])
+    secret_patterns: list[str] = field(
+        default_factory=lambda: ["API_KEY=", "password=", "token="]
+    )
     forbidden_commands: list[str] = field(default_factory=list)
     allow_network: bool = False
-    require_human_approval: list[str] = field(default_factory=lambda: [
-        "delete_file", "modify_config", "change_dependency"
-    ])
+    require_human_approval: list[str] = field(
+        default_factory=lambda: ["delete_file", "modify_config", "change_dependency"]
+    )
 
 
 @dataclass
@@ -216,16 +243,26 @@ def transition(task: Task, new_status: TaskStatus) -> None:
     """Transition task to new status. Logs invalid transitions but doesn't crash."""
     old = task.status
     if new_status not in TRANSITIONS.get(old, set()):
-        append_event(task, "invalid_transition", {
-            "from": old.value, "to": new_status.value,
-            "incarnation": task.incarnation_id,
-        })
+        append_event(
+            task,
+            "invalid_transition",
+            {
+                "from": old.value,
+                "to": new_status.value,
+                "incarnation": task.incarnation_id,
+            },
+        )
         return
     task.status = new_status
-    append_event(task, "status_changed", {
-        "from": old.value, "to": new_status.value,
-        "incarnation": task.incarnation_id,
-    })
+    append_event(
+        task,
+        "status_changed",
+        {
+            "from": old.value,
+            "to": new_status.value,
+            "incarnation": task.incarnation_id,
+        },
+    )
     save_task(task)
 
 
@@ -264,10 +301,14 @@ def create_task(
         task.step_dir(st.step_id).mkdir(parents=True, exist_ok=True)
 
     save_task(task)
-    append_event(task, "task_created", {
-        "id": task_id,
-        "incarnation": task.incarnation_id,
-    })
+    append_event(
+        task,
+        "task_created",
+        {
+            "id": task_id,
+            "incarnation": task.incarnation_id,
+        },
+    )
     return task
 
 

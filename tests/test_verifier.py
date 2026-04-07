@@ -32,6 +32,7 @@ from duo.verifier import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Redirect TASKS_DIR to a temporary directory for every test."""
@@ -77,6 +78,7 @@ def _mock_proc(stdout: str = "", returncode: int = 0):
 # ---------------------------------------------------------------------------
 # Git helpers
 # ---------------------------------------------------------------------------
+
 
 class TestGitDiffNames:
     @patch("duo.verifier.subprocess.run")
@@ -128,6 +130,7 @@ class TestGitUntracked:
 # run_in_worktree
 # ---------------------------------------------------------------------------
 
+
 class TestRunInWorktree:
     def test_simple_command(self, tmp_path):
         """A basic command like 'echo hello' should succeed."""
@@ -146,6 +149,7 @@ class TestRunInWorktree:
 # ---------------------------------------------------------------------------
 # _check_security_scope
 # ---------------------------------------------------------------------------
+
 
 class TestCheckSecurityScope:
     def test_files_within_writable_paths(self):
@@ -189,7 +193,9 @@ class TestCheckSecurityScope:
     def test_first_violation_short_circuits(self):
         task = _make_task()
         result = _check_security_scope(
-            task, {"bad1.txt", "bad2.txt"}, ["src/*"],
+            task,
+            {"bad1.txt", "bad2.txt"},
+            ["src/*"],
         )
         assert isinstance(result, Correction)
         # Only the first (sorted) offender is reported
@@ -199,6 +205,7 @@ class TestCheckSecurityScope:
 # ---------------------------------------------------------------------------
 # _check_task_scope
 # ---------------------------------------------------------------------------
+
 
 class TestCheckTaskScope:
     def test_returns_none(self):
@@ -216,6 +223,7 @@ class TestCheckTaskScope:
 # ---------------------------------------------------------------------------
 # _check_secret_leak
 # ---------------------------------------------------------------------------
+
 
 class TestCheckSecretLeak:
     def test_no_added_lines(self):
@@ -272,6 +280,7 @@ class TestCheckSecretLeak:
 # _check_untracked
 # ---------------------------------------------------------------------------
 
+
 class TestCheckUntracked:
     @patch("duo.verifier.git_untracked", return_value=[])
     def test_no_untracked_files(self, _mock):
@@ -289,6 +298,7 @@ class TestCheckUntracked:
 # ---------------------------------------------------------------------------
 # _check_acceptance
 # ---------------------------------------------------------------------------
+
 
 class TestCheckAcceptance:
     def test_empty_acceptance_skips(self):
@@ -319,11 +329,16 @@ class TestCheckAcceptance:
 # verify_step
 # ---------------------------------------------------------------------------
 
+
 class TestVerifyStep:
     def _result(self, **kw) -> StepResult:
         defaults = dict(
-            step=1, attempt=1, incarnation="abc",
-            status="done", files_changed=[], summary="ok",
+            step=1,
+            attempt=1,
+            incarnation="abc",
+            status="done",
+            files_changed=[],
+            summary="ok",
         )
         defaults.update(kw)
         return StepResult(**defaults)
@@ -381,7 +396,10 @@ class TestVerifyStep:
         assert isinstance(result, Correction)
         assert "Acceptance" in result.reason
 
-    @patch("duo.verifier.git_diff_names", side_effect=RuntimeError("git diff --name-only failed"))
+    @patch(
+        "duo.verifier.git_diff_names",
+        side_effect=RuntimeError("git diff --name-only failed"),
+    )
     def test_git_failure_returns_correction(self, _names):
         task = _make_task()
         result = verify_step(task, self._result())

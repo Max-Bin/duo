@@ -259,7 +259,9 @@ class TestVerifyAndAdvance:
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_blocked_result_transitions_to_blocked(self, mock_verify, mock_send, mock_wait):
+    def test_blocked_result_transitions_to_blocked(
+        self, mock_verify, mock_send, mock_wait
+    ):
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1, status="blocked", reason="missing dep")
@@ -331,7 +333,9 @@ class TestVerifyAndAdvance:
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_error_result_transitions_to_blocked(self, mock_verify, mock_send, mock_wait):
+    def test_error_result_transitions_to_blocked(
+        self, mock_verify, mock_send, mock_wait
+    ):
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_result(task, 1, 1, status="error", reason="crash")
@@ -350,45 +354,73 @@ class TestPRBudget:
     def test_unlimited_budget_allows(self, monkeypatch: pytest.MonkeyPatch):
         """Budget=0 means unlimited."""
         task = _make_task()
-        monkeypatch.setattr("duo.commander.get_config", lambda k: 0 if k == "pr_budget" else None)
+        monkeypatch.setattr(
+            "duo.commander.get_config", lambda k: 0 if k == "pr_budget" else None
+        )
         assert _check_pr_budget(task) is True
 
     def test_under_budget_allows(self, monkeypatch: pytest.MonkeyPatch):
         """Under budget allows PR consumption."""
         task = _make_task()
-        monkeypatch.setattr("duo.commander.get_config", lambda k: 5 if k == "pr_budget" else None)
+        monkeypatch.setattr(
+            "duo.commander.get_config", lambda k: 5 if k == "pr_budget" else None
+        )
         # Add 2 pr_consumed events (under budget of 5)
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
         assert _check_pr_budget(task) is True
 
     def test_at_budget_blocks(self, monkeypatch: pytest.MonkeyPatch):
         """At budget limit blocks further PR consumption."""
         task = _make_task()
-        monkeypatch.setattr("duo.commander.get_config", lambda k: 2 if k == "pr_budget" else None)
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        monkeypatch.setattr(
+            "duo.commander.get_config", lambda k: 2 if k == "pr_budget" else None
+        )
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
         assert _check_pr_budget(task) is False
 
     def test_over_budget_blocks(self, monkeypatch: pytest.MonkeyPatch):
         """Over budget blocks further PR consumption."""
         task = _make_task()
-        monkeypatch.setattr("duo.commander.get_config", lambda k: 1 if k == "pr_budget" else None)
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        monkeypatch.setattr(
+            "duo.commander.get_config", lambda k: 1 if k == "pr_budget" else None
+        )
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
         assert _check_pr_budget(task) is False
 
-    def test_negative_budget_treated_as_unlimited(self, monkeypatch: pytest.MonkeyPatch):
+    def test_negative_budget_treated_as_unlimited(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """Negative budget treated as unlimited."""
         task = _make_task()
-        monkeypatch.setattr("duo.commander.get_config", lambda k: -1 if k == "pr_budget" else None)
+        monkeypatch.setattr(
+            "duo.commander.get_config", lambda k: -1 if k == "pr_budget" else None
+        )
         assert _check_pr_budget(task) is True
 
     def test_ignores_non_pr_events(self, monkeypatch: pytest.MonkeyPatch):
         """Only pr_consumed events count toward budget."""
         task = _make_task()
-        monkeypatch.setattr("duo.commander.get_config", lambda k: 2 if k == "pr_budget" else None)
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        monkeypatch.setattr(
+            "duo.commander.get_config", lambda k: 2 if k == "pr_budget" else None
+        )
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
         append_event(task, "prompt_sent", {"step": 1, "attempt": 1})
         append_event(task, "correction_sent", {"step": 1, "attempt": 2})
         assert _check_pr_budget(task) is True
@@ -403,7 +435,6 @@ class TestStartSession:
     def test_start_session_creates_pane(self):
         """start_session calls subprocess to split tmux and transitions state."""
         from unittest.mock import MagicMock
-        from duo.commander import start_session
 
         task = _make_task()
 
@@ -442,7 +473,9 @@ class TestStartSession:
 class TestBuildTaskPromptEdgeCases:
     def test_build_task_prompt_last_step(self):
         """build prompt for the final step of a multi-step task."""
-        task = _make_task(subtasks=[_make_subtask(1), _make_subtask(2), _make_subtask(3)])
+        task = _make_task(
+            subtasks=[_make_subtask(1), _make_subtask(2), _make_subtask(3)]
+        )
         task.current_step = 3
         task.current_attempt = 1
         prompt = build_task_prompt(task)

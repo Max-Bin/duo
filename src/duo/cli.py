@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -28,7 +29,7 @@ from duo.protocol import (
 
 def _validate_task_name(name: str) -> None:
     """Validate that a task name contains only safe characters."""
-    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", name):
         raise click.BadParameter(
             f"Task name must contain only letters, numbers, dashes, underscores. Got: '{name}'"
         )
@@ -42,7 +43,9 @@ def main(ctx: click.Context, verbose: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     if verbose:
-        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s: %(message)s")
+        logging.basicConfig(
+            level=logging.DEBUG, format="%(name)s %(levelname)s: %(message)s"
+        )
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -54,10 +57,15 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
 
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        capture_output=True, text=True, cwd=repo,
+        capture_output=True,
+        text=True,
+        cwd=repo,
     )
     if result.returncode != 0:
-        click.echo(f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.", err=True)
+        click.echo(
+            f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.",
+            err=True,
+        )
         sys.exit(1)
     base_commit = result.stdout.strip()
 
@@ -68,7 +76,10 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
         text=True,
     )
     if result.returncode != 0:
-        click.echo(f"Error: failed to create worktree: {result.stderr.strip()}. Ensure the repo exists and you have write permissions.", err=True)
+        click.echo(
+            f"Error: failed to create worktree: {result.stderr.strip()}. Ensure the repo exists and you have write permissions.",
+            err=True,
+        )
         sys.exit(1)
 
     return worktree, base_commit
@@ -100,7 +111,10 @@ def start(name: str, repo: str, desc: str) -> None:
     # Check for duplicate task
     existing = load_task(name)
     if existing is not None:
-        click.echo(f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.", err=True)
+        click.echo(
+            f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.",
+            err=True,
+        )
         sys.exit(1)
 
     worktree, base_commit = _create_worktree(name, repo)
@@ -130,11 +144,14 @@ def start(name: str, repo: str, desc: str) -> None:
 
     # Check if we should queue or start
     from duo.scheduler import enqueue_or_start, queue_status
+
     action = enqueue_or_start(task)
 
     if action == "queued":
         qs = queue_status()
-        click.echo(f"  Queued ({qs['queued_count']} in queue). {qs['active_count']}/{qs['max_parallel']} slots in use.")
+        click.echo(
+            f"  Queued ({qs['queued_count']} in queue). {qs['active_count']}/{qs['max_parallel']} slots in use."
+        )
         click.echo("  Task will start automatically when a slot opens.")
         click.echo("  Run 'duo monitor' to manage the queue.")
         return
@@ -155,14 +172,22 @@ def send(name: str, prompt: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     if task.status == TaskStatus.QUEUED:
-        click.echo(f"Warning: task '{name}' is queued and not yet started. Prompt will be sent when task starts.", err=True)
+        click.echo(
+            f"Warning: task '{name}' is queued and not yet started. Prompt will be sent when task starts.",
+            err=True,
+        )
 
     send_task_prompt(task, prompt)
-    click.echo(f"Sent to {name} (step={task.current_step} attempt={task.current_attempt})")
+    click.echo(
+        f"Sent to {name} (step={task.current_step} attempt={task.current_attempt})"
+    )
 
 
 @main.command()
@@ -172,7 +197,10 @@ def status(name: str | None = None) -> None:
     if name:
         task = load_task(name)
         if task is None:
-            click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+            click.echo(
+                f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+                err=True,
+            )
             sys.exit(1)
         _print_task(task)
     else:
@@ -207,8 +235,7 @@ def list_cmd() -> None:
     for t in tasks:
         step_str = f"{t.current_step}/{len(t.subtasks)}"
         click.echo(
-            f"{t.id:<20} {t.status.value:<18} "
-            f"{step_str:<8} {t.incarnation_id:<12}"
+            f"{t.id:<20} {t.status.value:<18} {step_str:<8} {t.incarnation_id:<12}"
         )
 
 
@@ -239,9 +266,12 @@ def recover() -> None:
             click.echo(f"  {task.id}: {task.status.value} → {actual.value}")
             task.status = actual
             from duo.protocol import save_task
+
             save_task(task)
             recovered += 1
-    click.echo(f"Recovered {recovered} tasks." if recovered else "All tasks consistent.")
+    click.echo(
+        f"Recovered {recovered} tasks." if recovered else "All tasks consistent."
+    )
 
 
 @main.command()
@@ -250,52 +280,79 @@ def merge(name: str) -> None:
     """Merge a completed task's worktree to main."""
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     if task.status != TaskStatus.COMPLETED:
-        click.echo(f"Error: task '{name}' is '{task.status.value}', not 'completed'. Wait for completion or check 'duo logs {name}'.", err=True)
+        click.echo(
+            f"Error: task '{name}' is '{task.status.value}', not 'completed'. Wait for completion or check 'duo logs {name}'.",
+            err=True,
+        )
         sys.exit(1)
 
     worktree = task.worktree
 
     if not os.path.exists(worktree):
-        click.echo(f"Error: worktree '{worktree}' does not exist. Task may have been cleaned up.", err=True)
+        click.echo(
+            f"Error: worktree '{worktree}' does not exist. Task may have been cleaned up.",
+            err=True,
+        )
         sys.exit(1)
 
     # Fetch and rebase
     click.echo("Fetching and rebasing...")
-    r = subprocess.run(["git", "fetch", "origin", "main"], cwd=worktree, capture_output=True, text=True)
+    r = subprocess.run(
+        ["git", "fetch", "origin", "main"], cwd=worktree, capture_output=True, text=True
+    )
     if r.returncode != 0:
         click.echo("Warning: fetch failed, proceeding with local state")
 
-    r = subprocess.run(["git", "rebase", "origin/main"], cwd=worktree, capture_output=True, text=True)
+    r = subprocess.run(
+        ["git", "rebase", "origin/main"], cwd=worktree, capture_output=True, text=True
+    )
     if r.returncode != 0:
         click.echo(f"Rebase conflict! Escalating to human.\n{r.stderr}", err=True)
-        abort = subprocess.run(["git", "rebase", "--abort"], cwd=worktree, capture_output=True, text=True)
+        abort = subprocess.run(
+            ["git", "rebase", "--abort"], cwd=worktree, capture_output=True, text=True
+        )
         if abort.returncode != 0:
-            click.echo(f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True)
+            click.echo(
+                f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True
+            )
         sys.exit(1)
 
     # Get parent repo from worktree
     r = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
-        capture_output=True, text=True, cwd=worktree,
+        capture_output=True,
+        text=True,
+        cwd=worktree,
     )
     for line in r.stdout.split("\n"):
-        if line.startswith("worktree ") and get_config("worktree_base_path") not in line:
+        if (
+            line.startswith("worktree ")
+            and get_config("worktree_base_path") not in line
+        ):
             main_worktree = line.split(" ", 1)[1]
             break
 
     if main_worktree is None:
-        click.echo("Error: cannot find main worktree. Ensure the task's worktree was created from a valid git repository.", err=True)
+        click.echo(
+            "Error: cannot find main worktree. Ensure the task's worktree was created from a valid git repository.",
+            err=True,
+        )
         sys.exit(1)
 
     # ff-only merge
     click.echo(f"Merging {task.branch} into main...")
     r = subprocess.run(
         ["git", "merge", task.branch, "--ff-only"],
-        cwd=main_worktree, capture_output=True, text=True,
+        cwd=main_worktree,
+        capture_output=True,
+        text=True,
     )
     if r.returncode != 0:
         click.echo(f"Merge failed: {r.stderr}", err=True)
@@ -307,6 +364,7 @@ def merge(name: str) -> None:
     subprocess.run(["git", "branch", "-d", task.branch], cwd=main_worktree)
 
     from duo.protocol import append_event
+
     append_event(task, "task_merged", {"branch": task.branch})
     click.echo(f"Merged {name}. Remember to `git push` when ready.")
 
@@ -317,7 +375,10 @@ def kill(name: str) -> None:
     """Kill a task and clean up."""
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     # Try to kill the pane
@@ -330,17 +391,24 @@ def kill(name: str) -> None:
     main_worktree = None
     r = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
-        capture_output=True, text=True, cwd=task.worktree if os.path.exists(task.worktree) else ".",
+        capture_output=True,
+        text=True,
+        cwd=task.worktree if os.path.exists(task.worktree) else ".",
     )
     for line in r.stdout.split("\n"):
-        if line.startswith("worktree ") and get_config("worktree_base_path") not in line:
+        if (
+            line.startswith("worktree ")
+            and get_config("worktree_base_path") not in line
+        ):
             main_worktree = line.split(" ", 1)[1]
             break
     repo_cwd = main_worktree or "."
 
     # Remove worktree
     if os.path.exists(task.worktree):
-        subprocess.run(["git", "worktree", "remove", "--force", task.worktree], cwd=repo_cwd)
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", task.worktree], cwd=repo_cwd
+        )
 
     # Remove branch
     subprocess.run(
@@ -350,14 +418,16 @@ def kill(name: str) -> None:
     )
 
     from duo.protocol import append_event
+
     append_event(task, "task_killed", {})
     task.status = TaskStatus.FAILED
     from duo.protocol import save_task
+
     save_task(task)
     click.echo(f"Killed {name}.")
 
 
-def _load_batch_file(file: str) -> list[dict]:
+def _load_batch_file(file: str) -> list[dict[str, Any]]:
     """Read a JSON or YAML batch file and return the list of task definitions."""
     file_path = Path(file)
     content = file_path.read_text()
@@ -365,16 +435,22 @@ def _load_batch_file(file: str) -> list[dict]:
     if file_path.suffix in (".yaml", ".yml"):
         try:
             import yaml  # type: ignore[import-untyped]
+
             tasks_data = yaml.safe_load(content)
         except ImportError:
-            click.echo("Error: PyYAML not installed. Run: uv pip install pyyaml", err=True)
+            click.echo(
+                "Error: PyYAML not installed. Run: uv pip install pyyaml", err=True
+            )
             click.echo("Or use JSON format instead.", err=True)
             sys.exit(1)
     else:
         tasks_data = json.loads(content)
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
-        click.echo("Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json", err=True)
+        click.echo(
+            "Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json",
+            err=True,
+        )
         sys.exit(1)
 
     if not tasks_data.get("tasks"):
@@ -384,7 +460,7 @@ def _load_batch_file(file: str) -> list[dict]:
     return list(tasks_data["tasks"])
 
 
-def _create_task_from_batch_def(defn: dict, repo: str, verbose: bool) -> str | None:
+def _create_task_from_batch_def(defn: dict[str, Any], repo: str, verbose: bool) -> str | None:
     """Create a single task from a batch definition dict.
 
     Returns task name on success, None on failure (prints error).
@@ -405,10 +481,15 @@ def _create_task_from_batch_def(defn: dict, repo: str, verbose: bool) -> str | N
     # Get base commit
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        capture_output=True, text=True, cwd=repo,
+        capture_output=True,
+        text=True,
+        cwd=repo,
     )
     if result.returncode != 0:
-        click.echo(f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.", err=True)
+        click.echo(
+            f"Error: '{repo}' is not a git repository. Please provide an absolute path to a git repo, or run 'git init' first.",
+            err=True,
+        )
         sys.exit(1)
     base_commit = result.stdout.strip()
 
@@ -419,7 +500,9 @@ def _create_task_from_batch_def(defn: dict, repo: str, verbose: bool) -> str | N
         text=True,
     )
     if r.returncode != 0:
-        click.echo(f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True)
+        click.echo(
+            f"  ✗ {name}: failed to create worktree: {r.stderr.strip()}", err=True
+        )
         return None
 
     task = create_task(
@@ -470,7 +553,7 @@ def batch(ctx: click.Context, file: str, repo: str) -> None:
     click.echo(f"\nBatch complete: {created} tasks created")
     click.echo(f"  Active: {qs['active_count']}/{qs['max_parallel']}")
     click.echo(f"  Queued: {qs['queued_count']}")
-    if qs['queued_count'] > 0:
+    if qs["queued_count"] > 0:
         click.echo("Run 'duo monitor' to process the queue.")
 
 
@@ -478,11 +561,12 @@ def batch(ctx: click.Context, file: str, repo: str) -> None:
 def queue() -> None:
     """Show queue status."""
     from duo.scheduler import queue_status
+
     qs = queue_status()
     click.echo(f"Slots: {qs['active_count']}/{qs['max_parallel']} in use")
-    if qs['active_tasks']:
+    if qs["active_tasks"]:
         click.echo(f"Active: {', '.join(qs['active_tasks'])}")
-    if qs['queued_tasks']:
+    if qs["queued_tasks"]:
         click.echo(f"Queued: {', '.join(qs['queued_tasks'])}")
     else:
         click.echo("Queue: empty")
@@ -544,7 +628,9 @@ def audit(name: str | None = None) -> None:
                 ts = entry.get("ts", "?")
                 if "T" in ts:
                     ts = ts.split("T", 1)[1][:8]
-                click.echo(f"  {ts} {entry.get('action', '?')} [{entry.get('label', '?')}]")
+                click.echo(
+                    f"  {ts} {entry.get('action', '?')} [{entry.get('label', '?')}]"
+                )
 
 
 @main.command()
@@ -573,7 +659,10 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
 
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     events = read_jsonl(task.journal_path)
@@ -622,11 +711,19 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool) -> None:
 @click.argument("name")
 def inspect(name: str) -> None:
     """Show detailed task information."""
-    from duo.protocol import read_jsonl, read_heartbeat, read_result_for_step, read_ack_for_step
+    from duo.protocol import (
+        read_jsonl,
+        read_heartbeat,
+        read_result_for_step,
+        read_ack_for_step,
+    )
 
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     # Task info
@@ -704,6 +801,7 @@ def config() -> None:
 def config_get(key: str) -> None:
     """Get a config value."""
     from duo.config import get_config
+
     value = get_config(key)
     if value is None:
         click.echo(f"Unknown key: {key}", err=True)
@@ -717,6 +815,7 @@ def config_get(key: str) -> None:
 def config_set(key: str, value: str) -> None:
     """Set a config value."""
     from duo.config import set_config, DEFAULTS
+
     if key not in DEFAULTS:
         click.echo(f"Warning: '{key}' is not a known config key", err=True)
     result = set_config(key, value)
@@ -727,6 +826,7 @@ def config_set(key: str, value: str) -> None:
 def config_list() -> None:
     """List all config values."""
     from duo.config import load_config, DEFAULTS
+
     config = load_config()
     for key in sorted(DEFAULTS):
         value = config.get(key, DEFAULTS[key])
@@ -740,6 +840,7 @@ def config_list() -> None:
 def config_reset(key: str | None = None) -> None:
     """Reset config to defaults (or reset a single key)."""
     from duo.config import reset_config
+
     reset_config(key)
     if key:
         click.echo(f"Reset {key} to default.")
@@ -779,20 +880,26 @@ def _export_as_json(task: Task) -> str:
             attempt_list = list(range(1, task.current_attempt + 1))
         else:
             step_dir = task.step_dir(s.step_id)
-            attempt_list = sorted(
-                int(p.stem.split("-")[-1])
-                for p in step_dir.glob("result-attempt-*.json")
-            ) if step_dir.is_dir() else []
+            attempt_list = (
+                sorted(
+                    int(p.stem.split("-")[-1])
+                    for p in step_dir.glob("result-attempt-*.json")
+                )
+                if step_dir.is_dir()
+                else []
+            )
         for attempt in attempt_list:
             result = read_result_for_step(task, s.step_id, attempt)
             if result:
-                results.append({
-                    "step": result.step,
-                    "attempt": result.attempt,
-                    "status": result.status,
-                    "summary": result.summary,
-                    "files_changed": result.files_changed,
-                })
+                results.append(
+                    {
+                        "step": result.step,
+                        "attempt": result.attempt,
+                        "status": result.status,
+                        "summary": result.summary,
+                        "files_changed": result.files_changed,
+                    }
+                )
     report["results"] = results
     return json.dumps(report, ensure_ascii=False, indent=2)
 
@@ -832,13 +939,28 @@ def _export_as_text(task: Task) -> str:
 
 @main.command()
 @click.argument("name")
-@click.option("--format", "fmt", type=click.Choice(["json", "text"]), default="text", help="Output format")
-@click.option("-o", "--output", "outfile", type=click.Path(), help="Write to file instead of stdout")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["json", "text"]),
+    default="text",
+    help="Output format",
+)
+@click.option(
+    "-o",
+    "--output",
+    "outfile",
+    type=click.Path(),
+    help="Write to file instead of stdout",
+)
 def export(name: str, fmt: str, outfile: str | None) -> None:
     """Export task report (events, files changed, summary)."""
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+        click.echo(
+            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     output = _export_as_json(task) if fmt == "json" else _export_as_text(task)
@@ -851,7 +973,12 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
 
 
 @main.command()
-@click.option("--all", "clean_all", is_flag=True, help="Clean all finished tasks (completed + failed)")
+@click.option(
+    "--all",
+    "clean_all",
+    is_flag=True,
+    help="Clean all finished tasks (completed + failed)",
+)
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--keep-journal", is_flag=True, help="Keep journal files")
 def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
@@ -861,7 +988,9 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool) -> None:
     tasks = list_tasks()
 
     if clean_all:
-        targets = [t for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)]
+        targets = [
+            t for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
+        ]
     else:
         targets = [t for t in tasks if t.status == TaskStatus.COMPLETED]
 

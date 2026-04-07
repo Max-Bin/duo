@@ -57,11 +57,15 @@ def enqueue_or_start(task: Task) -> str:
         return "started"
     else:
         transition(task, TaskStatus.QUEUED)
-        append_event(task, "task_queued", {
-            "position": _queue_position(task),
-            "active": active_count(),
-            "max": max_parallel(),
-        })
+        append_event(
+            task,
+            "task_queued",
+            {
+                "position": _queue_position(task),
+                "active": active_count(),
+                "max": max_parallel(),
+            },
+        )
         return "queued"
 
 
@@ -80,20 +84,21 @@ def promote_queued() -> list[Task]:
         # Transition out of QUEUED so the loop progresses
         transition(next_task, TaskStatus.SESSION_STARTING)
         promoted.append(next_task)
-        append_event(next_task, "task_promoted", {
-            "from": "queued",
-            "active": active_count(),
-        })
+        append_event(
+            next_task,
+            "task_promoted",
+            {
+                "from": "queued",
+                "active": active_count(),
+            },
+        )
 
     return promoted
 
 
 def _next_queued() -> Task | None:
     """Get the next queued task (FIFO by created_at)."""
-    queued = [
-        t for t in list_tasks()
-        if t.status == TaskStatus.QUEUED
-    ]
+    queued = [t for t in list_tasks() if t.status == TaskStatus.QUEUED]
     if not queued:
         return None
     queued.sort(key=lambda t: t.created_at)
@@ -102,10 +107,7 @@ def _next_queued() -> Task | None:
 
 def _queue_position(task: Task) -> int:
     """Get a task's position in the queue (1-based)."""
-    queued = [
-        t for t in list_tasks()
-        if t.status == TaskStatus.QUEUED
-    ]
+    queued = [t for t in list_tasks() if t.status == TaskStatus.QUEUED]
     queued.sort(key=lambda t: t.created_at)
     for i, t in enumerate(queued):
         if t.id == task.id:

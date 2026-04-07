@@ -14,9 +14,9 @@ from duo.protocol import Task, read_heartbeat, read_result_for_step
 
 # === Constants ===
 
-BASE_INTERVAL = 5.0       # seconds, right after sending a prompt
-MAX_INTERVAL = 120.0      # seconds, stable cruising period
-RAMP_FACTOR = 1.5         # multiply interval each cycle when heartbeat is active
+BASE_INTERVAL = 5.0  # seconds, right after sending a prompt
+MAX_INTERVAL = 120.0  # seconds, stable cruising period
+RAMP_FACTOR = 1.5  # multiply interval each cycle when heartbeat is active
 HEARTBEAT_TIMEOUT = 90.0  # seconds without heartbeat before declaring timeout
 
 

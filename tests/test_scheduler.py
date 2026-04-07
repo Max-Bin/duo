@@ -176,6 +176,7 @@ class TestPromoteQueued:
 
     def test_promotes_fifo_order(self) -> None:
         import time
+
         t1 = _make_task("first")
         _force_status(t1, TaskStatus.QUEUED)
         time.sleep(0.01)
@@ -199,6 +200,7 @@ class TestPromoteQueued:
 
         # Queue 3 tasks
         import time
+
         for i in range(3):
             t = _make_task(f"queued{i}")
             _force_status(t, TaskStatus.QUEUED)
@@ -216,6 +218,7 @@ class TestNextQueued:
 
     def test_returns_oldest(self) -> None:
         import time
+
         t1 = _make_task("newer")
         _force_status(t1, TaskStatus.QUEUED)
         time.sleep(0.01)
@@ -233,6 +236,7 @@ class TestNextQueued:
 class TestQueuePosition:
     def test_position(self) -> None:
         import time
+
         t1 = _make_task("first")
         _force_status(t1, TaskStatus.QUEUED)
         time.sleep(0.01)

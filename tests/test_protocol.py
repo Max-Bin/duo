@@ -32,6 +32,7 @@ from duo.protocol import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Redirect TASKS_DIR to a temporary directory for every test."""
@@ -51,6 +52,7 @@ def _make_subtask(step_id: int = 1) -> Subtask:
 # now_iso
 # ---------------------------------------------------------------------------
 
+
 class TestNowIso:
     def test_returns_valid_iso_timestamp(self):
         ts = now_iso()
@@ -67,6 +69,7 @@ class TestNowIso:
 # new_incarnation
 # ---------------------------------------------------------------------------
 
+
 class TestNewIncarnation:
     def test_returns_8_char_hex(self):
         inc = new_incarnation()
@@ -81,6 +84,7 @@ class TestNewIncarnation:
 # ---------------------------------------------------------------------------
 # prompt_hash
 # ---------------------------------------------------------------------------
+
 
 class TestPromptHash:
     def test_returns_8_char_hex(self):
@@ -98,6 +102,7 @@ class TestPromptHash:
 # ---------------------------------------------------------------------------
 # read_json / write_json
 # ---------------------------------------------------------------------------
+
 
 class TestJsonIO:
     def test_round_trip(self, tmp_path: Path):
@@ -123,6 +128,7 @@ class TestJsonIO:
 # ---------------------------------------------------------------------------
 # read_jsonl
 # ---------------------------------------------------------------------------
+
 
 class TestReadJsonl:
     def test_valid_lines(self, tmp_path: Path):
@@ -151,6 +157,7 @@ class TestReadJsonl:
 # ---------------------------------------------------------------------------
 # TaskStatus FSM transitions
 # ---------------------------------------------------------------------------
+
 
 class TestTaskStatusTransitions:
     @pytest.mark.parametrize(
@@ -242,6 +249,7 @@ class TestTaskStatusTransitions:
 # create_task / save_task / load_task
 # ---------------------------------------------------------------------------
 
+
 class TestTaskCRUD:
     def test_create_task_empty_subtasks_raises(self):
         with pytest.raises(ValueError, match="Task must have at least one subtask"):
@@ -296,7 +304,9 @@ class TestTaskCRUD:
         assert loaded.last_prompt_sent_at is not None
 
     def test_create_builds_directory_structure(self):
-        task = create_task("dirs-test", "d", "/w", "b", "c", [_make_subtask(1), _make_subtask(2)])
+        task = create_task(
+            "dirs-test", "d", "/w", "b", "c", [_make_subtask(1), _make_subtask(2)]
+        )
         assert task.dir.is_dir()
         assert (task.dir / "task.json").is_file()
         assert task.step_dir(1).is_dir()
@@ -313,6 +323,7 @@ class TestTaskCRUD:
 # ---------------------------------------------------------------------------
 # append_event
 # ---------------------------------------------------------------------------
+
 
 class TestAppendEvent:
     def test_events_appear_in_journal(self):
@@ -341,6 +352,7 @@ class TestAppendEvent:
 # ---------------------------------------------------------------------------
 # replay_state
 # ---------------------------------------------------------------------------
+
 
 class TestReplayState:
     def test_empty_journal_returns_created(self, tmp_path: Path):
@@ -386,6 +398,7 @@ class TestReplayState:
 # Additional JSON I/O edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestJsonIOEdgeCases:
     def test_write_json_creates_parent_dirs(self, tmp_path: Path):
         """write to deeply nested non-existent path creates parents."""
@@ -406,6 +419,7 @@ class TestJsonIOEdgeCases:
 # ---------------------------------------------------------------------------
 # append_event edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestAppendEventEdgeCases:
     def test_append_event_creates_journal(self, tmp_path: Path):
@@ -429,10 +443,12 @@ class TestAppendEventEdgeCases:
 # list_tasks edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestListTasksEdgeCases:
     def test_list_tasks_empty_dir(self):
         """list_tasks when TASKS_DIR is empty returns empty list."""
         from duo.protocol import list_tasks, TASKS_DIR
+
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
         assert list_tasks() == []
 
@@ -441,11 +457,19 @@ class TestListTasksEdgeCases:
 # save / load round-trip
 # ---------------------------------------------------------------------------
 
+
 class TestSaveTaskRoundtrip:
     def test_save_task_roundtrip(self):
         """save then load, verify all fields match."""
         subtasks = [_make_subtask(1), _make_subtask(2)]
-        task = create_task("rt-full", "Full roundtrip test", "/my/worktree", "feat-branch", "deadbeef", subtasks)
+        task = create_task(
+            "rt-full",
+            "Full roundtrip test",
+            "/my/worktree",
+            "feat-branch",
+            "deadbeef",
+            subtasks,
+        )
         task.current_step = 2
         task.current_attempt = 3
         task.last_prompt_sent_at = now_iso()
@@ -471,5 +495,10 @@ class TestSaveTaskRoundtrip:
         assert loaded.subtasks[1].step_id == 2
         assert loaded.subtasks[0].description == "step-1"
         assert loaded.subtasks[1].description == "step-2"
-        assert loaded.security_policy.allow_network == task.security_policy.allow_network
-        assert loaded.security_policy.secret_patterns == task.security_policy.secret_patterns
+        assert (
+            loaded.security_policy.allow_network == task.security_policy.allow_network
+        )
+        assert (
+            loaded.security_policy.secret_patterns
+            == task.security_policy.secret_patterns
+        )

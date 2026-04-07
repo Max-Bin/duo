@@ -26,6 +26,7 @@ class Pass:
 @dataclass(frozen=True)
 class Correction:
     """One or more checks failed; includes the reason for the caller."""
+
     reason: str
 
 
@@ -47,11 +48,7 @@ def git_diff_names(worktree: str) -> set[str]:
         raise RuntimeError(
             f"git diff --name-only failed in {worktree}: {proc.stderr.strip()}"
         )
-    return {
-        line
-        for line in proc.stdout.strip().splitlines()
-        if line
-    }
+    return {line for line in proc.stdout.strip().splitlines() if line}
 
 
 def git_diff(worktree: str) -> str:
@@ -63,9 +60,7 @@ def git_diff(worktree: str) -> str:
         text=True,
     )
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"git diff failed in {worktree}: {proc.stderr.strip()}"
-        )
+        raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()}")
     return proc.stdout
 
 
@@ -78,14 +73,8 @@ def git_untracked(worktree: str) -> list[str]:
         text=True,
     )
     if proc.returncode != 0:
-        raise RuntimeError(
-            f"git ls-files failed in {worktree}: {proc.stderr.strip()}"
-        )
-    return [
-        line
-        for line in proc.stdout.strip().splitlines()
-        if line
-    ]
+        raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()}")
+    return [line for line in proc.stdout.strip().splitlines() if line]
 
 
 def run_in_worktree(worktree: str, command: str) -> int:
@@ -118,10 +107,14 @@ def _check_security_scope(
     for path in sorted(changed):
         if not any(fnmatch.fnmatch(path, pat) for pat in writable_paths):
             reason = f"Security violation: '{path}' is outside writable paths {writable_paths}"
-            append_event(task, "security_violation", {
-                "file": path,
-                "writable_paths": writable_paths,
-            })
+            append_event(
+                task,
+                "security_violation",
+                {
+                    "file": path,
+                    "writable_paths": writable_paths,
+                },
+            )
             return Correction(reason)
     return None
 
@@ -134,10 +127,14 @@ def _check_task_scope(
     """SOFT warning when changes go beyond target_files (never rejects)."""
     for path in sorted(changed):
         if not any(fnmatch.fnmatch(path, pat) for pat in target_files):
-            append_event(task, "task_scope_warning", {
-                "file": path,
-                "target_files": target_files,
-            })
+            append_event(
+                task,
+                "task_scope_warning",
+                {
+                    "file": path,
+                    "target_files": target_files,
+                },
+            )
 
 
 def _check_secret_leak(
@@ -148,7 +145,8 @@ def _check_secret_leak(
     """HARD reject if added lines in the diff contain any secret pattern."""
     # Only check newly added lines (start with '+' but not '+++' header)
     added_lines = "\n".join(
-        line for line in diff_content.splitlines()
+        line
+        for line in diff_content.splitlines()
         if line.startswith("+") and not line.startswith("+++")
     )
     if not added_lines:
@@ -185,10 +183,14 @@ def _check_acceptance(
     exit_code = run_in_worktree(worktree, acceptance)
     if exit_code != 0:
         reason = f"Acceptance test failed (exit {exit_code}): {acceptance}"
-        append_event(task, "acceptance_failed", {
-            "command": acceptance,
-            "exit_code": exit_code,
-        })
+        append_event(
+            task,
+            "acceptance_failed",
+            {
+                "command": acceptance,
+                "exit_code": exit_code,
+            },
+        )
         return Correction(reason)
     return None
 
@@ -222,7 +224,9 @@ def verify_step(task: Task, result: StepResult) -> VerifyResult:
 
     # (c) Secret leak — HARD
     err = _check_secret_leak(
-        task, diff_content, task.security_policy.secret_patterns,
+        task,
+        diff_content,
+        task.security_policy.secret_patterns,
     )
     if err is not None:
         return err
@@ -238,9 +242,13 @@ def verify_step(task: Task, result: StepResult) -> VerifyResult:
         return err
 
     # All checks passed
-    append_event(task, "review_passed", {
-        "step": task.current_step,
-        "attempt": task.current_attempt,
-        "files_checked": sorted(changed),
-    })
+    append_event(
+        task,
+        "review_passed",
+        {
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+            "files_checked": sorted(changed),
+        },
+    )
     return Pass()

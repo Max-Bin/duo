@@ -62,6 +62,7 @@ def _get_copilot_model() -> str:
         return env_model
     return get_config("copilot_model") or "claude-opus-4.6"
 
+
 # === Session Bootstrap ===
 
 SESSION_BOOTSTRAP_TEMPLATE = """\
@@ -201,7 +202,8 @@ def start_session(task: Task) -> None:
     # Create a new window in the current tmux session
     result = subprocess.run(
         ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         append_event(task, "session_start_failed", {"error": result.stderr})
@@ -223,11 +225,15 @@ def start_session(task: Task) -> None:
     copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
     send_shell_command(task.pane_label, copilot_cmd)
 
-    append_event(task, "session_started", {
-        "incarnation": task.incarnation_id,
-        "pane": task.pane_label,
-        "pane_id": pane_id,
-    })
+    append_event(
+        task,
+        "session_started",
+        {
+            "incarnation": task.incarnation_id,
+            "pane": task.pane_label,
+            "pane_id": pane_id,
+        },
+    )
 
     # Wait for copilot to start (adaptive instead of hardcoded sleep)
     click.echo("Waiting for Copilot to start...")
@@ -241,11 +247,15 @@ def start_session(task: Task) -> None:
     # Send bootstrap prompt (this is the first and only ❯ prompt message)
     bootstrap = build_bootstrap_prompt(task)
     send_bootstrap(task.pane_label, bootstrap)
-    append_event(task, "pr_consumed", {
-        "action": "bootstrap",
-        "step": task.current_step,
-        "attempt": task.current_attempt,
-    })
+    append_event(
+        task,
+        "pr_consumed",
+        {
+            "action": "bootstrap",
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+        },
+    )
 
     transition(task, TaskStatus.PROMPT_SENT)
 
@@ -260,10 +270,14 @@ def restart_session(task: Task) -> None:
     # Clear bootstrap lock so new session can send bootstrap
     _BOOTSTRAP_DONE.discard(task.pane_label)
 
-    append_event(task, "session_restarted", {
-        "old_incarnation": old_inc,
-        "new_incarnation": task.incarnation_id,
-    })
+    append_event(
+        task,
+        "session_restarted",
+        {
+            "old_incarnation": old_inc,
+            "new_incarnation": task.incarnation_id,
+        },
+    )
 
     start_session(task)
 
@@ -280,10 +294,14 @@ def send_task_prompt(task: Task, prompt: str) -> None:
 
     # Check PR budget before consuming a Premium Request
     if not _check_pr_budget(task):
-        append_event(task, "pr_budget_exceeded", {
-            "step": task.current_step,
-            "attempt": task.current_attempt,
-        })
+        append_event(
+            task,
+            "pr_budget_exceeded",
+            {
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+            },
+        )
         transition(task, TaskStatus.ESCALATED)
         click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
         return
@@ -292,24 +310,34 @@ def send_task_prompt(task: Task, prompt: str) -> None:
     if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_SEND):
         logger.warning(f"Dialog timeout for '{task.pane_label}'")
         append_event(task, "dialog_timeout", {"step": task.current_step})
-        raise RuntimeError(f"Dialog timeout for '{task.pane_label}' — Copilot may be stuck")
+        raise RuntimeError(
+            f"Dialog timeout for '{task.pane_label}' — Copilot may be stuck"
+        )
     select_dialog_option(task.pane_label, prompt)
 
-    append_event(task, "pr_consumed", {
-        "action": "task_prompt",
-        "step": task.current_step,
-        "attempt": task.current_attempt,
-    })
+    append_event(
+        task,
+        "pr_consumed",
+        {
+            "action": "task_prompt",
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+        },
+    )
 
     task.last_prompt_sent_at = now_iso()
     save_task(task)
 
-    append_event(task, "prompt_sent", {
-        "step": task.current_step,
-        "attempt": task.current_attempt,
-        "incarnation": task.incarnation_id,
-        "prompt_hash": f"sha256:{phash}",
-    })
+    append_event(
+        task,
+        "prompt_sent",
+        {
+            "step": task.current_step,
+            "attempt": task.current_attempt,
+            "incarnation": task.incarnation_id,
+            "prompt_hash": f"sha256:{phash}",
+        },
+    )
 
     transition(task, TaskStatus.PROMPT_SENT)
 
@@ -321,30 +349,44 @@ def resend_last_prompt(task: Task) -> None:
         prompt = prompt_path.read_text()
         # Check PR budget before consuming a Premium Request
         if not _check_pr_budget(task):
-            append_event(task, "pr_budget_exceeded", {
-                "step": task.current_step,
-                "attempt": task.current_attempt,
-            })
+            append_event(
+                task,
+                "pr_budget_exceeded",
+                {
+                    "step": task.current_step,
+                    "attempt": task.current_attempt,
+                },
+            )
             transition(task, TaskStatus.ESCALATED)
-            click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+            click.echo(
+                f"⚠ PR budget exceeded for task '{task.id}' — escalating to human."
+            )
             return
         if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_RESEND):
             logger.warning(f"Dialog timeout for '{task.pane_label}'")
             append_event(task, "dialog_timeout_resend", {"step": task.current_step})
             return
         select_dialog_option(task.pane_label, prompt)
-        append_event(task, "pr_consumed", {
-            "action": "resend_prompt",
-            "step": task.current_step,
-            "attempt": task.current_attempt,
-        })
+        append_event(
+            task,
+            "pr_consumed",
+            {
+                "action": "resend_prompt",
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+            },
+        )
         task.last_prompt_sent_at = now_iso()
         save_task(task)
-        append_event(task, "prompt_resent", {
-            "step": task.current_step,
-            "attempt": task.current_attempt,
-            "incarnation": task.incarnation_id,
-        })
+        append_event(
+            task,
+            "prompt_resent",
+            {
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+                "incarnation": task.incarnation_id,
+            },
+        )
 
 
 # === Verify and Advance ===
@@ -365,9 +407,14 @@ def verify_and_advance(task: Task) -> None:
     # Handle blocked/error results
     if result.status in ("blocked", "error"):
         transition(task, TaskStatus.BLOCKED)
-        append_event(task, "agent_blocked", {
-            "step": step, "reason": result.reason,
-        })
+        append_event(
+            task,
+            "agent_blocked",
+            {
+                "step": step,
+                "reason": result.reason,
+            },
+        )
         return
 
     # Run verification
@@ -398,9 +445,14 @@ def verify_and_advance(task: Task) -> None:
         max_corrections = int(get_config("max_corrections") or 3)
         if correction_count >= max_corrections:
             transition(task, TaskStatus.ESCALATED)
-            append_event(task, "escalated_to_human", {
-                "step": step, "reason": f"{max_corrections} corrections exhausted: {verdict.reason}",
-            })
+            append_event(
+                task,
+                "escalated_to_human",
+                {
+                    "step": step,
+                    "reason": f"{max_corrections} corrections exhausted: {verdict.reason}",
+                },
+            )
             return
 
         # Send correction
@@ -412,12 +464,16 @@ def verify_and_advance(task: Task) -> None:
         prompt = build_correction_prompt(task, verdict.reason)
         send_task_prompt(task, prompt)
 
-        append_event(task, "correction_sent", {
-            "step": step,
-            "attempt": task.current_attempt,
-            "incarnation": task.incarnation_id,
-            "reason": verdict.reason,
-        })
+        append_event(
+            task,
+            "correction_sent",
+            {
+                "step": step,
+                "attempt": task.current_attempt,
+                "incarnation": task.incarnation_id,
+                "reason": verdict.reason,
+            },
+        )
 
 
 def _count_corrections(task: Task, step: int) -> int:
@@ -464,26 +520,40 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
         else:
             terminal = diagnose_pane(task.pane_label)
             if "error" in terminal.lower() or "rate limit" in terminal.lower():
-                append_event(task, "api_error", {
-                    "incarnation": inc,
-                    "terminal": terminal[-500:],
-                })
+                append_event(
+                    task,
+                    "api_error",
+                    {
+                        "incarnation": inc,
+                        "terminal": terminal[-500:],
+                    },
+                )
                 if wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_MONITOR):
                     # Check PR budget before consuming a Premium Request
                     if not _check_pr_budget(task):
-                        append_event(task, "pr_budget_exceeded", {
-                            "step": step,
-                            "attempt": attempt,
-                        })
+                        append_event(
+                            task,
+                            "pr_budget_exceeded",
+                            {
+                                "step": step,
+                                "attempt": attempt,
+                            },
+                        )
                         transition(task, TaskStatus.ESCALATED)
-                        click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+                        click.echo(
+                            f"⚠ PR budget exceeded for task '{task.id}' — escalating to human."
+                        )
                         return poll_result
                     select_dialog_option(task.pane_label, "请重试上一个操作")
-                    append_event(task, "pr_consumed", {
-                        "action": "error_retry",
-                        "step": step,
-                        "attempt": attempt,
-                    })
+                    append_event(
+                        task,
+                        "pr_consumed",
+                        {
+                            "action": "error_retry",
+                            "step": step,
+                            "attempt": attempt,
+                        },
+                    )
 
     elif poll_result == PollResult.UNKNOWN:
         # Check if ack is missing
@@ -501,6 +571,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
 def _log_monitor(symbol: str, task_id: str, message: str) -> None:
     """Format a monitor log line with timestamp."""
     from datetime import datetime
+
     ts = datetime.now().strftime("%H:%M:%S")
     click.echo(f"[duo] {ts} {symbol} {task_id:<20} {message}")
 
@@ -515,15 +586,24 @@ def monitor(task_ids: list[str] | None = None) -> None:
     while True:
         tasks = list_tasks()
         active = [
-            t for t in tasks
-            if t.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED, TaskStatus.QUEUED)
+            t
+            for t in tasks
+            if t.status
+            not in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.ESCALATED,
+                TaskStatus.QUEUED,
+            )
             and (task_ids is None or t.id in task_ids)
         ]
 
         # Header on first iteration
         if iteration == 0:
             qs = queue_status()
-            click.echo(f"[duo] Monitor started — {qs['active_count']} active, {qs['queued_count']} queued, max {qs['max_parallel']}")
+            click.echo(
+                f"[duo] Monitor started — {qs['active_count']} active, {qs['queued_count']} queued, max {qs['max_parallel']}"
+            )
         iteration += 1
 
         # Promote queued tasks if slots available

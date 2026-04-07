@@ -162,7 +162,9 @@ class TestList:
         assert result.exit_code == 0
         lines = result.output.strip().splitlines()
         # Find the task lines (skip header + separator)
-        task_lines = [l for l in lines if "task" in l.lower() and "---" not in l and "ID" not in l]
+        task_lines = [
+            l for l in lines if "task" in l.lower() and "---" not in l and "ID" not in l
+        ]
         assert len(task_lines) == 2
         # Should be sorted alphabetically
         assert task_lines[0].startswith("aaa-task")
@@ -285,7 +287,11 @@ class TestLogs:
         result = runner.invoke(main, ["logs", "test-task", "-n", "1"])
         assert result.exit_code == 0
         # With -n 1, should only show 1 event line
-        event_lines = [l for l in result.output.strip().splitlines() if "·" in l or "✓" in l or "✗" in l]
+        event_lines = [
+            l
+            for l in result.output.strip().splitlines()
+            if "·" in l or "✓" in l or "✗" in l
+        ]
         assert len(event_lines) == 1
 
 
@@ -428,9 +434,7 @@ class TestExport:
         assert "written to" in result.output
         assert (tmp_path / "report.txt").exists()
 
-    def test_export_collects_all_attempts_for_completed_steps(
-        self, runner: CliRunner
-    ):
+    def test_export_collects_all_attempts_for_completed_steps(self, runner: CliRunner):
         """Export collects all attempt results for completed (non-current) steps."""
         import json
 
@@ -477,9 +481,7 @@ class TestExport:
                 )
             )
 
-        result = runner.invoke(
-            main, ["export", "export-attempts", "--format", "json"]
-        )
+        result = runner.invoke(main, ["export", "export-attempts", "--format", "json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         step1_results = [r for r in data["results"] if r["step"] == 1]
@@ -549,8 +551,12 @@ class TestAudit:
         task = make_task("audit-task")
         save_task(task)
         # Simulate PR consumption events
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
         result = runner.invoke(main, ["audit", "audit-task"])
         assert result.exit_code == 0
         assert "PR consumed: 2" in result.output
@@ -562,12 +568,18 @@ class TestAudit:
 
         t1 = make_task("task-a")
         save_task(t1)
-        append_event(t1, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(
+            t1, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
 
         t2 = make_task("task-b")
         save_task(t2)
-        append_event(t2, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
-        append_event(t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1})
+        append_event(
+            t2, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
 
         result = runner.invoke(main, ["audit"])
         assert result.exit_code == 0
@@ -670,7 +682,9 @@ class TestCleanupEdgeCases:
 
 
 class TestConfigListEdgeCases:
-    def test_config_list_shows_all_keys(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+    def test_config_list_shows_all_keys(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
         """config list output contains all default keys."""
         import duo.config as config_mod
 

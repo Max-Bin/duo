@@ -29,7 +29,9 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 def _make_subtask(step_id: int = 1, desc: str = "test") -> Subtask:
-    return Subtask(step_id=step_id, description=desc, target_files=[], writable_paths=["*"])
+    return Subtask(
+        step_id=step_id, description=desc, target_files=[], writable_paths=["*"]
+    )
 
 
 class TestFullLifecycle:
@@ -57,7 +59,9 @@ class TestFullLifecycle:
 
         # Prompt sent (bootstrap)
         transition(task, TaskStatus.PROMPT_SENT)
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
         assert task.status == TaskStatus.PROMPT_SENT
 
         # Executor acks
@@ -110,7 +114,9 @@ class TestFullLifecycle:
 
         # Step 2 prompt (VERIFYING → PROMPT_SENT is valid)
         transition(task, TaskStatus.PROMPT_SENT)
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1})
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1}
+        )
         transition(task, TaskStatus.ACKED)
         transition(task, TaskStatus.RUNNING)
         transition(task, TaskStatus.RESULT_REPORTED)
@@ -143,7 +149,9 @@ class TestFullLifecycle:
         task.current_attempt = 2
         save_task(task)
         append_event(task, "correction_sent", {"step": 1, "attempt": 2})
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 2})
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 2}
+        )
 
         # Correction cycle (CORRECTING → PROMPT_SENT is valid)
         transition(task, TaskStatus.PROMPT_SENT)
@@ -244,7 +252,9 @@ class TestFullLifecycle:
         # Bootstrap
         transition(task, TaskStatus.SESSION_STARTING)
         transition(task, TaskStatus.PROMPT_SENT)
-        append_event(task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
 
         # Step 1 completes
         transition(task, TaskStatus.ACKED)
@@ -257,7 +267,9 @@ class TestFullLifecycle:
         task.current_attempt = 1
         save_task(task)
         transition(task, TaskStatus.PROMPT_SENT)
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1})
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1}
+        )
 
         # Correction on step 2
         transition(task, TaskStatus.ACKED)
@@ -268,7 +280,9 @@ class TestFullLifecycle:
         task.current_attempt = 2
         save_task(task)
         transition(task, TaskStatus.PROMPT_SENT)
-        append_event(task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 2})
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 2}
+        )
 
         # Complete
         transition(task, TaskStatus.ACKED)
@@ -309,7 +323,9 @@ class TestFullLifecycle:
         all_tasks = list_tasks()
         assert any(t.id == "persist-test" for t in all_tasks)
 
-    @pytest.mark.xfail(reason="create_task does not yet detect duplicate task IDs", strict=True)
+    @pytest.mark.xfail(
+        reason="create_task does not yet detect duplicate task IDs", strict=True
+    )
     def test_concurrent_task_creation(self):
         """Creating a second task with same ID should fail gracefully."""
         create_task("dup-task", "First", "/w", "b", "c", [_make_subtask(1)])

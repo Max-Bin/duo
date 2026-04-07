@@ -42,8 +42,11 @@ def _bridge_bin() -> str:
     return _BRIDGE
 
 
-def _retry(max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0) -> Callable[[_F], _F]:
+def _retry(
+    max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0
+) -> Callable[[_F], _F]:
     """Retry decorator with exponential backoff for transient failures."""
+
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -58,7 +61,9 @@ def _retry(max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0) -> C
                         _time.sleep(wait)
                         wait *= backoff
             raise last_error
+
         return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -181,6 +186,7 @@ def set_pr_callback(callback: Callable[[str, str, str], None] | None) -> None:
 def _record_pr(label: str, action: str, context: str = "") -> None:
     """Record a Premium Request consumption."""
     import datetime as _dt
+
     entry = {
         "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "label": label,
@@ -231,7 +237,9 @@ def is_in_dialog_stable(label: str) -> bool:
     return is_in_dialog(label)
 
 
-def wait_for_idle(label: str, timeout: float = 30.0, poll_interval: float = 1.0) -> bool:
+def wait_for_idle(
+    label: str, timeout: float = 30.0, poll_interval: float = 1.0
+) -> bool:
     """Wait until pane output stabilizes (two consecutive reads are identical).
 
     Returns *True* if output stabilised within *timeout* seconds, *False* otherwise.
@@ -300,9 +308,7 @@ def send_shell_command(label: str, command: str) -> None:
 def send_bootstrap(label: str, prompt: str) -> None:
     """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use."""
     if label in _BOOTSTRAP_DONE:
-        raise RuntimeError(
-            f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK."
-        )
+        raise RuntimeError(f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK.")
     read_pane(label, 5)
     type_text(label, prompt)
     read_pane(label, 5)
@@ -313,7 +319,9 @@ def send_bootstrap(label: str, prompt: str) -> None:
 
 def send_prompt(label: str, prompt: str) -> None:
     """BANNED. Always raises."""
-    raise RuntimeError("send_prompt() BANNED. Use send_shell_command/send_bootstrap/select_dialog_option.")
+    raise RuntimeError(
+        "send_prompt() BANNED. Use send_shell_command/send_bootstrap/select_dialog_option."
+    )
 
 
 def send_message(label: str, text: str) -> None:

@@ -118,7 +118,9 @@ class TestSetConfig:
         assert result == "val"
         assert config_mod.get_config("totally_unknown") == "val"
         captured = capsys.readouterr()
-        assert "[duo] Warning: 'totally_unknown' is not a known config key" in captured.err
+        assert (
+            "[duo] Warning: 'totally_unknown' is not a known config key" in captured.err
+        )
 
 
 class TestResetConfig:
@@ -126,7 +128,10 @@ class TestResetConfig:
         config_mod.set_config("max_corrections", "10")
         assert config_mod.get_config("max_corrections") == 10
         config_mod.reset_config("max_corrections")
-        assert config_mod.get_config("max_corrections") == config_mod.DEFAULTS["max_corrections"]
+        assert (
+            config_mod.get_config("max_corrections")
+            == config_mod.DEFAULTS["max_corrections"]
+        )
 
     def test_reset_all_keys(self):
         config_mod.set_config("max_corrections", "10")
