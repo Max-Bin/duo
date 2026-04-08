@@ -346,6 +346,10 @@ def wait_for_idle(
 
 def wait_for_dialog(label: str, timeout: float = 300, interval: float = 5) -> bool:
     """Wait for STABLE dialog (double-checked)."""
+    if interval <= 0:
+        raise ValueError(f"interval must be positive, got {interval}")
+    if timeout <= 0:
+        raise ValueError(f"timeout must be positive, got {timeout}")
     elapsed = 0.0
     while elapsed < timeout:
         if is_in_dialog_stable(label):

@@ -434,6 +434,16 @@ def load_task(task_id: str) -> Task | None:
         logger.warning("Task '%s' has invalid current_step field", task_id)
         return None
 
+    n_subtasks = len(data["subtasks"])
+    cs = data["current_step"]
+    if n_subtasks > 0 and cs < 1:
+        logger.warning(
+            "Task '%s' current_step %d out of range (must be >= 1)",
+            task_id,
+            cs,
+        )
+        return None
+
     subtasks = [
         Subtask(
             step_id=s["step_id"],

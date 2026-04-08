@@ -686,10 +686,20 @@ def kill(name: str) -> None:
     click.echo(f"Killed {name}.")
 
 
+_MAX_BATCH_FILE_BYTES = 10_000_000  # 10 MB
+
+
 def _load_batch_file(file: str) -> list[dict[str, Any]]:
     """Read a JSON or YAML batch file and return the list of task definitions."""
     file_path = Path(file)
     try:
+        size = file_path.stat().st_size
+        if size > _MAX_BATCH_FILE_BYTES:
+            click.echo(
+                f"Error: batch file '{file}' too large ({size} bytes, max {_MAX_BATCH_FILE_BYTES})",
+                err=True,
+            )
+            sys.exit(1)
         content = file_path.read_text()
     except (FileNotFoundError, PermissionError, OSError) as e:
         click.echo(f"Error: cannot read batch file '{file}': {e}", err=True)

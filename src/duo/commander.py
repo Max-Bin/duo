@@ -467,7 +467,7 @@ def verify_and_advance(task: Task) -> None:
     # Run verification
     try:
         verdict = verify_step(task, result)
-    except Exception as exc:
+    except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as exc:
         logger.warning("verify_step raised for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(

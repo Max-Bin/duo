@@ -409,6 +409,38 @@ class TestTaskCRUD:
         )
         assert load_task("bad-step") is None
 
+    def test_load_task_current_step_zero_out_of_range(self):
+        """current_step=0 is out of range (1-based)."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-zero"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-zero","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":0,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-zero") is None
+
+    def test_load_task_current_step_negative_out_of_range(self):
+        """current_step=-1 is out of range."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-neg"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-neg","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":-1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-neg") is None
+
 
 # ---------------------------------------------------------------------------
 # append_event

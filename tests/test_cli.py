@@ -4071,3 +4071,11 @@ class TestBatchDuplicateNames:
         assert result.exit_code != 0
         assert "duplicate" in result.output.lower()
         assert "task-a" in result.output
+
+    def test_batch_file_too_large_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Batch file exceeding 10 MB is rejected."""
+        batch_file = tmp_path / "huge.json"
+        batch_file.write_text("x" * (10_000_001))
+        result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "too large" in result.output.lower()

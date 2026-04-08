@@ -692,6 +692,16 @@ class TestWaitForDialog:
         mock_stable.return_value = False
         assert wait_for_dialog("test-pane", timeout=0.01, interval=0.01) is False
 
+    def test_wait_for_dialog_negative_interval_raises(self):
+        """interval <= 0 raises ValueError."""
+        with pytest.raises(ValueError, match="interval must be positive"):
+            wait_for_dialog("x", timeout=10, interval=0)
+
+    def test_wait_for_dialog_negative_timeout_raises(self):
+        """timeout <= 0 raises ValueError."""
+        with pytest.raises(ValueError, match="timeout must be positive"):
+            wait_for_dialog("x", timeout=0, interval=1)
+
 
 # ── select_dialog_option ─────────────────────────────────────────────
 

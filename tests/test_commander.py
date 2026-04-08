@@ -395,6 +395,19 @@ class TestVerifyAndAdvance:
         assert len(verify_errors) == 1
         assert "git crash" in verify_errors[0]["data"]["error"]
 
+    @patch("duo.commander.verify_step", side_effect=KeyboardInterrupt("ctrl-c"))
+    def test_verify_keyboard_interrupt_propagates(
+        self,
+        _mock_verify: object,
+    ) -> None:
+        """KeyboardInterrupt is NOT caught — propagates up."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_result(task, 1, 1)
+
+        with pytest.raises(KeyboardInterrupt):
+            verify_and_advance(task)
+
 
 # ---------------------------------------------------------------------------
 # _check_pr_budget
