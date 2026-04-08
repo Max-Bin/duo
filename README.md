@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-845%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-858%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander directs, Executor delivers**
@@ -404,7 +404,7 @@ Duo enforces multiple layers of security:
 ```bash
 bash install.sh              # Install
 make check                   # Run all checks (lint + format + type-check + coverage)
-make coverage                # Run tests with coverage (fail_under=95)
+make coverage                # Run tests with coverage (fail_under=100)
 make format                  # Auto-format code with ruff
 make lint                    # Lint with ruff
 make type-check              # Type-check with mypy (strict)

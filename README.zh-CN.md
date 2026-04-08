@@ -4,7 +4,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-845%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-858%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander 指挥，Executor 执行**
@@ -404,7 +404,7 @@ Duo 实施多层安全机制：
 ```bash
 bash install.sh              # 安装
 make check                   # 运行所有检查（lint + format + 类型检查 + 覆盖率）
-make coverage                # 运行测试并检查覆盖率（fail_under=95）
+make coverage                # 运行测试并检查覆盖率（fail_under=100）
 make format                  # 使用 ruff 自动格式化
 make lint                    # 使用 ruff 检查代码
 make type-check              # 使用 mypy 进行严格类型检查

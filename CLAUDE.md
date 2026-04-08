@@ -9,8 +9,8 @@ Duo is an Agent Orchestration Runtime. Commander (Python CLI) orchestrates Execu
 ```bash
 uv sync                              # install dependencies
 make check                           # run ALL checks (lint + format + type-check + coverage)
-make coverage                        # run tests with coverage (fail_under=95)
-make test                            # run tests (465 tests)
+make coverage                        # run tests with coverage (fail_under=100)
+make test                            # run tests
 python -m pytest tests/ -v           # run all tests verbosely
 python -m pytest tests/test_protocol.py -v   # run specific module tests
 duo --help                           # see CLI commands
@@ -28,7 +28,7 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — thin Click CLI entry point (18 commands: start/send/status/list/monitor/recover/merge/kill/batch/queue/dashboard/logs/inspect/export/cleanup/config/version/audit)
+└── cli.py         — thin Click CLI entry point (27 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion)
 ```
 
 ### transport.py — Protocol Classes
@@ -100,8 +100,8 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 465 tests across 10 test files — **100% test coverage required**
-- CI enforces `fail_under=95` via `make coverage` (pytest-cov)
+- 858+ tests, **100% test coverage required** (enforced via `make coverage`)
+- Tests organized by module in `tests/test_*.py` (10 test files)
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
 - Fixture `_isolate_tasks_dir` monkeypatches `TASKS_DIR` to `tmp_path` for isolation

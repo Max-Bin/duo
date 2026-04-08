@@ -3,7 +3,7 @@
 All notable changes to Duo are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.7.0] — 2025-07-24
+## [0.7.0] — Unreleased
 
 ### Added
 - Concurrent duplicate start protection via file-based locking (fcntl)
@@ -21,8 +21,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Monitor pollers dict cleanup for completed tasks
 - All `subprocess.run()` calls have explicit timeout (30s git, 10s tmux, 300s acceptance)
 - `TimeoutExpired` handling in `_run_git` and `run_in_worktree` (exit code 124)
-- 774 tests with 100% coverage (up from 675)
-
 ### Changed
 - Scheduler `promote_queued()` optimized: single `list_tasks()` call instead of O(3N)
 - Config validation: replaced `assert isinstance()` with explicit type checks (safe under `-O`)
@@ -45,7 +43,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `verify_and_advance` catches exceptions from `verify_step` → FAILED state
 - `write_json` fsyncs tmp file before rename (was after)
 
-## [0.6.0] — 2025-07-23
+## [0.6.0] — 2026-04-08
 
 ### Added
 - `duo retry` command for retrying failed/blocked tasks
@@ -66,7 +64,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `inspect --include-files` flag for viewing changed files and diff preview
 - `export --format jsonl` for structured line-delimited JSON export
 - `cleanup --age` flag for time-based task cleanup
-- 675 tests with 100% coverage
 - 41 edge case tests (protocol, scheduler, poller, config, CLI)
 - Expanded secret detection patterns (11 patterns)
 
@@ -100,7 +97,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Path traversal protection in `write_json()` — rejects paths with `..` components
 - Pane label sanitisation in `resolve_label()` — rejects shell metacharacters
 
-## [0.5.0] — 2025-07-18
+## [0.5.0] — 2026-04-08
 
 ### Added
 - `duo init` — Initialize a project for Duo (creates .duo config and instructions)
@@ -136,7 +133,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Enhanced docstrings in transport.py (`bridge`, `resolve_label`, `get_pane_id`, etc.)
 - SECURITY.md, CODE_OF_CONDUCT.md, GitHub issue/PR templates
 - CI uses `ruff check` + `ruff format --check` (replaces py_compile)
-- 305 tests (was 287), including 13 new edge case tests
+- 13 new edge case tests
 
 ### Security
 - Fix command injection: `run_in_worktree` now uses `shlex.split()` + `shell=False`
@@ -145,7 +142,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Config `set_config` validates type coercion (catches invalid int/float input)
 - Timestamp parsing uses explicit `split("T", 1)` maxsplit
 
-## [0.4.0] — 2025-07-15
+## [0.4.0] — 2026-04-08
 
 ### Added
 - Multi-task parallel scheduler with FIFO queue (`duo batch`, `duo queue`)
@@ -166,7 +163,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - FSM with 13 states and validated transitions
 - Atomic JSON writes with unique temp files
 - Append-only JSONL event journal
-- 222+ unit tests covering all modules
+- Unit tests covering all modules
 - Full type annotations with py.typed marker
 - GitHub Actions CI (pytest + mypy)
 - MIT License, CONTRIBUTING.md
@@ -176,7 +173,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Writable path enforcement via fnmatch patterns
 - Forbidden command support in subtask definitions
 
-## [0.1.0] — 2025-06-01
+## [0.1.0] — 2026-04-08
 
 ### Added
 - Project scaffolding with Click CLI
