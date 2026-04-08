@@ -207,10 +207,7 @@ def read_json(path: Path) -> dict[str, Any] | None:
     try:
         data: dict[str, Any] = json.loads(path.read_text())
         return data
-    except FileNotFoundError:
-        return None
-    except json.JSONDecodeError as e:
-        logger.warning("Corrupted JSON in %s: %s", path, e)
+    except (FileNotFoundError, json.JSONDecodeError):
         return None
 
 

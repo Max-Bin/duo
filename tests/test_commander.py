@@ -45,8 +45,9 @@ from duo.verifier import Correction, Pass
 
 @pytest.fixture(autouse=True)
 def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR so every test gets a fresh directory."""
+    """Redirect TASKS_DIR and CONFIG_PATH so every test gets a fresh directory."""
     monkeypatch.setattr("duo.protocol.TASKS_DIR", tmp_path / "tasks")
+    monkeypatch.setattr("duo.config.CONFIG_PATH", tmp_path / "config.json")
 
 
 def _make_subtask(step_id: int = 1, **overrides) -> Subtask:
@@ -1577,6 +1578,48 @@ class TestMonitorMinIntervalFloor:
         # time.sleep was called; the interval must be >= 1.0
         sleep_val = mock_sleep.call_args[0][0]
         assert sleep_val >= 1.0
+
+
+class TestMonitorPollersCleanup:
+    """Pollers dict is pruned when tasks become inactive."""
+
+    @patch("duo.commander.time.sleep")
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_stale_pollers_removed(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        """Pollers for completed tasks are cleaned up."""
+        task_a = _make_task("stay-active")
+        _advance_to_prompt_sent(task_a)
+        task_b = _make_task("goes-away")
+        _advance_to_prompt_sent(task_b)
+
+        call_count = 0
+
+        def list_side_effect():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return [task_a, task_b]
+            # Second iteration: task_b is gone
+            return [task_a]
+
+        mock_list.side_effect = list_side_effect
+        mock_sleep.side_effect = [None, StopIteration]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 2, "queued_count": 0, "max_parallel": 3},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # First iteration polls both, second iteration only task_a
+        assert mock_poll.call_count == 3
 
 
 # ── poll_task silent path (heartbeat timeout, alive, no error) ───────

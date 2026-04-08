@@ -838,6 +838,15 @@ class TestWriteJsonPathTraversal:
         with pytest.raises(ValueError, match="Path traversal detected"):
             write_json(bad_path, {"key": "value"})
 
+    def test_write_json_symlink_rejected(self, tmp_path: Path):
+        """write_json raises ValueError when path is a symlink."""
+        target = tmp_path / "target.json"
+        target.write_text("{}")
+        link = tmp_path / "link.json"
+        link.symlink_to(target)
+        with pytest.raises(ValueError, match="symlink"):
+            write_json(link, {"key": "value"})
+
 
 # ---------------------------------------------------------------------------
 # Performance: list_tasks with many tasks

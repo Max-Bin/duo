@@ -102,7 +102,7 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
         CompletedProcess result
     """
     try:
-        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8")
     except FileNotFoundError:
         click.echo("Error: git is not installed. Install: brew install git (macOS) or apt install git (Linux)", err=True)
         sys.exit(1)
@@ -558,6 +558,7 @@ def stop(name: str) -> None:
         ["tmux", "kill-pane", "-t", task.pane_label],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
@@ -587,6 +588,7 @@ def kill(name: str) -> None:
         ["tmux", "kill-pane", "-t", task.pane_label],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
@@ -1354,6 +1356,7 @@ def doctor() -> None:
             ["tmux", "list-sessions"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         tmux_ok = result.returncode == 0
     _check(

@@ -544,6 +544,24 @@ class TestPRAudit:
         assert calls[0] == ("pane", "act", "ctx")
         set_pr_callback(None)  # cleanup
 
+    def test_pr_log_capped_at_10000(self):
+        """_PR_LOG doesn't grow beyond 10000 entries."""
+        import duo.transport
+
+        original = list(duo.transport._PR_LOG)
+        try:
+            duo.transport._PR_LOG.clear()
+            # Fill to 10001
+            for i in range(10001):
+                duo.transport._PR_LOG.append({"i": str(i)})
+            from duo.transport import _record_pr
+
+            _record_pr("cap-test", "overflow", "")
+            assert len(duo.transport._PR_LOG) == 10000
+        finally:
+            duo.transport._PR_LOG.clear()
+            duo.transport._PR_LOG.extend(original)
+
 
 # ── _is_at_main_prompt ───────────────────────────────────────────────
 

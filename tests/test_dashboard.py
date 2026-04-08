@@ -260,6 +260,18 @@ class TestEventsPanelColoring:
         content = panel.renderable
         assert "[white]status_changed[/]" in content
 
+    def test_events_panel_missing_journal(self):
+        """Panel gracefully handles tasks with missing journal files."""
+        from unittest.mock import patch
+
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("ghost-task")
+        with patch("duo.dashboard.read_jsonl", side_effect=OSError("disk error")):
+            panel = _build_events_panel([task])
+        content = panel.renderable
+        assert "No events" in content
+
 
 class TestRunDashboard:
     @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)

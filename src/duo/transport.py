@@ -245,6 +245,8 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
     }
     with _LOCK:
         _PR_LOG.append(entry)
+        if len(_PR_LOG) > 10000:
+            del _PR_LOG[: len(_PR_LOG) - 10000]
         callback = _pr_callback
     if callback is not None:
         callback(label, action, context)

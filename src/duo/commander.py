@@ -710,6 +710,10 @@ def monitor(task_ids: list[str] | None = None) -> None:
             # WORKING is silent (normal operation)
 
         # Use the minimum interval across all active tasks
+        active_ids = {t.id for t in active}
+        stale = [k for k in pollers if k not in active_ids]
+        for k in stale:
+            del pollers[k]
         min_interval = min(
             (pollers[t.id].interval for t in active if t.id in pollers),
             default=5.0,

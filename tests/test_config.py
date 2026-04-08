@@ -240,6 +240,26 @@ class TestSetConfigValidation:
         result = config_mod.set_config("task_timeout", "300")
         assert result == 300
 
+    def test_set_config_max_parallel_upper_bound(self):
+        """max_parallel rejects values > 100."""
+        with pytest.raises(ValueError, match="max_parallel.*<= 100"):
+            config_mod.set_config("max_parallel", "101")
+
+    def test_set_config_heartbeat_upper_bound(self):
+        """heartbeat_timeout rejects values > 3600."""
+        with pytest.raises(ValueError, match="heartbeat_timeout.*<= 3600"):
+            config_mod.set_config("heartbeat_timeout", "3601")
+
+    def test_set_config_poll_interval_upper_bound(self):
+        """poll_base_interval rejects values > 300."""
+        with pytest.raises(ValueError, match="poll_base_interval.*<= 300"):
+            config_mod.set_config("poll_base_interval", "301")
+
+    def test_set_config_poll_max_upper_bound(self):
+        """poll_max_interval rejects values > 3600."""
+        with pytest.raises(ValueError, match="poll_max_interval.*<= 3600"):
+            config_mod.set_config("poll_max_interval", "3601")
+
 
 class TestTaskTimeoutDefault:
     def test_task_timeout_in_defaults(self):
