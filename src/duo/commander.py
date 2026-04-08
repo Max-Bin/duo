@@ -321,11 +321,6 @@ def send_task_prompt(task: Task, prompt: str) -> None:
     logger.debug(f"Sending prompt for step {task.current_step}")
     phash = prompt_hash(prompt)
 
-    # Save prompt to file for debug
-    prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-    prompt_path.parent.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text(prompt)
-
     # Check PR budget before consuming a Premium Request
     if not _check_pr_budget(task):
         append_event(
@@ -339,6 +334,11 @@ def send_task_prompt(task: Task, prompt: str) -> None:
         transition(task, TaskStatus.ESCALATED)
         click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
         return
+
+    # Save prompt to file for debug (after budget check)
+    prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+    prompt_path.parent.mkdir(parents=True, exist_ok=True)
+    prompt_path.write_text(prompt)
 
     # Wait for dialog then send (all post-bootstrap interaction goes through dialog)
     if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_SEND):

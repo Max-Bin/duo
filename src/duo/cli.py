@@ -675,7 +675,23 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
         click.echo("No tasks defined in file.", err=True)
         sys.exit(1)
 
-    return list(tasks_data["tasks"])
+    tasks_list: list[dict[str, Any]] = list(tasks_data["tasks"])
+
+    # Check for duplicate names
+    names = [t.get("name", "") for t in tasks_list]
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for n in names:
+        if n in seen:
+            dupes.append(n)
+        seen.add(n)
+    if dupes:
+        click.echo(
+            f"Error: duplicate task names in batch file: {', '.join(dupes)}", err=True
+        )
+        sys.exit(1)
+
+    return tasks_list
 
 
 def _create_single_task(
@@ -1673,7 +1689,15 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None) -
 
     if clean_all:
         targets = [
-            t for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
+            t
+            for t in tasks
+            if t.status
+            in (
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.ESCALATED,
+                TaskStatus.BLOCKED,
+            )
         ]
     else:
         targets = [t for t in tasks if t.status == TaskStatus.COMPLETED]
