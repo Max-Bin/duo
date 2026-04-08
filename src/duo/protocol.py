@@ -207,7 +207,10 @@ def read_json(path: Path) -> dict[str, Any] | None:
     try:
         data: dict[str, Any] = json.loads(path.read_text())
         return data
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError as e:
+        logger.warning("Corrupted JSON in %s: %s", path, e)
         return None
 
 
@@ -215,6 +218,8 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     """Write JSON atomically (write tmp, fsync, then rename)."""
     if ".." in path.parts:
         raise ValueError(f"Path traversal detected: {path}")
+    if path.is_symlink():
+        raise ValueError(f"Refusing to write through symlink: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:

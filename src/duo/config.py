@@ -86,16 +86,39 @@ def set_config(key: str, value: str) -> bool | int | float | str:
             "poll_base_interval": 0,
             "poll_max_interval": 0,
         }
+        _INT_MAXIMUMS: dict[str, int] = {
+            "max_parallel": 100,
+            "max_corrections": 100,
+            "heartbeat_timeout": 3600,
+            "pr_budget": 100000,
+            "task_timeout": 604800,  # 7 days
+        }
+        _FLOAT_MAXIMUMS: dict[str, float] = {
+            "poll_base_interval": 300.0,
+            "poll_max_interval": 3600.0,
+        }
         if key in _INT_MINIMUMS:
             minimum = _INT_MINIMUMS[key]
             if not isinstance(coerced, int) or coerced < minimum:
                 raise ValueError(
                     f"'{key}' must be an integer >= {minimum}, got {coerced!r}"
                 )
+        if key in _INT_MAXIMUMS:
+            maximum = _INT_MAXIMUMS[key]
+            if not isinstance(coerced, int) or coerced > maximum:
+                raise ValueError(
+                    f"'{key}' must be an integer <= {maximum}, got {coerced!r}"
+                )
         if key in _FLOAT_MINIMUMS:
             if not isinstance(coerced, (int, float)) or coerced <= 0:
                 raise ValueError(
                     f"'{key}' must be a number > 0, got {coerced!r}"
+                )
+        if key in _FLOAT_MAXIMUMS:
+            maximum_f = _FLOAT_MAXIMUMS[key]
+            if not isinstance(coerced, (int, float)) or coerced > maximum_f:
+                raise ValueError(
+                    f"'{key}' must be a number <= {maximum_f}, got {coerced!r}"
                 )
     if key not in DEFAULTS:
         logger.warning("Unknown config key: '%s'", key)

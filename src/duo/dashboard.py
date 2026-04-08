@@ -96,7 +96,10 @@ def _build_events_panel(tasks: list[Task], max_events: int = 8) -> Panel:
     """Build recent events panel from all task journals."""
     all_events: list[tuple[str, str, str]] = []
     for task in tasks:
-        events = read_jsonl(task.journal_path)
+        try:
+            events = read_jsonl(task.journal_path)
+        except (FileNotFoundError, OSError):
+            continue
         for ev in events[-5:]:
             ts = ev.get("ts", "")
             event_type = ev.get("event", "")
