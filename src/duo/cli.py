@@ -1863,12 +1863,19 @@ def ceo_select(task: str, option: str | None, other_text: str | None) -> None:
 def ceo_approve(task: str) -> None:
     """Auto-approve a permission dialog in a task's pane.
 
+    Only works on permission dialogs (e.g. "Do you want to run this
+    command?"). For ask-user dialogs, use ceo-select instead.
+
     Reads the dialog options and picks the "most positive" yes option:
     prefers "Yes + approve for session" over plain "Yes", skips "No".
     """
-    from duo.transport import approve_permission
+    from duo.transport import approve_permission, is_permission_dialog
 
     t = _load_task_or_fail(task)
+    if not is_permission_dialog(t.pane_label):
+        raise click.ClickException(
+            f"'{task}' is not showing a permission dialog. Use 'duo ceo-select' for other dialogs."
+        )
     approve_permission(t.pane_label)
     click.echo(f"Approved dialog in '{task}'")
 

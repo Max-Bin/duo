@@ -4444,21 +4444,32 @@ class TestCeoApprove:
 
     def test_approve_success(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-ok")
-        with patch("duo.transport.approve_permission") as mock_approve:
+        with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport.approve_permission") as mock_approve:
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code == 0
         assert "Approved" in result.output
         mock_approve.assert_called_once_with(task.pane_label)
 
-    def test_approve_not_in_dialog(self, runner: CliRunner, make_task) -> None:
+    def test_approve_not_permission_dialog(self, runner: CliRunner, make_task) -> None:
+        task = make_task("appr-ask")
+        with patch("duo.transport.is_permission_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code != 0
+        assert "not showing a permission dialog" in result.output
+        assert "ceo-select" in result.output
+
+    def test_approve_runtime_error(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-fail")
-        with patch("duo.transport.approve_permission", side_effect=RuntimeError("SAFETY: not in dialog")):
+        with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport.approve_permission", side_effect=RuntimeError("SAFETY: not in dialog")):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
 
     def test_approve_oserror(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-os")
-        with patch("duo.transport.approve_permission", side_effect=OSError("pane gone")):
+        with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport.approve_permission", side_effect=OSError("pane gone")):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
 
