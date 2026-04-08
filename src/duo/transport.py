@@ -330,24 +330,60 @@ def safe_enter(label: str) -> None:
 
 
 def is_permission_dialog(label: str) -> bool:
-    """True if dialog is a permission/approval prompt (safe to auto-approve).
-
-    Permission dialogs contain phrases like 'Do you want to run',
-    'Do you want to edit', 'Allow directory', 'approve'.
-    These are SAFE to auto-approve with option 2.
-
-    ask_user dialogs (feature choices, continuation prompts) are NOT
-    permission dialogs and MUST be reviewed by the commander before selecting.
-    """
+    """True if dialog is a permission/approval prompt."""
     content = read_pane(label, 20)
     perm_indicators = [
         "Do you want to run",
         "Do you want to edit",
         "Allow directory",
-        "approve",
         "Do you want to allow",
     ]
     return any(ind in content for ind in perm_indicators)
+
+
+def approve_permission(label: str) -> None:
+    """Approve a permission dialog by reading options and picking the right one.
+
+    Different permission dialogs have different layouts:
+    - 3 options: 1=Yes, 2=Yes+approve for session, 3=No → pick 2
+    - 2 options: 1=Yes, 2=No → pick 1
+
+    MUST read the actual option text to decide. Never blindly pick a number.
+    """
+    content = read_pane(label, 20)
+    lines = content.strip().split("\n")
+
+    # Find all numbered options and their text
+    import re
+    options: dict[str, str] = {}
+    for line in lines:
+        m = re.search(r"[❯\s]+(\d+)\.\s+(.+)", line)
+        if m:
+            options[m.group(1)] = m.group(2).strip()
+
+    # Strategy: find the best "yes" option
+    # Prefer "Yes + approve for session" over plain "Yes"
+    best = None
+    for num, text in options.items():
+        text_lower = text.lower()
+        # Skip any "No" or "tell differently" options
+        if "no" in text_lower and ("tell" in text_lower or "esc" in text_lower or "differently" in text_lower):
+            continue
+        if text_lower.startswith("no"):
+            continue
+        # Prefer "approve for session" / "approve all" / "add to allowed"
+        if "approve" in text_lower or "add" in text_lower and "allowed" in text_lower:
+            best = num
+            break
+        # Otherwise plain "Yes"
+        if "yes" in text_lower and best is None:
+            best = num
+
+    if best is None:
+        # Fallback: pick option 1 (usually "Yes")
+        best = "1"
+
+    select_dialog_option(label, best)
 
 
 def select_dialog_option(label: str, option: str) -> None:
