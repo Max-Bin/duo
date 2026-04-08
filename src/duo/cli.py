@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -202,25 +203,51 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
         )
         sys.exit(1)
 
-    worktree, base_commit = _create_worktree(name, repo)
-    branch = f"duo/{name}"
+    # Acquire lockfile to prevent concurrent duplicate creation (TOCTOU)
+    lock_path = TASKS_DIR / f".{name}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd: Any = None
+    try:
+        lock_fd = open(lock_path, "w")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError):
+        click.echo(f"Error: task '{name}' is being created by another process.", err=True)
+        if lock_fd is not None:
+            lock_fd.close()
+        sys.exit(1)
 
-    # Create task with a placeholder subtask (user will send actual tasks)
-    task = create_task(
-        task_id=name,
-        description=desc or f"Task {name}",
-        worktree=worktree,
-        branch=branch,
-        base_commit=base_commit,
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=desc or "Awaiting instructions",
-                target_files=[],
-                writable_paths=["*"],  # permissive by default
+    try:
+        # Re-check after acquiring lock
+        existing = load_task(name)
+        if existing is not None:
+            click.echo(
+                f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.",
+                err=True,
             )
-        ],
-    )
+            sys.exit(1)
+
+        worktree, base_commit = _create_worktree(name, repo)
+        branch = f"duo/{name}"
+
+        # Create task with a placeholder subtask (user will send actual tasks)
+        task = create_task(
+            task_id=name,
+            description=desc or f"Task {name}",
+            worktree=worktree,
+            branch=branch,
+            base_commit=base_commit,
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description=desc or "Awaiting instructions",
+                    target_files=[],
+                    writable_paths=["*"],  # permissive by default
+                )
+            ],
+        )
+    finally:
+        lock_fd.close()
+        lock_path.unlink(missing_ok=True)
 
     click.echo(f"Created task: {name}")
     click.echo(f"  Worktree: {worktree}")

@@ -48,6 +48,14 @@ def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("duo.protocol.TASKS_DIR", tmp_path / "tasks")
 
 
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    """Clear task cache between tests."""
+    _clear_task_cache()
+    yield
+    _clear_task_cache()
+
+
 def _make_subtask(step_id: int = 1) -> Subtask:
     return Subtask(
         step_id=step_id,
@@ -543,6 +551,21 @@ class TestAppendEventEdgeCases:
         test_events = [e for e in events if e["event"] == "test_event"]
         assert len(test_events) == 1
         assert test_events[0]["data"] == {"key": "value"}
+
+    def test_journal_rotation_on_max_size(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Journal rotates when exceeding MAX_JOURNAL_BYTES."""
+        import duo.protocol
+
+        task = create_task("rotate-task", "d", "/w", "b", "c", [_make_subtask()])
+        # Write enough data at normal threshold
+        for i in range(20):
+            append_event(task, f"event_{i}", {"i": i})
+        lines_before = len(task.journal_path.read_text().splitlines())
+        # Now lower the threshold so next write triggers rotation
+        monkeypatch.setattr(duo.protocol, "MAX_JOURNAL_BYTES", 100)
+        append_event(task, "trigger_rotate", {"final": True})
+        lines_after = len(task.journal_path.read_text().splitlines())
+        assert lines_after < lines_before
 
 
 # ---------------------------------------------------------------------------

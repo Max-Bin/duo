@@ -350,6 +350,46 @@ class TestStart:
         result = runner.invoke(main, ["start", invalid_name, "--repo", str(tmp_path), "--desc", "test"])
         assert result.exit_code != 0
 
+    def test_start_concurrent_lock(self, runner: CliRunner, tmp_path: Path):
+        """Concurrent start attempts are protected by lockfile."""
+        import fcntl
+
+        import duo.protocol
+
+        lock_path = duo.protocol.TASKS_DIR / ".lock-task.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fd = open(lock_path, "w")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            result = runner.invoke(
+                main, ["start", "lock-task", "--repo", str(tmp_path), "--desc", "t"]
+            )
+            assert result.exit_code != 0
+            assert "another process" in result.output.lower()
+        finally:
+            lock_fd.close()
+            lock_path.unlink(missing_ok=True)
+
+    def test_start_race_recheck_after_lock(self, runner: CliRunner, tmp_path: Path):
+        """Re-check after lock detects task created by another process."""
+        from unittest.mock import patch
+
+        call_count = 0
+
+        def load_side_effect(name: str):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return None  # first check passes
+            return _make_task(name)  # re-check finds task
+
+        with patch("duo.cli.load_task", side_effect=load_side_effect):
+            result = runner.invoke(
+                main, ["start", "race-task", "--repo", str(tmp_path), "--desc", "t"]
+            )
+            assert result.exit_code != 0
+            assert "already exists" in result.output
+
 
 # ---------------------------------------------------------------------------
 # kill command (error case)

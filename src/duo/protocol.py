@@ -257,10 +257,19 @@ def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
 
 # === Event Journal ===
 
+MAX_JOURNAL_BYTES = 10 * 1024 * 1024  # 10 MB
+
 
 def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> None:
     """Append an event to the task's journal."""
     task.journal_path.parent.mkdir(parents=True, exist_ok=True)
+    journal = task.journal_path
+    if journal.exists() and journal.stat().st_size > MAX_JOURNAL_BYTES:
+        # Rotate: keep last half
+        lines = journal.read_text().splitlines()
+        half = len(lines) // 2
+        journal.write_text("\n".join(lines[half:]) + "\n")
+        logger.info("Rotated journal for task '%s' (%d entries removed)", task.id, half)
     entry = {"ts": now_iso(), "event": event, "data": data or {}}
     with open(task.journal_path, "a") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
