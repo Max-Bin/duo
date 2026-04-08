@@ -728,11 +728,13 @@ class TestWaitForDialog:
 class TestSelectDialogOption:
     @patch("subprocess.run")
     @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
     @patch("duo.transport.is_in_dialog_stable")
-    def test_select_dialog_option_success(self, mock_stable, mock_time, mock_run):
+    def test_select_dialog_option_success(self, mock_stable, mock_dialog, mock_time, mock_run):
         """Mock is_in_dialog_stable True, verify type_text and send_keys called, PR recorded."""
         mock_time.sleep = MagicMock()
         mock_stable.return_value = True
+        mock_dialog.return_value = True  # Dialog still present after type_text → Enter sent
         # safe_enter reads pane to check prompt — return non-prompt content
         mock_run.return_value = MagicMock(returncode=0, stdout="some output", stderr="")
 
@@ -755,6 +757,32 @@ class TestSelectDialogOption:
         mock_stable.return_value = False
         with pytest.raises(RuntimeError, match="SAFETY"):
             select_dialog_option("test-pane", "1")
+
+    @patch("subprocess.run")
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_select_dialog_skips_enter_when_dismissed(
+        self, mock_stable, mock_dialog, mock_time, mock_run
+    ):
+        """When type_text dismisses the dialog, safe_enter is skipped."""
+        mock_time.sleep = MagicMock()
+        mock_stable.return_value = True
+        # After type_text, dialog is gone
+        mock_dialog.return_value = False
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+        from duo.transport import get_pr_log
+
+        initial_count = len(get_pr_log())
+        select_dialog_option("test-pane", "2")
+
+        # PR should still be recorded
+        log = get_pr_log()
+        assert len(log) == initial_count + 1
+        # No "Enter" send_keys call — only type_text call
+        key_args = [str(c) for c in mock_run.call_args_list]
+        assert not any("Enter" in a for a in key_args)
 
 
 # ---------------------------------------------------------------------------

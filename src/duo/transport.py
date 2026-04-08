@@ -446,11 +446,20 @@ def approve_permission(label: str) -> None:
 
 
 def select_dialog_option(label: str, option: str) -> None:
-    """Select dialog option with triple safety."""
+    """Select dialog option with triple safety.
+
+    After typing the option number, Copilot may immediately dismiss the
+    dialog (some permission dialogs accept on keypress without Enter).
+    If the dialog is already gone, we skip safe_enter to avoid a
+    spurious "at ❯ prompt" error.
+    """
     if not is_in_dialog_stable(label):
         raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
     type_text(label, option)
-    safe_enter(label)
+    _time.sleep(0.3)
+    # Dialog may have been dismissed by the keypress alone
+    if is_in_dialog(label):
+        safe_enter(label)
     _record_pr(label, "dialog_option", option[:80])
 
 
