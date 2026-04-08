@@ -753,3 +753,25 @@ class TestListPanesLogging:
             panes = list_panes()
         assert len(panes) == 1
         assert any("Skipping unparseable tmux line" in m for m in caplog.messages)
+
+
+# ── _is_at_main_prompt edge cases ────────────────────────────────────
+
+
+class TestIsAtMainPromptEdgeCases:
+    def test_empty_content(self):
+        """Empty string is not at prompt."""
+        assert _is_at_main_prompt("") is False
+
+    def test_only_separators(self):
+        """Content with only separator lines is not at prompt."""
+        assert _is_at_main_prompt("─────\n─────") is False
+
+    def test_chevron_without_menu_text(self):
+        """❯ with non-menu text is not at prompt."""
+        assert _is_at_main_prompt("❯ some random text here") is False
+
+    def test_chevron_after_separators(self):
+        """❯ prompt preceded by separator lines IS at prompt."""
+        content = "─────\nRemaining reqs: 10\n❯ Type @ to mention files"
+        assert _is_at_main_prompt(content) is True

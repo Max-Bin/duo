@@ -810,9 +810,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         # Single task audit
         task = load_task(name)
         if task is None:
-            click.echo(f"Error: task '{name}' not found.", err=True)
-            sys.exit(1)
-        events = read_jsonl(task.journal_path)
+            click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
 
         if as_json:

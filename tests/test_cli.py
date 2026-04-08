@@ -3848,3 +3848,34 @@ class TestDoctorTaskTimeout:
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
         assert "invalid" in result.output.lower()
+
+
+# ── Bare array batch file auto-wrapping ──────────────────────────────
+
+
+class TestBatchBareArray:
+    def test_batch_bare_array_auto_wrapped(self, runner: CliRunner, tmp_path: Path):
+        """Batch file with bare JSON array (not wrapped in {tasks:...}) is auto-wrapped."""
+        batch_file = tmp_path / "bare-array.json"
+        batch_file.write_text(json.dumps([
+            {"name": "task-a", "description": "first task"},
+            {"name": "task-b", "description": "second task"},
+        ]))
+        with (
+            patch("duo.cli._create_single_task") as mock_create,
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 2,
+                    "queued_count": 0,
+                    "max_parallel": 3,
+                    "active_tasks": ["task-a", "task-b"],
+                    "queued_tasks": [],
+                },
+            ),
+        ):
+            mock_create.side_effect = ["task-a", "task-b"]
+            result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        # Should succeed, not error about missing 'tasks' key
+        assert result.exit_code == 0
+        assert "2 tasks created" in result.output

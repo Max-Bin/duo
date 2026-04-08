@@ -939,3 +939,40 @@ class TestReadJsonlTail:
         """tail on missing file returns empty list."""
         result = read_jsonl(tmp_path / "nope.jsonl", tail=5)
         assert result == []
+
+
+# ── Exhaustive illegal transition testing ────────────────────────────
+
+
+class TestTransitionExhaustiveIllegal:
+    def test_all_illegal_transitions_rejected(self):
+        """Every (src, dst) pair NOT in TRANSITIONS must be rejected."""
+        all_statuses = list(TaskStatus)
+        rejected_count = 0
+        for src in all_statuses:
+            legal_targets = TRANSITIONS.get(src, set())
+            for dst in all_statuses:
+                if dst in legal_targets or dst == src:
+                    continue
+                # This transition should be illegal
+                task = create_task(
+                    f"test-{src.value}-{dst.value}",
+                    "d", "/w", "b", "c",
+                    [_make_subtask()],
+                )
+                task.status = src
+                save_task(task)
+                transition(task, dst)
+                # Status should NOT have changed
+                assert task.status == src, (
+                    f"Illegal transition {src} → {dst} was allowed!"
+                )
+                # Journal should have invalid_transition event
+                events = read_jsonl(task.journal_path)
+                invalid = [e for e in events if e.get("event") == "invalid_transition"]
+                assert len(invalid) >= 1, (
+                    f"No invalid_transition event for {src} → {dst}"
+                )
+                rejected_count += 1
+        # Sanity: we tested a meaningful number of illegal transitions
+        assert rejected_count > 100

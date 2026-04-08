@@ -763,7 +763,7 @@ class TestStartSessionError:
 
         assert task.last_prompt_sent_at is not None
         # Verify it's a valid ISO timestamp (not just any truthy value)
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
         dt = datetime.fromisoformat(task.last_prompt_sent_at)
         assert (datetime.now(UTC) - dt.replace(tzinfo=UTC)).total_seconds() < 5
 
@@ -844,7 +844,7 @@ class TestResendLastPrompt:
         resend_last_prompt(task)
 
         assert task.last_prompt_sent_at is not None
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
         dt = datetime.fromisoformat(task.last_prompt_sent_at)
         assert (datetime.now(UTC) - dt.replace(tzinfo=UTC)).total_seconds() < 5
 
@@ -1559,3 +1559,28 @@ class TestMonitorMinIntervalFloor:
         # time.sleep was called; the interval must be >= 1.0
         sleep_val = mock_sleep.call_args[0][0]
         assert sleep_val >= 1.0
+
+
+# ── poll_task silent path (heartbeat timeout, alive, no error) ───────
+
+
+class TestPollHeartbeatTimeoutSilent:
+    def test_poll_heartbeat_timeout_alive_no_error(self):
+        """HEARTBEAT_TIMEOUT + alive pane + no error text → silent no-op."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+
+        with (
+            patch.object(AdaptivePoller, "poll", return_value=PollResult.HEARTBEAT_TIMEOUT),
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.diagnose_pane", return_value="all good, copilot working"),
+            patch("duo.commander.wait_for_dialog", return_value=False),
+        ):
+            poller = AdaptivePoller()
+            result = poll_task(task, poller)
+
+        assert result == PollResult.HEARTBEAT_TIMEOUT
+        # No api_error event should be recorded (no error in terminal)
+        events = read_jsonl(task.journal_path)
+        error_events = [e for e in events if e.get("event") == "api_error"]
+        assert len(error_events) == 0
