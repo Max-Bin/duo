@@ -831,6 +831,18 @@ class TestIsPermissionDialog:
 
 
 class TestApprovePermission:
+    @pytest.fixture(autouse=True)
+    def _stable_dialog(self):
+        """Assume stable dialog for all tests; override individually to test rejection."""
+        with patch("duo.transport.is_in_dialog_stable", return_value=True):
+            yield
+
+    def test_rejects_unstable_dialog(self):
+        """Refuses to approve when dialog is not stable."""
+        with patch("duo.transport.is_in_dialog_stable", return_value=False):
+            with pytest.raises(RuntimeError, match="SAFETY"):
+                approve_permission("test")
+
     @patch("duo.transport.select_dialog_option")
     @patch("duo.transport.read_pane")
     def test_picks_approve_for_session(self, mock_read, mock_select):

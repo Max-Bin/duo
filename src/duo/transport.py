@@ -353,6 +353,8 @@ def approve_permission(label: str) -> None:
 
     MUST read the actual option text to decide. Never blindly pick a number.
     """
+    if not is_in_dialog_stable(label):
+        raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
     content = read_pane(label, 20)
     lines = content.strip().split("\n")
 

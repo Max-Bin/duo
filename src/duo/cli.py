@@ -437,10 +437,19 @@ def monitor(names: tuple[str, ...], max_time: int) -> None:
 def watch(names: tuple[str, ...], timeout: float, interval: float, once: bool) -> None:
     """Event-driven pane watcher with auto dialog handling.
 
-    Blocks on each task pane waiting for dialogs (permission prompts,
-    confirmations) and automatically approves them.  Unlike ``monitor``,
-    which polls for heartbeat/result files, ``watch`` is purely
-    event-driven and focuses on dialog detection.
+    Blocks on each task pane waiting for permission dialogs and
+    automatically approves them.  Complementary to ``monitor``
+    (which polls heartbeat/result files for task lifecycle).
+
+    \b
+    Use ``duo monitor`` for: heartbeat timeouts, result verification,
+    step advancement.
+    Use ``duo watch`` for: permission auto-approval while tasks run.
+
+    \b
+    Example:
+      duo monitor &       # background: lifecycle management
+      duo watch --once    # foreground: handle one dialog, return
     """
     if timeout <= 0:
         click.echo("Error: --timeout must be > 0", err=True)
@@ -494,7 +503,8 @@ def merge(name: str, dry_run: bool) -> None:
 
     if task.status != TaskStatus.COMPLETED:
         click.echo(
-            f"Error: task '{name}' is '{task.status.value}', not 'completed'. Wait for completion or check 'duo logs {name}'.",
+            f"Error: task '{name}' is '{task.status.value}', not 'completed'. "
+            f"Check progress with 'duo status {name}' or 'duo inspect {name}'.",
             err=True,
         )
         sys.exit(1)
