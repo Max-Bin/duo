@@ -109,11 +109,11 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
         sys.exit(1)
     except subprocess.TimeoutExpired:
         cmd_str = " ".join(["git", *args])
-        click.echo(f"Error: `{cmd_str}` timed out after 30s", err=True)
+        click.echo(f"Error: `{cmd_str}` timed out after 30s. Try `duo doctor` to check system state.", err=True)
         sys.exit(1)
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
-        click.echo(f"Error: `{cmd_str}` failed: {result.stderr.strip()}", err=True)
+        click.echo(f"Error: `{cmd_str}` failed: {result.stderr.strip()[:500]}", err=True)
         sys.exit(1)
     return result
 
@@ -134,6 +134,7 @@ def main(ctx: click.Context, verbose: bool) -> None:
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
     except (OSError, PermissionError) as e:
         click.echo(f"Error: cannot create tasks directory '{TASKS_DIR}': {e}", err=True)
+        click.echo("Hint: check write permissions or run `duo doctor`.", err=True)
         sys.exit(1)
 
 
@@ -216,7 +217,7 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
         lock_fd = open(lock_path, "w")  # noqa: SIM115
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError):
-        click.echo(f"Error: task '{name}' is being created by another process.", err=True)
+        click.echo(f"Error: task '{name}' is being created by another process. Wait and retry, or run `duo cleanup` if stuck.", err=True)
         if lock_fd is not None:
             lock_fd.close()
         sys.exit(1)
@@ -294,7 +295,7 @@ def send(name: str, prompt: str) -> None:
 
     _validate_task_name(name)
     if not prompt or not prompt.strip():
-        click.echo("Error: prompt cannot be empty.", err=True)
+        click.echo("Error: prompt cannot be empty. Usage: duo send TASK_NAME \"your instruction\"", err=True)
         sys.exit(1)
     task = load_task(name)
     if task is None:
@@ -452,10 +453,10 @@ def watch(names: tuple[str, ...], timeout: float, interval: float, once: bool) -
       duo watch --once    # foreground: handle one dialog, return
     """
     if timeout <= 0:
-        click.echo("Error: --timeout must be > 0", err=True)
+        click.echo("Error: --timeout must be > 0. Example: --timeout 60", err=True)
         sys.exit(1)
     if interval <= 0:
-        click.echo("Error: --interval must be > 0", err=True)
+        click.echo("Error: --interval must be > 0. Example: --interval 5", err=True)
         sys.exit(1)
     from duo.commander import watch_tasks
 
@@ -718,12 +719,14 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
             sys.exit(1)
         except yaml.YAMLError as e:
             click.echo(f"Error: invalid YAML in '{file}': {e}", err=True)
+            click.echo("Hint: validate with `python -c \"import yaml; yaml.safe_load(open('{file}'))\"` or use JSON.", err=True)
             sys.exit(1)
     else:
         try:
             tasks_data = json.loads(content)
         except json.JSONDecodeError as e:
             click.echo(f"Error: invalid JSON in '{file}': {e}", err=True)
+            click.echo(f"Hint: validate with `python -m json.tool {file}`.", err=True)
             sys.exit(1)
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
@@ -770,7 +773,10 @@ def _create_single_task(
     which may start it immediately or queue it.  When True, the task is placed
     directly into QUEUED state without starting a session.
     """
-    name = defn["name"]
+    name = defn.get("name")
+    if not name or not isinstance(name, str):
+        click.echo("  ✗ (unnamed): task missing 'name' field", err=True)
+        return None
     try:
         _validate_task_name(name)
     except (SystemExit, click.BadParameter):
@@ -779,6 +785,12 @@ def _create_single_task(
     desc = defn.get("description", f"Task {name}")
     target_files = defn.get("target_files", [])
     writable = defn.get("writable_paths", ["*"])
+    if not isinstance(target_files, list):
+        click.echo(f"  ✗ {name}: 'target_files' must be a list", err=True)
+        return None
+    if not isinstance(writable, list):
+        click.echo(f"  ✗ {name}: 'writable_paths' must be a list", err=True)
+        return None
 
     worktree_base = get_config("worktree_base_path")
     worktree = os.path.join(worktree_base, name)
@@ -969,7 +981,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
 def dashboard(names: tuple[str, ...], refresh: float) -> None:
     """Live terminal dashboard for task monitoring."""
     if refresh <= 0:
-        click.echo("Error: --refresh must be > 0", err=True)
+        click.echo("Error: --refresh must be > 0. Example: --refresh 2", err=True)
         sys.exit(1)
     try:
         from duo.dashboard import run_dashboard

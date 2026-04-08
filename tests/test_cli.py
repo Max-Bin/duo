@@ -3062,16 +3062,39 @@ class TestBatchValidation:
     def test_batch_missing_name_in_task_def(
         self, runner: CliRunner, tmp_path: Path
     ):
-        """batch task missing 'name' key causes an error for that task."""
+        """batch task missing 'name' key prints error and skips that task."""
         f = tmp_path / "noname.json"
         f.write_text(json.dumps({"tasks": [{"description": "no name field"}]}))
         result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
-        assert result.exit_code != 0
+        assert "(unnamed)" in result.output
+        assert "missing 'name'" in result.output
 
     def test_batch_nonexistent_file(self, runner: CliRunner):
         """batch with a path that doesn't exist fails."""
         result = runner.invoke(main, ["batch", "/no/such/file.json"])
         assert result.exit_code != 0
+
+    def test_batch_target_files_not_list_rejected(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """target_files as string instead of list is rejected."""
+        f = tmp_path / "bad_tf.json"
+        f.write_text(json.dumps({
+            "tasks": [{"name": "t1", "target_files": "not-a-list"}]
+        }))
+        result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
+        assert "'target_files' must be a list" in result.output
+
+    def test_batch_writable_paths_not_list_rejected(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """writable_paths as dict instead of list is rejected."""
+        f = tmp_path / "bad_wp.json"
+        f.write_text(json.dumps({
+            "tasks": [{"name": "t1", "writable_paths": {"a": 1}}]
+        }))
+        result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
+        assert "'writable_paths' must be a list" in result.output
 
 
 # ---------------------------------------------------------------------------
