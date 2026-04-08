@@ -3,6 +3,29 @@
 All notable changes to Duo are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] — 2025-07-24
+
+### Added
+- Concurrent duplicate start protection via file-based locking (fcntl)
+- Journal rotation when journal exceeds 10MB (keeps last half)
+- Monitor crash protection — `start_session` failures no longer crash the monitor loop
+- `_retry` decorator now catches `OSError` alongside `RuntimeError` for transient OS errors
+- Bounds checking in `build_continue_prompt()` for out-of-range step numbers
+- 697 tests with 100% coverage (up from 675)
+
+### Changed
+- Scheduler `promote_queued()` optimized: single `list_tasks()` call instead of O(3N)
+- Config validation: replaced `assert isinstance()` with explicit type checks (safe under `-O`)
+- Narrowed bare `except Exception` to specific types in commander and CLI
+- Verifier `run_in_worktree()` returns 127 for malformed commands instead of crashing
+- Dashboard timestamp split uses `maxsplit=1` for robustness
+- Git worktree line parsing uses bounds-checked split
+
+### Fixed
+- Monitor loop survives `start_session()` failure for promoted tasks
+- OSError from tmux kill-pane in orphan cleanup is properly suppressed
+- Float config validation error messages now show `repr()` of the value
+
 ## [0.6.0] — 2025-07-23
 
 ### Added
