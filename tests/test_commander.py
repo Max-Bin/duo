@@ -1676,6 +1676,14 @@ class TestWatchTasks:
             result = watch_tasks()
         assert result == 0
 
+    def test_unknown_task_ids_warned(self, capsys) -> None:
+        """Unknown task IDs produce a warning."""
+        with patch("duo.commander.list_tasks", return_value=[]):
+            result = watch_tasks(["nonexistent"])
+        assert result == 0
+        captured = capsys.readouterr()
+        assert "Unknown task(s): nonexistent" in captured.err
+
     def test_filters_terminal_states(self) -> None:
         """Completed/failed/escalated tasks are excluded."""
         tasks = [self._finished(f"t{i}") for i in range(3)]

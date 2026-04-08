@@ -102,6 +102,7 @@ duo version              # 查看版本
 | `duo list` | 表格形式列出所有任务（ID / STATUS / STEP / INCARNATION） |
 | `duo stats [--json-output]` | 显示任务统计和摘要信息 |
 | `duo monitor [names...]` | 启动自适应轮询监控（可指定任务，默认全部） |
+| `duo watch [names...]` | 事件驱动的对话框处理器（自动审批权限提示） |
 | `duo resume [NAME]` | 恢复中断的任务会话 |
 | `duo recover` | 通过回放 journal 恢复中断的任务 |
 | `duo merge <name>` | 将已完成任务的 worktree 合并到主分支（fetch + rebase + ff-only） |

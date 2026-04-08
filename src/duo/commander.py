@@ -53,6 +53,7 @@ _SESSION_CD_WAIT = 0.3
 
 _TERMINAL_SLICE = 500  # chars of terminal output to include in events
 _IDLE_GRACE_SECONDS = 30  # seconds before considering a prompted task idle
+_LOG_LOCK = threading.Lock()  # guards _log_monitor output across watch threads
 
 # Dialog wait timeouts (seconds)
 _DIALOG_TIMEOUT_SEND = 60.0
@@ -616,11 +617,13 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
 
 
 def _log_monitor(symbol: str, task_id: str, message: str) -> None:
-    """Format a monitor log line with timestamp."""
+    """Format a monitor log line with timestamp.  Thread-safe."""
     from datetime import datetime
 
     ts = datetime.now().strftime("%H:%M:%S")
-    click.echo(f"[duo] {ts} {symbol} {task_id:<20} {message}")
+    line = f"[duo] {ts} {symbol} {task_id:<20} {message}"
+    with _LOG_LOCK:
+        click.echo(line)
 
 
 def monitor(task_ids: list[str] | None = None) -> None:
@@ -788,6 +791,11 @@ def watch_tasks(
     shutdown when the user presses Ctrl-C (see ``cli.py``).
     """
     tasks = list_tasks()
+    if task_ids is not None:
+        known = {t.id for t in tasks}
+        unknown = [tid for tid in task_ids if tid not in known]
+        if unknown:
+            click.echo(f"[duo] Unknown task(s): {', '.join(unknown)}", err=True)
     active = [
         t
         for t in tasks

@@ -102,6 +102,7 @@ duo version              # Show version
 | `duo list` | List all tasks in a table (ID / STATUS / STEP / INCARNATION) |
 | `duo stats [--json-output]` | Show task statistics and summary |
 | `duo monitor [names...]` | Start adaptive polling monitor (specify tasks, or default to all) |
+| `duo watch [names...]` | Event-driven dialog handler (auto-approves permission prompts) |
 | `duo resume [NAME]` | Resume interrupted task sessions |
 | `duo recover` | Recover interrupted tasks by replaying journals |
 | `duo merge <name>` | Merge a completed task's worktree into the main branch (fetch + rebase + ff-only) |
