@@ -231,6 +231,26 @@ class TestPromoteQueued:
         promoted = promote_queued()
         assert len(promoted) == 1
 
+    def test_promote_queued_zero_max_parallel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """max_parallel=0 blocks all promotion."""
+        monkeypatch.setattr(
+            "duo.scheduler.get_config",
+            lambda k: 0 if k == "max_parallel" else None,
+        )
+        t = _make_task("blocked")
+        _force_status(t, TaskStatus.QUEUED)
+
+        promoted = promote_queued()
+        assert promoted == []
+        # Task must remain QUEUED
+        from duo.protocol import load_task
+
+        reloaded = load_task("blocked")
+        assert reloaded is not None
+        assert reloaded.status == TaskStatus.QUEUED
+
     def test_promote_queued_unlimited_when_high_max(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

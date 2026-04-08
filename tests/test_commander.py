@@ -473,6 +473,31 @@ class TestStartSession:
             # Task should end up in PROMPT_SENT state
             assert task.status == TaskStatus.PROMPT_SENT
 
+    def test_start_session_layout_failure_warns(self):
+        """select-layout failure logs warning but session still starts."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 1
+            layout_result.stderr = "layout error"
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+            assert task.status == TaskStatus.PROMPT_SENT
+
 
 # ---------------------------------------------------------------------------
 # build_task_prompt edge cases

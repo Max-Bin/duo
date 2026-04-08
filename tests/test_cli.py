@@ -1060,6 +1060,25 @@ class TestStop:
         assert result.exit_code == 0
         assert "already stopped" in result.output
 
+    def test_stop_pane_kill_failure_warns(self, runner: CliRunner):
+        """stop shows warning when pane kill fails."""
+        task = _make_task("stop-pane-fail")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:2] == ["tmux", "kill-pane"]:
+                m.returncode = 1
+                m.stderr = "no pane found"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+            result = runner.invoke(main, ["stop", "stop-pane-fail"])
+            assert result.exit_code == 0
+            assert "Warning" in result.output
+            assert "Stopped" in result.output
+
     def test_stop_records_event(self, runner: CliRunner):
         """stop logs task_stopped event with previous status."""
         task = _make_task("stop-event")
@@ -1104,6 +1123,28 @@ class TestKillSuccess:
         result = runner.invoke(main, ["kill", "nope"])
         assert result.exit_code != 0
         assert "not found" in result.output
+
+    def test_kill_pane_kill_failure_warns(self, runner: CliRunner, tmp_path: Path):
+        """kill shows warning when tmux kill-pane fails."""
+        task = _make_task("kill-pane-fail")
+        wt_dir = tmp_path / "kill_pane_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        def mock_subprocess_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:2] == ["tmux", "kill-pane"]:
+                m.returncode = 1
+                m.stderr = "no pane found"
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = "worktree /main\n  branch refs/heads/main\n\n"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+            result = runner.invoke(main, ["kill", "kill-pane-fail"])
+            assert result.exit_code == 0
+            assert "Warning" in result.output
 
     def test_kill_cleanup_warnings(self, runner: CliRunner, tmp_path: Path):
         """kill shows warnings when git cleanup fails."""

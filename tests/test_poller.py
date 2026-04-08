@@ -85,6 +85,11 @@ class TestAge:
     def test_none_returns_inf(self):
         assert age(None) == float("inf")
 
+    def test_future_timestamp_returns_zero(self):
+        """Future timestamps return 0, not negative."""
+        future_ts = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        assert age(future_ts) == 0.0
+
     def test_timezone_naive_treated_as_utc(self):
         naive = datetime.now(UTC).replace(tzinfo=None).isoformat()
         result = age(naive)
