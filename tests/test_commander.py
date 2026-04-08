@@ -1434,6 +1434,33 @@ class TestStartSessionOrphanedPaneCleanup:
             assert len(kill_calls) == 1
             assert kill_calls[0][0][0][3] == "%77"
 
+    def test_kill_pane_failure_suppressed(self):
+        """start_session suppresses OSError when kill-pane itself fails."""
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch(
+                "duo.commander.send_shell_command",
+                side_effect=RuntimeError("connection lost"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%77\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            # kill-pane raises OSError (e.g. tmux not found)
+            mock_run.side_effect = [split_result, layout_result, OSError("tmux gone")]
+
+            with pytest.raises(RuntimeError, match="connection lost"):
+                start_session(task)
+
+            # Should not crash — the OSError from kill-pane is suppressed
+            assert task.status == TaskStatus.FAILED
+
 
 # ---------------------------------------------------------------------------
 # monitor — min_interval floor
