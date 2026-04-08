@@ -1781,7 +1781,9 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None) -
         if keep_journal:
             for item in task.dir.iterdir():
                 if item.name != "journal.jsonl":
-                    if item.is_dir():
+                    if item.is_symlink():
+                        item.unlink()
+                    elif item.is_dir():
                         shutil.rmtree(item)
                     else:
                         item.unlink()

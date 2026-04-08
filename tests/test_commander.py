@@ -1649,6 +1649,38 @@ class TestPollHeartbeatTimeoutSilent:
         assert len(error_events) == 0
 
 
+class TestMonitorPollErrorResilience:
+    """Monitor continues when poll_task raises an exception."""
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", side_effect=RuntimeError("bridge crash"))
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_poll_exception_continues(
+        self, mock_list, mock_promote, mock_poll, mock_sleep, capsys
+    ):
+        """An exception in poll_task is caught; monitor doesn't crash."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        captured = capsys.readouterr()
+        assert "poll error" in captured.out
+        events = read_jsonl(task.journal_path)
+        poll_errors = [e for e in events if e.get("event") == "poll_error"]
+        assert len(poll_errors) == 1
+        assert "bridge crash" in poll_errors[0]["data"]["error"]
+
+
 # ---------------------------------------------------------------------------
 # watch_tasks
 # ---------------------------------------------------------------------------

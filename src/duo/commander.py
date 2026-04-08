@@ -706,7 +706,13 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 pollers[task.id] = AdaptivePoller()
 
             poller = pollers[task.id]
-            result = poll_task(task, poller)
+            try:
+                result = poll_task(task, poller)
+            except Exception as exc:
+                _log_monitor("✗", task.id, f"poll error: {exc}")
+                logger.exception("poll_task failed for %s", task.id)
+                append_event(task, "poll_error", {"error": str(exc)})
+                continue
 
             if result == PollResult.RESULT_READY:
                 _log_monitor("✓", task.id, f"result_ready (step={task.current_step})")

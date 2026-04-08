@@ -731,10 +731,23 @@ class TestCleanup:
         # Journal should still exist
         assert task.journal_path.exists()
 
-
-# ---------------------------------------------------------------------------
-# audit command
-# ---------------------------------------------------------------------------
+    def test_cleanup_symlink_in_task_dir(self, runner: CliRunner, make_task, tmp_path):
+        """Symlinks in task dir are removed without following."""
+        task = make_task("sym-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        # Create a symlink inside the task dir pointing outside
+        target = tmp_path / "outside"
+        target.mkdir()
+        (target / "precious.txt").write_text("do not delete")
+        symlink = task.dir / "evil-link"
+        symlink.symlink_to(target)
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["cleanup", "--force", "--keep-journal"])
+        assert result.exit_code == 0
+        # Symlink removed but target untouched
+        assert not symlink.exists()
+        assert (target / "precious.txt").exists()
 
 
 class TestAudit:
