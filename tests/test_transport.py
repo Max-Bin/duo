@@ -14,6 +14,7 @@ from duo.transport import (
     _find_bridge,
     _is_at_main_prompt,
     _retry,
+    approve_permission,
     bridge,
     cancel_current,
     diagnose_pane,
@@ -38,7 +39,6 @@ from duo.transport import (
     type_text,
     wait_for_dialog,
     wait_for_idle,
-    approve_permission,
 )
 
 BRIDGE = "/usr/local/bin/tmux-bridge"
@@ -881,3 +881,15 @@ class TestApprovePermission:
         )
         approve_permission("test")
         mock_select.assert_called_once_with("test", "2")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_add_without_allowed_not_preferred(self, mock_read, mock_select):
+        """'add' without 'allowed' should not be preferred over plain 'Yes'."""
+        mock_read.return_value = (
+            "Choose:\n"
+            "  1. Yes\n"
+            "  2. Add something else\n"
+        )
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")

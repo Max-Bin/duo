@@ -2375,6 +2375,17 @@ class TestDashboardCommand:
         if saved is not None:
             sys.modules["duo.dashboard"] = saved
 
+    def test_dashboard_negative_refresh(self, runner: CliRunner):
+        """dashboard rejects non-positive --refresh."""
+        result = runner.invoke(main, ["dashboard", "--refresh", "0"])
+        assert result.exit_code != 0
+        assert "--refresh must be > 0" in result.output
+
+    def test_dashboard_negative_refresh_value(self, runner: CliRunner):
+        """dashboard rejects negative --refresh."""
+        result = runner.invoke(main, ["dashboard", "--refresh", "-1"])
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # version fallback
@@ -3809,6 +3820,16 @@ class TestCleanupAge:
         result = runner.invoke(main, ["cleanup", "--age", "999d", "--force"])
         assert result.exit_code == 0
         assert "No tasks" in result.output
+
+    def test_cleanup_age_zero_rejected(self, runner: CliRunner, make_task):
+        """--age 0d is rejected."""
+        task = make_task("any-task")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["cleanup", "--age", "0d", "--force"])
+        assert result.exit_code != 0
+        assert "age value must be > 0" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------
