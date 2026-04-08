@@ -4412,7 +4412,7 @@ class TestCeoSelect:
         task = make_task("sel-other")
         with patch("duo.transport.is_in_dialog_stable", return_value=True), \
              patch("duo.transport.select_other_option") as mock_other:
-            result = runner.invoke(main, ["ceo-select", task.id, "_", "--other", "my custom text"])
+            result = runner.invoke(main, ["ceo-select", task.id, "--other", "my custom text"])
         assert result.exit_code == 0
         assert "Other" in result.output
         mock_other.assert_called_once_with(task.pane_label, "my custom text")
@@ -4420,6 +4420,18 @@ class TestCeoSelect:
     def test_bad_task_name(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["ceo-select", "bad name!!", "1"])
         assert result.exit_code != 0
+
+    def test_both_option_and_other_is_error(self, runner: CliRunner, make_task) -> None:
+        task = make_task("sel-both")
+        result = runner.invoke(main, ["ceo-select", task.id, "2", "--other", "text"])
+        assert result.exit_code != 0
+        assert "Cannot specify both" in result.output
+
+    def test_neither_option_nor_other_is_error(self, runner: CliRunner, make_task) -> None:
+        task = make_task("sel-none")
+        result = runner.invoke(main, ["ceo-select", task.id])
+        assert result.exit_code != 0
+        assert "Must specify" in result.output
 
 
 class TestCeoApprove:

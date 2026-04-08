@@ -1816,19 +1816,20 @@ def ceo_wait(task: str, timeout: float, interval: float) -> None:
 
 @main.command("ceo-select")
 @click.argument("task")
-@click.argument("option")
+@click.argument("option", required=False, default=None)
 @click.option(
     "--other",
     "other_text",
     default=None,
     help="Navigate to the 'Other' option and type this text instead",
 )
-def ceo_select(task: str, option: str, other_text: str | None) -> None:
+def ceo_select(task: str, option: str | None, other_text: str | None) -> None:
     """Select a dialog option in a task's pane.
 
-    OPTION can be a number (1-9) to pick that option, or use --other TEXT
-    to navigate to the last option ("Other"/"type your answer") and type
-    custom text.
+    OPTION is a number (1-9) to pick that option directly.
+    Use --other TEXT instead to navigate to the last option
+    ("Other"/"type your answer") and type custom text.
+    OPTION and --other are mutually exclusive.
 
     Safety: refuses to act if the pane is not in a stable dialog.
     """
@@ -1837,6 +1838,11 @@ def ceo_select(task: str, option: str, other_text: str | None) -> None:
         select_dialog_option,
         select_other_option,
     )
+
+    if option is not None and other_text is not None:
+        raise click.UsageError("Cannot specify both OPTION and --other. Pick one.")
+    if option is None and other_text is None:
+        raise click.UsageError("Must specify OPTION or --other TEXT.")
 
     t = _load_task_or_fail(task)
     if not is_in_dialog_stable(t.pane_label):
@@ -1847,6 +1853,7 @@ def ceo_select(task: str, option: str, other_text: str | None) -> None:
         select_other_option(t.pane_label, other_text)
         click.echo(f"Selected 'Other' with text: {other_text}")
     else:
+        assert option is not None
         select_dialog_option(t.pane_label, option)
         click.echo(f"Selected option {option}")
 
