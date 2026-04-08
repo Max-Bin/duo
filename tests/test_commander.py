@@ -342,6 +342,27 @@ class TestVerifyAndAdvance:
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
+    def test_max_corrections_one_escalates_immediately(
+        self, mock_verify, mock_send, mock_wait, monkeypatch
+    ):
+        """With max_corrections=1, first correction exhausts budget → escalate."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        # 1 correction already sent
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        self._write_result(task, 1, 1)
+        mock_verify.return_value = Correction(reason="still bad")
+        monkeypatch.setattr(
+            "duo.commander.get_config",
+            lambda k: 1 if k == "max_corrections" else 3,
+        )
+
+        verify_and_advance(task)
+        assert task.status == TaskStatus.ESCALATED
+
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.verify_step")
     def test_error_result_transitions_to_blocked(
         self, mock_verify, mock_send, mock_wait
     ):

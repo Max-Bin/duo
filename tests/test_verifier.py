@@ -220,6 +220,19 @@ class TestCheckSecurityScope:
         # Only the first (sorted) offender is reported
         assert "bad1.txt" in result.reason
 
+    def test_empty_writable_paths_rejects_all(self):
+        """With no writable paths, every changed file is rejected."""
+        task = _make_task()
+        result = _check_security_scope(task, {"src/main.py"}, [])
+        assert isinstance(result, Correction)
+        assert "src/main.py" in result.reason
+
+    def test_empty_writable_paths_empty_changed(self):
+        """Empty writable_paths + no changes = pass."""
+        task = _make_task()
+        result = _check_security_scope(task, set(), [])
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # _check_task_scope
