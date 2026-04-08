@@ -1,6 +1,6 @@
 # Design: `duo think` — Pre-Start Thinking Sessions
 
-> **Status:** Draft v3 — Claude Code in tmux pane architecture.
+> **Status:** Draft v4 — final pre-implementation review.
 
 ## Problem
 
@@ -40,7 +40,7 @@ This is the natural choice for Duo's architecture:
 ## Command Interface
 
 ```
-duo think <name>              # start / resume REPL (secondary, human mode)
+duo think <name>              # ensure pane exists, print info
 duo think <name> --ask "..."  # one-shot question — CEO primary path
 duo think <name> --finalize   # tell Claude Code to write plan.md
 duo think list                # show all thinking sessions
@@ -53,17 +53,23 @@ duo think <name> --delete     # close pane + delete files
 The CEO agent's main interface.  Each call is atomic:
 
 1. If `think-{name}` pane doesn't exist → create it (spawn Claude Code)
-2. Send the message to the pane via `type_text()` + `send_keys("Enter")`
-3. Wait for response to stabilize (`wait_for_response_stable()`)
-4. Capture the last assistant response from pane, print to stdout
-5. Exit (pane stays open for next `--ask`)
+2. `content_before = read_pane(label, 200)` (snapshot before sending)
+3. Send the message to the pane via `type_text()` + `send_keys("Enter")`
+4. `result = wait_for_response_stable(label)` (see algorithm below)
+5. If `result == "idle"`: extract response via capture diff, print to
+   stdout, append capture to `session.log`, exit 0
+6. If `result == "dialog"`: print "Claude Code asked a question in the
+   pane — switch to pane 'think-{name}' to answer", exit 1
+7. If `result == "timeout"`: print "Thinking pane not responding after
+   {timeout}s", exit 1
+8. Pane stays open for next `--ask`
 
 ```bash
 # CEO brainstorms via sequential --ask calls
-duo think rate-limiter --ask "I want to add rate limiting to the API gateway. Requirements: per-user limits, configurable thresholds. What approaches exist?"
+duo think rate-limiter --ask "I want to add rate limiting. Requirements: per-user, configurable. Approaches?"
 # (prints Claude Code's response to stdout)
 
-duo think rate-limiter --ask "Let's go with token bucket with sliding window. What edge cases?"
+duo think rate-limiter --ask "Token bucket with sliding window. Edge cases?"
 # (prints response)
 
 duo think rate-limiter --ask "Good. Scope down: single-node first, Redis in v2."
@@ -76,32 +82,35 @@ duo think rate-limiter --finalize
 The CEO reads stdout to get each response and decides the next
 question in its own orchestration loop.
 
-### `duo think <name>` (Secondary Mode — Human REPL)
+### `duo think <name>` (No Arguments — Info + Pane Hint)
 
-Opens an interactive loop for humans who want to brainstorm directly:
+When called without `--ask`, `--finalize`, `--close`, or `--delete`:
+
+1. Ensure `think-{name}` pane exists (create if needed).
+2. Print session info:
 
 ```
-[duo:think:my-app] Thinking pane ready. Type your message:
-> I want a CLI tool that…
-[duo:think:my-app] (Claude Code responds with streaming output in pane)
-> Actually, let's also handle…
-[duo:think:my-app] (Claude Code responds)
-> /done
-Finalize now? [Y/n] y
-Plan written to ~/.duo/thinking/my-app/plan.md
+Thinking session: rate-limiter
+  Pane: think-rate-limiter (alive)
+  Dir:  ~/.duo/thinking/rate-limiter/
+  Plan: not yet finalized
+
+To brainstorm directly, switch to pane 'think-rate-limiter'.
+To send a one-shot message: duo think rate-limiter --ask "..."
+To finalize: duo think rate-limiter --finalize
 ```
 
-Implementation: the REPL reads user input, sends via `type_text()` +
-`send_keys("Enter")`, waits for stable output, then prompts for next
-input.  On `/done`: offer to finalize.
-
-- First invocation: creates session + pane.
-- Subsequent invocations: attaches to existing pane (resumes).
-- Exit: `/done`, `/quit`, or Ctrl-D.
+Humans who want to brainstorm directly should switch to the
+`think-{name}` pane in tmux and talk to Claude Code there.  No REPL
+middle layer — the pane IS the conversation.
 
 ### `duo think <name> --finalize`
 
-Sends a finalize instruction to the `think-{name}` pane:
+1. `result = wait_for_response_stable(label)` — ensure pane is idle.
+2. If `result == "dialog"`: abort with "Pane is in a dialog. Switch to
+   pane 'think-{name}' to handle it first."
+3. If `result == "timeout"`: abort with "Pane unresponsive."
+4. Only if `result == "idle"`: send finalize instruction to the pane:
 
 ```
 Please distill our entire conversation into a plan document using the
@@ -110,16 +119,18 @@ to ~/.duo/thinking/{name}/plan.md. Be concrete and specific — this
 plan will be the initial prompt for a code-generating agent.
 ```
 
-Then polls for `~/.duo/thinking/{name}/plan.md` to appear and
-stabilize (file exists + size unchanged for 3 seconds).
-
-On success, prints:
+5. Poll for `~/.duo/thinking/{name}/plan.md` to appear and stabilize
+   (file exists + size unchanged for 3 seconds, timeout 60s).
+6. On success:
 
 ```
 Plan written to ~/.duo/thinking/rate-limiter/plan.md
 Review it, then run:
   duo start rate-limiter --from-thinking
 ```
+
+7. On timeout: "Claude Code didn't produce plan.md within 60s. Check
+   the thinking pane manually, or run --finalize again."
 
 ### `duo think list`
 
@@ -139,15 +150,146 @@ old-idea        none     active      CLAUDE.md
 
 ### `duo think <name> --close`
 
-Ends the `think-{name}` tmux pane but keeps all files
-in `~/.duo/thinking/{name}/`.  The session can be re-opened later
-(a new pane will be spawned, Claude Code will see CLAUDE.md and the
-existing conversation context).
+Terminates the `think-{name}` tmux pane but keeps all files in
+`~/.duo/thinking/{name}/`.  The session can be re-opened later (a new
+pane will be spawned, Claude Code will see CLAUDE.md).
 
 ### `duo think <name> --delete`
 
-Ends the pane (if alive) AND removes `~/.duo/thinking/{name}/`
-after confirmation: `"Delete thinking session '{name}'? This cannot be undone. [y/N]"`
+Terminates the pane (if alive) AND removes `~/.duo/thinking/{name}/`
+after confirmation: `"Delete thinking session '{name}'? This cannot
+be undone. [y/N]"`
+
+## `wait_for_response_stable()` Algorithm
+
+This is the key heuristic for determining when Claude Code has
+finished responding.  Used by `--ask` and `--finalize`.
+
+```python
+def wait_for_response_stable(
+    label: str,
+    timeout: float = 120.0,
+    stable_threshold: float = 2.0,
+) -> str:
+    """Wait until the thinking pane reaches a stable state.
+
+    Returns:
+        "idle"    — at main prompt, output stable for stable_threshold seconds
+        "dialog"  — Claude Code is asking a question (ask_user dialog)
+        "timeout" — neither idle nor dialog within timeout
+    """
+    deadline = time.time() + timeout
+    last_hash: int | None = None
+    stable_since: float | None = None
+
+    while time.time() < deadline:
+        content = read_pane(label, 50)
+
+        # Check for active spinner (Claude Code still working)
+        has_spinner = any(marker in content for marker in ("\u25c9 ", "\u25ce ", "\u25cb "))
+
+        # Check for dialog (Claude Code asking a question)
+        dialog_kind = _detect_dialog_kind(content)
+        if dialog_kind != DialogKind.NONE:
+            return "dialog"
+
+        # Check for main prompt (idle)
+        at_prompt = _is_at_main_prompt(content)
+
+        if at_prompt and not has_spinner:
+            current_hash = hash(content)
+            if current_hash == last_hash:
+                if stable_since is not None and time.time() - stable_since > stable_threshold:
+                    return "idle"
+            else:
+                last_hash = current_hash
+                stable_since = time.time()
+        else:
+            # Reset stability counter if not at prompt
+            last_hash = None
+            stable_since = None
+
+        time.sleep(0.5)
+
+    return "timeout"
+```
+
+**Three return values and their handling:**
+
+| Return | Meaning | `--ask` action | `--finalize` action |
+|--------|---------|----------------|---------------------|
+| `"idle"` | At prompt, stable 2s | Extract response, print, exit 0 | Send finalize instruction |
+| `"dialog"` | Asking user a question | Print hint to switch pane, exit 1 | Abort, print hint |
+| `"timeout"` | Neither after 120s | Print timeout error, exit 1 | Abort, print error |
+
+**Why 2 seconds stable:** Claude Code sometimes pauses briefly between
+tool calls.  A 2-second stable window at the main prompt reliably
+indicates the full response is complete.
+
+## Response Extraction (Capture Diff)
+
+When `--ask` needs to extract Claude Code's response to print to
+stdout, it uses the "capture diff" strategy:
+
+```python
+def extract_response(content_before: str, content_after: str, user_message: str) -> str:
+    """Extract the assistant response from pane content delta.
+
+    Args:
+        content_before: read_pane() snapshot taken BEFORE sending message.
+        content_after:  read_pane() snapshot taken AFTER response is stable.
+        user_message:   the message we sent (to filter it out).
+
+    Returns:
+        Cleaned assistant response text.
+    """
+    # 1. Find the delta: lines in content_after not in content_before
+    before_lines = content_before.splitlines()
+    after_lines = content_after.splitlines()
+
+    # Find where the new content starts (longest common prefix)
+    common = 0
+    for i, (a, b) in enumerate(zip(before_lines, after_lines)):
+        if a == b:
+            common = i + 1
+        else:
+            break
+
+    delta_lines = after_lines[common:]
+
+    # 2. Filter out known noise
+    filtered = []
+    for line in delta_lines:
+        stripped = line.strip()
+        # Skip the user message echo
+        if stripped == user_message.strip():
+            continue
+        # Skip empty prompt lines
+        if stripped in ("", ">", "\u276f"):
+            continue
+        # Skip tool call headers (keep results)
+        if stripped.startswith(("\u25cf Edit", "\u25cf Read", "\u25cf Bash", "\u25cf Grep")):
+            continue
+        filtered.append(line)
+
+    # 3. Trim leading/trailing blank lines
+    while filtered and not filtered[0].strip():
+        filtered.pop(0)
+    while filtered and not filtered[-1].strip():
+        filtered.pop()
+
+    return "\n".join(filtered)
+```
+
+**Known limitations:**
+- If the pane scrollback is shorter than the full conversation, older
+  context may be lost.  Mitigation: use `read_pane(label, 200)` for
+  generous capture.
+- Tool call output formatting may vary.  v1 uses simple prefix
+  filtering; can be refined based on real-world usage.
+- If Claude Code's response is very long, `read_pane(200)` may
+  truncate.  v2 could increase the capture window or use tmux's
+  `capture-pane -p -S -` for full scrollback.
 
 ## Data Model
 
@@ -155,10 +297,10 @@ after confirmation: `"Delete thinking session '{name}'? This cannot be undone. [
 
 ```
 ~/.duo/thinking/{name}/
-├── CLAUDE.md           # thinking agent role + instructions
-├── plan-template.md    # plan format template (written on creation)
-├── plan.md             # generated plan (after --finalize)
-└── session.log         # periodic tmux pane capture snapshots
+\u251c\u2500\u2500 CLAUDE.md           # thinking agent role + instructions
+\u251c\u2500\u2500 plan-template.md    # plan format template (written on creation)
+\u251c\u2500\u2500 plan.md             # generated plan (after --finalize)
+\u2514\u2500\u2500 session.log         # per-ask pane capture snapshots
 ```
 
 **CLAUDE.md** — Written once on session creation.  Claude Code
@@ -172,17 +314,22 @@ creation so Claude Code can reference it during finalize.  See
 **plan.md** — The finalized plan, produced by Claude Code when
 `--finalize` is invoked.  Consumed by `duo start --from-thinking`.
 
-**session.log** — Periodic snapshots of the pane output, captured
-every 30 seconds by a background thread (or on each `--ask` call).
-Provides a reviewable conversation trail even if the pane is killed.
-Format: timestamped raw captures appended to the file.
+**session.log** — Appended on each `--ask` call (not a background
+thread).  Each entry is a timestamped pane capture:
 
 ```
---- capture at <ISO8601-UTC> ---
-(pane content)
---- capture at <ISO8601-UTC> ---
-(pane content)
+--- ask at <ISO8601-UTC> ---
+[user] I want to add rate limiting...
+[response]
+(captured pane delta)
+--- ask at <ISO8601-UTC> ---
+[user] Token bucket approach...
+[response]
+(captured pane delta)
 ```
+
+When humans use the pane directly (not via `--ask`), tmux's own
+scrollback buffer serves as the conversation record.
 
 ### Relationship to Tasks
 
@@ -191,15 +338,27 @@ No FSM state, no `THINKING` status, no entry in `~/.duo/tasks/`.
 
 - Thinking is *pre-task* — no worktree, no Copilot, no task FSM.
 - Clean separation: `~/.duo/thinking/` vs `~/.duo/tasks/`.
-- Only connection: `--finalize` → `plan.md` → `--from-thinking` (file
+- Only connection: `--finalize` \u2192 `plan.md` \u2192 `--from-thinking` (file
   path handoff, not data model link).
+
+### Naming Collisions (Future Concern)
+
+`~/.duo/thinking/` is a flat namespace keyed by `{name}`.  If a user
+works on multiple repos and uses the same thinking session name (e.g.,
+"refactor"), they collide.
+
+**v1:** Accept this limitation.  Names are user-chosen, collisions
+are the user's responsibility.
+
+**v2 (if needed):** Namespace by repo — `~/.duo/thinking/{repo-slug}/{name}/`.
+This is a backwards-compatible change (just move directories).
 
 ## Thinking CLAUDE.md
 
 Written to `~/.duo/thinking/{name}/CLAUDE.md` on session creation:
 
 ```markdown
-# Thinking Partner — {name}
+# Thinking Partner \u2014 {name}
 
 You are a software-engineering thinking partner. Your job is to help
 the user refine a software task idea from vague to actionable.
@@ -229,7 +388,7 @@ instruction, produce a plan document:
 3. Write the result to ~/.duo/thinking/{name}/plan.md
 4. Confirm: "Plan written to ~/.duo/thinking/{name}/plan.md"
 
-Be concrete and specific — this plan will be sent as the initial
+Be concrete and specific \u2014 this plan will be sent as the initial
 prompt to a Copilot code-generating agent.
 ```
 
@@ -282,6 +441,8 @@ it as the initial bootstrap prompt, replacing the auto-generated one.
 1. Create `~/.duo/thinking/{name}/` directory
 2. Write `CLAUDE.md` and `plan-template.md` to that directory
 3. `tmux split-window -v -P -F "#{pane_id}"` (vertical split)
+   - If this fails (no tmux session, no space): fail fast with
+     "Failed to create thinking pane. Is tmux running?"
 4. `name_pane(pane_id, f"think-{name}")` (set label)
 5. `tmux select-layout tiled`
 6. `send_shell_command(label, f"cd {thinking_dir}")`
@@ -295,9 +456,9 @@ a worktree, and there's no task/FSM association.
 ### Reattach (pane already exists)
 
 If `think-{name}` pane is already alive, `--ask` and bare
-`duo think` simply attach to it.  No new pane is created.
+`duo think` simply use it.  No new pane is created.
 
-Detection: `resolve_label(f"think-{name}")` succeeds → pane exists.
+Detection: `resolve_label(f"think-{name}")` succeeds \u2192 pane exists.
 
 ### Pane Death Recovery
 
@@ -307,14 +468,12 @@ Claude Code):
 - `--ask`: automatically re-spawn Claude Code in the existing pane
   (`send_shell_command(label, "claude")`).  Claude Code will re-read
   `CLAUDE.md` and resume.
-- Bare `duo think`: same auto-recovery, then enter REPL.
+- Bare `duo think`: same auto-recovery.
 
 ### Close (`--close`)
 
-Terminates the tmux pane via its pane ID.
-
-Files in `~/.duo/thinking/{name}/` are preserved.  A future
-`duo think <name>` will create a new pane.
+Terminates the tmux pane.  Files in `~/.duo/thinking/{name}/` are
+preserved.  A future `duo think <name>` will create a new pane.
 
 ### Delete (`--delete`)
 
@@ -355,7 +514,7 @@ The CEO *could* think in its own context window.  `duo think` adds:
 - **Dedicated system prompt:** `CLAUDE.md` optimized for task
   refinement (CEO's own prompt is for orchestration, not design).
 - **Full tool access:** The thinking Claude Code can read repo files,
-  grep code, search the web — deeper research than internal reasoning.
+  grep code, search the web \u2014 deeper research than internal reasoning.
 - **Separate context window:** Doesn't consume CEO context budget.
 
 ## From Thinking to Start
@@ -364,7 +523,8 @@ The CEO *could* think in its own context window.  `duo think` adds:
 
 When `--from-thinking` is specified:
 
-1. Look for `~/.duo/thinking/{name}/plan.md`.
+1. Look for `~/.duo/thinking/{name}/plan.md`.  The `{name}` must match
+   the thinking session name exactly (no cross-name lookup).
 2. If found: use its content as the initial prompt (replaces the
    auto-generated `build_bootstrap_prompt`).
 3. If not found: error with "No finalized plan for '{name}'. Run
@@ -373,7 +533,7 @@ When `--from-thinking` is specified:
 ### Auto-detection (v2 nice-to-have)
 
 `duo start <name>` could auto-check for a matching thinking session
-and hint.  Deferred to v2 — existing `duo start` path must remain
+and hint.  Deferred to v2 \u2014 existing `duo start` path must remain
 the default, zero-friction path.
 
 ## PR Budget Guarantee
@@ -385,19 +545,22 @@ the default, zero-friction path.
 - The thinking directory (`~/.duo/thinking/`) is completely separate
   from `~/.duo/tasks/`.
 - Even if the user runs `duo start` without `--from-thinking`, it
-  works exactly as today — thinking session is untouched.
+  works exactly as today \u2014 thinking session is untouched.
 
 ## Error Handling
 
 ### Pane Creation Failure
 
-If `tmux split-window` fails (no tmux session, permissions):
+If `tmux split-window` fails (no tmux session, permissions, no space
+for another pane):
 - Print: "Failed to create thinking pane. Is tmux running?"
 - Exit with non-zero status.
+- Do NOT leave partial state (if directory was created but pane failed,
+  keep the directory \u2014 it can be reused on retry).
 
 ### Pane Not Responding
 
-If `wait_for_idle()` times out after `--ask` sends a message:
+If `wait_for_response_stable()` returns `"timeout"`:
 - Print: "Thinking pane not responding after {timeout}s."
 - Suggest: "Try `duo think {name} --close` then retry."
 - Do not print partial/corrupted output.
@@ -406,6 +569,7 @@ If `wait_for_idle()` times out after `--ask` sends a message:
 
 If `is_process_alive(label)` returns False when `--ask` is called:
 - Auto-recovery: `send_shell_command(label, "claude")` to restart.
+- `wait_for_idle(label, timeout=30)` to confirm restart.
 - If restart fails: print error, suggest `--close` + retry.
 
 ### Finalize Timeout
@@ -458,15 +622,16 @@ The thinking pane spawn logic closely mirrors `start_claude_commander()`:
 | Start agent | `claude` | `claude` |
 
 Recommendation: extract a shared helper
-`_spawn_claude_pane(label, working_dir, claude_md_content)` that both
-`start_claude_commander()` and the new thinking code call.
+`_spawn_claude_pane(label, working_dir)` that both
+`start_claude_commander()` and the new thinking code call.  CLAUDE.md
+is written by the caller before invoking the shared helper.
 
 ## Compatibility
 
 - `duo start` without `--from-thinking` works exactly as today.
 - No new FSM states, no changes to Task dataclass.
 - No changes to any existing command.
-- No new Python dependencies (no `anthropic` SDK needed).
+- No new Python dependencies.
 - No breaking changes to the file protocol.
 
 ## Scope Summary
@@ -474,13 +639,15 @@ Recommendation: extract a shared helper
 | In Scope (v1) | Out of Scope |
 |----------------|-------------|
 | `duo think <name> --ask "..."` (CEO primary) | Auto-detect in `duo start` |
-| `duo think <name>` interactive REPL (human) | Web UI for thinking |
-| `duo think <name> --finalize` | Sharing sessions |
-| `duo think list` | Thinking → task auto-link |
+| `duo think <name>` info + pane hint | Web UI for thinking |
+| `duo think <name> --finalize` (with idle gate) | Sharing sessions |
+| `duo think list` | Thinking \u2192 task auto-link |
 | `duo think <name> --close` | Multi-model per-pane |
-| `duo think <name> --delete` | |
-| `duo start --from-thinking` | |
+| `duo think <name> --delete` | Repo-scoped namespacing |
+| `duo start --from-thinking` | REPL middle layer |
 | `CLAUDE.md` + `plan-template.md` scaffolding | |
-| `session.log` periodic capture | |
+| `session.log` per-ask capture | |
+| `wait_for_response_stable()` algorithm | |
+| `extract_response()` capture diff | |
 | Pane auto-recovery on death | |
 | Shared `_spawn_claude_pane()` refactor | |
