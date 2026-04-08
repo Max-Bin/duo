@@ -6,6 +6,7 @@ checks against the worktree.  Returns Pass or Correction.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -37,6 +38,7 @@ VerifyResult = Pass | Correction
 
 def git_diff_names(worktree: str) -> set[str]:
     """Return the set of file paths changed relative to HEAD."""
+    worktree = os.path.realpath(worktree)
     proc = subprocess.run(
         ["git", "diff", "--name-only", "HEAD"],
         cwd=worktree,
@@ -52,6 +54,7 @@ def git_diff_names(worktree: str) -> set[str]:
 
 def git_diff(worktree: str) -> str:
     """Return the full unified diff relative to HEAD."""
+    worktree = os.path.realpath(worktree)
     proc = subprocess.run(
         ["git", "diff", "HEAD"],
         cwd=worktree,
@@ -65,6 +68,7 @@ def git_diff(worktree: str) -> str:
 
 def git_untracked(worktree: str) -> list[str]:
     """Return untracked files not covered by .gitignore."""
+    worktree = os.path.realpath(worktree)
     proc = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         cwd=worktree,
@@ -78,6 +82,7 @@ def git_untracked(worktree: str) -> list[str]:
 
 def run_in_worktree(worktree: str, command: str) -> int:
     """Run a command inside *worktree* and return its exit code."""
+    worktree = os.path.realpath(worktree)
     proc = subprocess.run(
         shlex.split(command),
         shell=False,

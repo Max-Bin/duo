@@ -430,6 +430,20 @@ class TestAppendEvent:
         # Should parse as valid ISO timestamp
         datetime.fromisoformat(ping["ts"])
 
+    def test_journal_non_ascii(self):
+        """Journal handles non-ASCII characters (emoji, CJK)."""
+        task = create_task(
+            task_id="unicode-test",
+            description="🚀 部署 API テスト",
+            worktree="/w",
+            branch="b",
+            base_commit="c",
+            subtasks=[_make_subtask()],
+        )
+        append_event(task, "custom_event", {"msg": "你好世界 🎉"})
+        events = read_jsonl(task.journal_path)
+        assert any("你好世界" in json.dumps(e, ensure_ascii=False) for e in events)
+
 
 # ---------------------------------------------------------------------------
 # replay_state

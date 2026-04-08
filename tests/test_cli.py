@@ -147,6 +147,7 @@ class TestCompletion:
         result = runner.invoke(main, ["completion", shell])
         assert result.exit_code == 0
         assert "_DUO_COMPLETE" in result.output
+        assert keyword in result.output
 
 
 # ---------------------------------------------------------------------------

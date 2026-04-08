@@ -459,13 +459,12 @@ def verify_and_advance(task: Task) -> None:
             transition(task, TaskStatus.COMPLETED)
             append_event(task, "task_completed", {"id": task.id})
         else:
-            # Next step
+            # Next step — create dir before save so it exists when task.json references it
+            next_step_dir = task.step_dir(step + 1)
+            next_step_dir.mkdir(parents=True, exist_ok=True)
             task.current_step = step + 1
             task.current_attempt = 1
             save_task(task)
-
-            # Ensure step dir exists
-            task.step_dir(task.current_step).mkdir(parents=True, exist_ok=True)
 
             # Send continuation prompt (doesn't consume Premium Request!)
             prompt = build_continue_prompt(task)
@@ -609,7 +608,11 @@ def _log_monitor(symbol: str, task_id: str, message: str) -> None:
 
 
 def monitor(task_ids: list[str] | None = None) -> None:
-    """Run the adaptive polling monitor loop."""
+    """Run the adaptive polling monitor loop.
+
+    Note: Callers should handle ``KeyboardInterrupt`` to allow graceful
+    shutdown when the user presses Ctrl-C (see ``cli.py``).
+    """
     from duo.scheduler import promote_queued, queue_status
 
     pollers: dict[str, AdaptivePoller] = {}
