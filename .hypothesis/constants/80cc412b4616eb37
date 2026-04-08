@@ -1,4 +1,0 @@
-# file: /Users/wangbin/duo/src/duo/verifier.py
-# hypothesis_version: 6.151.11
-
-[124, 127, 300, '+', '+++', '--exclude-standard', '--name-only', '--others', 'HEAD', 'acceptance_failed', 'attempt', 'command', 'diff', 'exit_code', 'file', 'files', 'files_checked', 'git', 'ls-files', 'pattern', 'review_passed', 'secret_leak', 'security_violation', 'step', 'target_files', 'task_scope_warning', 'untracked_files', 'utf-8', 'writable_paths']

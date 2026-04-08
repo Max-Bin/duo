@@ -1,4 +1,0 @@
-# file: /Users/wangbin/duo/src/duo/config.py
-# hypothesis_version: 6.151.11
-
-[5.0, 120.0, 300.0, 3600.0, 100, 3600, 100000, 604800, ', ', '/tmp/duo-worktrees', '1', 'auto_allow_all', 'claude-opus-4.6', 'config.json', 'copilot_model', 'heartbeat_timeout', 'max_corrections', 'max_parallel', 'poll_base_interval', 'poll_max_interval', 'pr_budget', 'task_timeout', 'true', 'worktree_base_path', 'yes']
