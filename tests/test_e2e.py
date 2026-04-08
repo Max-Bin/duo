@@ -837,6 +837,8 @@ class TestCeoE2EScenarios:
 
         # Step 3: ceo-approve
         with _patch("duo.transport.is_permission_dialog", return_value=True), \
+             _patch("duo.transport._is_at_main_prompt", return_value=False), \
+             _patch("duo.transport.read_pane", return_value=""), \
              _patch("duo.transport.approve_permission"):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code == 0
@@ -854,6 +856,8 @@ class TestCeoE2EScenarios:
         runner = CliRunner()
 
         with _patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             _patch("duo.transport._is_at_main_prompt", return_value=False), \
+             _patch("duo.transport.read_pane", return_value=""), \
              _patch("duo.transport.select_other_option"):
             result = runner.invoke(main, ["ceo-select", task.id, "--other", "custom answer"])
         assert result.exit_code == 0
@@ -887,7 +891,9 @@ class TestCeoE2EScenarios:
         task = self._make_task()
         runner = CliRunner()
 
-        with _patch("duo.transport.is_permission_dialog", return_value=False):
+        with _patch("duo.transport.is_permission_dialog", return_value=False), \
+             _patch("duo.transport._is_at_main_prompt", return_value=False), \
+             _patch("duo.transport.read_pane", return_value=""):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
         assert "not showing a permission dialog" in result.output

@@ -1787,6 +1787,34 @@ def _load_task_or_fail(name: str) -> Task:
     return task
 
 
+def _log_pr_budget_warning(label: str, flag: str) -> None:
+    """Append a warning line to ~/.duo/pr-budget.log when safety is bypassed."""
+    from duo.protocol import DUO_DIR, now_iso
+
+    log_path = DUO_DIR / "pr-budget.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(f"{now_iso()} WARNING {flag} used on pane '{label}'\n")
+
+
+def assert_not_at_main_prompt(label: str) -> None:
+    """Raise ClickException if the pane is at Copilot's main ❯ prompt.
+
+    ANY input at the main prompt creates a new Premium Request.  This is a
+    hard safety gate — callers must abort or require ``--force-new-session``.
+    """
+    from duo.transport import _is_at_main_prompt, read_pane
+
+    content = read_pane(label, 20)
+    if _is_at_main_prompt(content):
+        raise click.ClickException(
+            f"REFUSED: '{label}' is at Copilot main ❯ prompt. "
+            "Sending any input here would create a NEW Premium Request "
+            "and burn budget. Either wait for a new dialog or explicitly "
+            "use --force-new-session."
+        )
+
+
 @main.command("ceo-wait")
 @click.argument("task")
 @click.option("--timeout", default=300, type=float, help="Max seconds to wait")
@@ -1823,7 +1851,18 @@ def ceo_wait(task: str, timeout: float, interval: float) -> None:
     default=None,
     help="Navigate to the 'Other' option and type this text instead",
 )
-def ceo_select(task: str, option: str | None, other_text: str | None) -> None:
+@click.option(
+    "--force-new-session",
+    is_flag=True,
+    default=False,
+    help="Bypass main-prompt safety check (WARNING: creates a new PR)",
+)
+def ceo_select(
+    task: str,
+    option: str | None,
+    other_text: str | None,
+    force_new_session: bool,
+) -> None:
     """Select a dialog option in a task's pane.
 
     OPTION is a number (1-9) to pick that option directly.
@@ -1831,7 +1870,8 @@ def ceo_select(task: str, option: str | None, other_text: str | None) -> None:
     ("Other"/"type your answer") and type custom text.
     OPTION and --other are mutually exclusive.
 
-    Safety: refuses to act if the pane is not in a stable dialog.
+    Safety: refuses to act if the pane is at the main ❯ prompt (would
+    create a new Premium Request). Override with --force-new-session.
     """
     from duo.transport import (
         is_in_dialog_stable,
@@ -1845,6 +1885,10 @@ def ceo_select(task: str, option: str | None, other_text: str | None) -> None:
         raise click.UsageError("Must specify OPTION or --other TEXT.")
 
     t = _load_task_or_fail(task)
+    if force_new_session:
+        _log_pr_budget_warning(t.pane_label, "--force-new-session")
+    else:
+        assert_not_at_main_prompt(t.pane_label)
     if not is_in_dialog_stable(t.pane_label):
         raise click.ClickException(
             f"Pane '{t.pane_label}' is not in a stable dialog. Refusing to select."
@@ -1860,7 +1904,13 @@ def ceo_select(task: str, option: str | None, other_text: str | None) -> None:
 
 @main.command("ceo-approve")
 @click.argument("task")
-def ceo_approve(task: str) -> None:
+@click.option(
+    "--force-new-session",
+    is_flag=True,
+    default=False,
+    help="Bypass main-prompt safety check (WARNING: creates a new PR)",
+)
+def ceo_approve(task: str, force_new_session: bool) -> None:
     """Auto-approve a permission dialog in a task's pane.
 
     Only works on permission dialogs (e.g. "Do you want to run this
@@ -1868,10 +1918,17 @@ def ceo_approve(task: str) -> None:
 
     Reads the dialog options and picks the "most positive" yes option:
     prefers "Yes + approve for session" over plain "Yes", skips "No".
+
+    Safety: refuses to act if the pane is at the main ❯ prompt (would
+    create a new Premium Request). Override with --force-new-session.
     """
     from duo.transport import approve_permission, is_permission_dialog
 
     t = _load_task_or_fail(task)
+    if force_new_session:
+        _log_pr_budget_warning(t.pane_label, "--force-new-session")
+    else:
+        assert_not_at_main_prompt(t.pane_label)
     if not is_permission_dialog(t.pane_label):
         raise click.ClickException(
             f"'{task}' is not showing a permission dialog. Use 'duo ceo-select' for other dialogs."
@@ -1882,7 +1939,13 @@ def ceo_approve(task: str) -> None:
 
 @main.command("ceo-status")
 @click.argument("task")
-def ceo_status(task: str) -> None:
+@click.option(
+    "--assert-in-dialog",
+    is_flag=True,
+    default=False,
+    help="Exit non-zero if pane is NOT in a dialog (for scripting)",
+)
+def ceo_status(task: str, assert_in_dialog: bool) -> None:
     """Print the current pane state as a single JSON line.
 
     States: idle, processing, dialog, dead.
@@ -1890,6 +1953,9 @@ def ceo_status(task: str) -> None:
     \b
     Output example:
       {"task":"e2e-test","state":"dialog","options":5}
+
+    Use --assert-in-dialog in scripts:
+      duo ceo-status my-task --assert-in-dialog || handle_no_dialog
     """
     from duo.transport import is_in_dialog, is_process_alive, read_pane
 
@@ -1898,6 +1964,8 @@ def ceo_status(task: str) -> None:
 
     if not is_process_alive(label):
         click.echo(json.dumps({"task": task, "state": "dead"}))
+        if assert_in_dialog:
+            raise SystemExit(1)
         return
 
     content = read_pane(label, 30)
@@ -1915,10 +1983,14 @@ def ceo_status(task: str) -> None:
     # Check spinner (processing)
     if any(m in content for m in ("◉ ", "◎ ", "○ ")):
         click.echo(json.dumps({"task": task, "state": "processing"}))
+        if assert_in_dialog:
+            raise SystemExit(1)
         return
 
     # Otherwise idle
     click.echo(json.dumps({"task": task, "state": "idle"}))
+    if assert_in_dialog:
+        raise SystemExit(1)
 
 
 @main.command()

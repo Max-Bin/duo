@@ -4394,7 +4394,9 @@ class TestCeoSelect:
 
     def test_not_in_dialog(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-nodlg")
-        with patch("duo.transport.is_in_dialog_stable", return_value=False):
+        with patch("duo.transport.is_in_dialog_stable", return_value=False), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""):
             result = runner.invoke(main, ["ceo-select", task.id, "1"])
         assert result.exit_code != 0
         assert "not in a stable dialog" in result.output
@@ -4402,6 +4404,8 @@ class TestCeoSelect:
     def test_select_number(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-num")
         with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""), \
              patch("duo.transport.select_dialog_option") as mock_sel:
             result = runner.invoke(main, ["ceo-select", task.id, "2"])
         assert result.exit_code == 0
@@ -4411,6 +4415,8 @@ class TestCeoSelect:
     def test_select_other(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-other")
         with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""), \
              patch("duo.transport.select_other_option") as mock_other:
             result = runner.invoke(main, ["ceo-select", task.id, "--other", "my custom text"])
         assert result.exit_code == 0
@@ -4433,6 +4439,33 @@ class TestCeoSelect:
         assert result.exit_code != 0
         assert "Must specify" in result.output
 
+    def test_refused_at_main_prompt(self, runner: CliRunner, make_task) -> None:
+        """ceo-select REFUSES if pane is at main ❯ prompt."""
+        task = make_task("sel-prompt")
+        with patch("duo.transport._is_at_main_prompt", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ Type @"):
+            result = runner.invoke(main, ["ceo-select", task.id, "1"])
+        assert result.exit_code != 0
+        assert "REFUSED" in result.output
+        assert "Premium Request" in result.output
+
+    def test_force_new_session_bypasses_assert(self, runner: CliRunner, make_task) -> None:
+        """--force-new-session bypasses the main-prompt check but logs."""
+        task = make_task("sel-force")
+        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ Type @"), \
+             patch("duo.transport.select_dialog_option"):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "1", "--force-new-session"]
+            )
+        assert result.exit_code == 0
+        # Check budget log was written
+        from duo.protocol import DUO_DIR
+        log_path = DUO_DIR / "pr-budget.log"
+        assert log_path.exists()
+        assert "--force-new-session" in log_path.read_text()
+
 
 class TestCeoApprove:
     """Tests for duo ceo-approve."""
@@ -4445,6 +4478,8 @@ class TestCeoApprove:
     def test_approve_success(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-ok")
         with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""), \
              patch("duo.transport.approve_permission") as mock_approve:
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code == 0
@@ -4453,7 +4488,9 @@ class TestCeoApprove:
 
     def test_approve_not_permission_dialog(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-ask")
-        with patch("duo.transport.is_permission_dialog", return_value=False):
+        with patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
         assert "not showing a permission dialog" in result.output
@@ -4462,6 +4499,8 @@ class TestCeoApprove:
     def test_approve_runtime_error(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-fail")
         with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""), \
              patch("duo.transport.approve_permission", side_effect=RuntimeError("SAFETY: not in dialog")):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
@@ -4469,6 +4508,8 @@ class TestCeoApprove:
     def test_approve_oserror(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-os")
         with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""), \
              patch("duo.transport.approve_permission", side_effect=OSError("pane gone")):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
@@ -4476,6 +4517,32 @@ class TestCeoApprove:
     def test_bad_task_name(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["ceo-approve", "inv@lid"])
         assert result.exit_code != 0
+
+    def test_refused_at_main_prompt(self, runner: CliRunner, make_task) -> None:
+        """ceo-approve REFUSES if pane is at main ❯ prompt."""
+        task = make_task("appr-prompt")
+        with patch("duo.transport._is_at_main_prompt", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ Type @"):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code != 0
+        assert "REFUSED" in result.output
+        assert "Premium Request" in result.output
+
+    def test_force_new_session_bypasses_assert(self, runner: CliRunner, make_task) -> None:
+        """--force-new-session bypasses the main-prompt check but logs."""
+        task = make_task("appr-force")
+        with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ Type @"), \
+             patch("duo.transport.approve_permission"):
+            result = runner.invoke(
+                main, ["ceo-approve", task.id, "--force-new-session"]
+            )
+        assert result.exit_code == 0
+        from duo.protocol import DUO_DIR
+        log_path = DUO_DIR / "pr-budget.log"
+        assert log_path.exists()
+        assert "--force-new-session" in log_path.read_text()
 
 
 class TestCeoStatus:
@@ -4529,3 +4596,39 @@ class TestCeoStatus:
     def test_bad_task_name(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["ceo-status", "bad name"])
         assert result.exit_code != 0
+
+    def test_assert_in_dialog_passes_when_dialog(self, runner: CliRunner, make_task) -> None:
+        """--assert-in-dialog exits 0 when pane IS in a dialog."""
+        task = make_task("stat-aid-ok")
+        pane_content = "╭─ Question ─╮\n│ 1. Yes  \n│ 2. No\n╰─"
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.is_in_dialog", return_value=True):
+            result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
+        assert result.exit_code == 0
+
+    def test_assert_in_dialog_fails_when_idle(self, runner: CliRunner, make_task) -> None:
+        """--assert-in-dialog exits non-zero when pane is idle."""
+        task = make_task("stat-aid-idle")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ "), \
+             patch("duo.transport.is_in_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
+        # SystemExit(1) — Click wraps as exit_code=1
+        assert result.exit_code == 1
+
+    def test_assert_in_dialog_fails_when_processing(self, runner: CliRunner, make_task) -> None:
+        """--assert-in-dialog exits non-zero when pane is processing."""
+        task = make_task("stat-aid-proc")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value="◉ Thinking..."), \
+             patch("duo.transport.is_in_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
+        assert result.exit_code == 1
+
+    def test_assert_in_dialog_fails_when_dead(self, runner: CliRunner, make_task) -> None:
+        """--assert-in-dialog exits non-zero when pane is dead."""
+        task = make_task("stat-aid-dead")
+        with patch("duo.transport.is_process_alive", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
+        assert result.exit_code == 1

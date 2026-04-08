@@ -113,3 +113,55 @@ twice with a 1 s gap — both reads must confirm a dialog is present.
 
 Commands that modify pane state (`ceo-select`, `ceo-approve`) refuse to
 act if the pane is not in a stable dialog.
+
+## PR Budget Protection
+
+> **Iron Rule:** Never send input to Copilot's main `❯` prompt from a CEO
+> command. While Copilot is inside a dialog, all responses are free
+> continuations of the current Premium Request. The moment Copilot returns
+> to the `❯` prompt, **any** new input creates a new PR and burns budget.
+
+### How it works
+
+Every sending command (`ceo-select`, `ceo-approve`, and any future
+`ceo-send`) calls `assert_not_at_main_prompt(label)` **before** doing
+anything. This helper:
+
+1. Reads the last 20 lines of the pane.
+2. Runs `_is_at_main_prompt()` — checks for the `❯` prompt with no
+   spinner and no dialog box.
+3. If the pane **is** at the main prompt → raises an error and **refuses**
+   the command outright.
+
+```
+$ duo ceo-select my-task 2
+Error: REFUSED: 'duo:my-task' is at Copilot main ❯ prompt.
+Sending any input here would create a NEW Premium Request and burn budget.
+Either wait for a new dialog or explicitly use --force-new-session.
+```
+
+### `--force-new-session`
+
+For the rare case where you intentionally want to start a new PR (e.g.
+the task legitimately returned to idle and needs a new nudge):
+
+```bash
+duo ceo-select my-task 1 --force-new-session
+duo ceo-approve my-task --force-new-session
+```
+
+Using `--force-new-session` bypasses the safety check but **logs a
+warning** to `~/.duo/pr-budget.log` so budget consumption is auditable.
+
+### `--assert-in-dialog` (scripting)
+
+`ceo-status` supports `--assert-in-dialog` for bash scripts that need
+to branch on dialog presence:
+
+```bash
+# Exit 0 if in dialog, exit 1 otherwise
+duo ceo-status my-task --assert-in-dialog || echo "Not in dialog!"
+```
+
+This is useful in CEO loops to detect when Copilot has left the dialog
+without consuming a new PR.
