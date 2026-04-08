@@ -762,6 +762,10 @@ class TestStartSessionError:
         send_task_prompt(task, "prompt")
 
         assert task.last_prompt_sent_at is not None
+        # Verify it's a valid ISO timestamp (not just any truthy value)
+        from datetime import datetime, UTC
+        dt = datetime.fromisoformat(task.last_prompt_sent_at)
+        assert (datetime.now(UTC) - dt.replace(tzinfo=UTC)).total_seconds() < 5
 
     def test_send_task_prompt_pr_budget_exceeded(self, monkeypatch: pytest.MonkeyPatch):
         """PR budget exceeded → task escalated, no prompt sent."""
@@ -840,6 +844,9 @@ class TestResendLastPrompt:
         resend_last_prompt(task)
 
         assert task.last_prompt_sent_at is not None
+        from datetime import datetime, UTC
+        dt = datetime.fromisoformat(task.last_prompt_sent_at)
+        assert (datetime.now(UTC) - dt.replace(tzinfo=UTC)).total_seconds() < 5
 
     def test_resend_no_prompt_file(self):
         """Resend is a no-op when no prompt file exists."""
