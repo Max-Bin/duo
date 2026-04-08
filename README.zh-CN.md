@@ -4,7 +4,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-842%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-845%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander 指挥，Executor 执行**
@@ -32,11 +32,16 @@ Duo 是一个轻量级 Agent 编排运行时。Commander（Python CLI）通过�
 │  │ Poller  │ │◄──────────────────────►│  │ Pane   │  │
 │  │ Verifier│ │    send keys/read      │  │        │  │
 │  └─────────┘ │                        │  └────────┘  │
-└─────────────┘                        └──────────────┘
+└──────┬───────┘                        └──────────────┘
        │                                       │
-       ▼                                       ▼
-  ~/.duo/tasks/{id}/                    /tmp/duo-worktrees/{id}/
-  ├── task.json                        └── (git worktree)
+       │  ┌──────────────────┐                 ▼
+       │  │ Claude Commander │          /tmp/duo-worktrees/{id}/
+       │  │ (可选, 独立面板)  │          └── (git worktree)
+       │  │ 规划与代码审查    │              └── CLAUDE.md (自动生成)
+       │  └──────────────────┘
+       ▼
+  ~/.duo/tasks/{id}/
+  ├── task.json
   ├── journal.jsonl
   ├── heartbeat.json
   └── steps/step-NNNN/
@@ -46,6 +51,8 @@ Duo 是一个轻量级 Agent 编排运行时。Commander（Python CLI）通过�
 ```
 
 Commander 通过文件协议与 Executor 通信：Executor 写入 ack/heartbeat/result 文件，Commander 轮询读取并驱动 FSM 状态机推进任务。tmux-bridge 负责底层的终端交互（发送 prompt、读取输出）。
+
+**双执行器模式：** 当 `auto_claude_commander` 启用时（默认开启），`duo start` 会同时打开一个 Claude Code CLI 面板，包含自动生成的 `CLAUDE.md`（项目上下文、文件协议规范、工作流示例）。Claude Code 作为高层规划者，Copilot 负责执行具体任务。
 
 ## 安装
 
@@ -201,6 +208,7 @@ duo config reset copilot_model  # 重置单个配置
 | `auto_allow_all` | `true` | 自动发送 /allow-all |
 | `max_parallel` | `3` | 最大并行任务数 |
 | `pr_budget` | `0` | 每任务最大 PR 消耗（0=无限制） |
+| `auto_claude_commander` | `true` | `duo start` 时自动启动 Claude Code 面板 |
 | `worktree_base_path` | `/tmp/duo-worktrees` | Git worktree 创建的基础路径 |
 
 ### Shell 补全

@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-842%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-845%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **Agent Orchestration Runtime — Commander directs, Executor delivers**
@@ -32,11 +32,16 @@ Key capabilities:
 │  │ Poller  │ │◄──────────────────────►│  │ Pane   │  │
 │  │ Verifier│ │    send keys/read      │  │        │  │
 │  └─────────┘ │                        │  └────────┘  │
-└─────────────┘                        └──────────────┘
+└──────┬───────┘                        └──────────────┘
        │                                       │
-       ▼                                       ▼
-  ~/.duo/tasks/{id}/                    /tmp/duo-worktrees/{id}/
-  ├── task.json                        └── (git worktree)
+       │  ┌──────────────────┐                 ▼
+       │  │ Claude Commander │          /tmp/duo-worktrees/{id}/
+       │  │ (optional, pane) │          └── (git worktree)
+       │  │ Plans & reviews  │              └── CLAUDE.md (auto-generated)
+       │  └──────────────────┘
+       ▼
+  ~/.duo/tasks/{id}/
+  ├── task.json
   ├── journal.jsonl
   ├── heartbeat.json
   └── steps/step-NNNN/
@@ -46,6 +51,8 @@ Key capabilities:
 ```
 
 Commander communicates with the Executor through a file-based protocol: the Executor writes ack/heartbeat/result files, and the Commander polls these files to drive the FSM forward. The tmux-bridge handles low-level terminal interaction (sending prompts, reading output).
+
+**Dual-executor mode:** When `auto_claude_commander` is enabled (default), `duo start` also opens a Claude Code CLI pane with an auto-generated `CLAUDE.md` containing project context, the file protocol spec, and workflow examples. Claude Code acts as a high-level planner while Copilot executes tasks.
 
 ## Installation
 
@@ -214,6 +221,7 @@ duo completion fish | source
 | `auto_allow_all` | `true` | Automatically send /allow-all |
 | `max_parallel` | `3` | Max parallel tasks |
 | `pr_budget` | `0` | Max Premium Request usage per task (0 = unlimited) |
+| `auto_claude_commander` | `true` | Auto-launch Claude Code pane on `duo start` |
 | `worktree_base_path` | `/tmp/duo-worktrees` | Base path for git worktree creation |
 
 ## Parallel Scheduling
