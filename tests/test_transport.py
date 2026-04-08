@@ -38,6 +38,7 @@ from duo.transport import (
     type_text,
     wait_for_dialog,
     wait_for_idle,
+    approve_permission,
 )
 
 BRIDGE = "/usr/local/bin/tmux-bridge"
