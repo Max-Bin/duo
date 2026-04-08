@@ -374,6 +374,24 @@ class TestVerifyAndAdvance:
         assert task.status == TaskStatus.BLOCKED
         mock_verify.assert_not_called()
 
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.verify_step", side_effect=RuntimeError("git crash"))
+    def test_verify_step_exception_transitions_to_failed(
+        self, mock_verify, mock_send, mock_wait
+    ):
+        """verify_step raising an exception transitions task to FAILED."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_result(task, 1, 1)
+
+        verify_and_advance(task)
+        assert task.status == TaskStatus.FAILED
+        events = read_jsonl(task.journal_path)
+        verify_errors = [e for e in events if e.get("event") == "verify_error"]
+        assert len(verify_errors) == 1
+        assert "git crash" in verify_errors[0]["data"]["error"]
+
 
 # ---------------------------------------------------------------------------
 # _check_pr_budget
