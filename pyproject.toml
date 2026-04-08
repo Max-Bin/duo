@@ -19,8 +19,10 @@ classifiers = [
     "Topic :: System :: Software Distribution",
     "Topic :: System :: Systems Administration",
     "Typing :: Typed",
+    "Operating System :: MacOS",
     "Operating System :: POSIX",
     "Environment :: Console",
+    "Natural Language :: English",
 ]
 dependencies = [
     "click>=8.1",
@@ -36,6 +38,7 @@ duo = "duo.cli:main"
 [project.urls]
 Homepage = "https://github.com/maxbin/duo"
 Repository = "https://github.com/maxbin/duo"
+Documentation = "https://github.com/maxbin/duo#readme"
 Issues = "https://github.com/maxbin/duo/issues"
 Changelog = "https://github.com/maxbin/duo/blob/main/CHANGELOG.md"
 

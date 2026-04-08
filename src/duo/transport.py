@@ -9,6 +9,7 @@ from __future__ import annotations
 import functools
 import logging
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -108,7 +109,7 @@ def _bridge_bin() -> str:
 def _retry(
     max_attempts: int = 3, delay: float = 0.5, backoff: float = 2.0
 ) -> Callable[[_F], _F]:
-    """Retry decorator with exponential backoff for transient failures."""
+    """Retry decorator with exponential backoff and jitter."""
 
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
@@ -121,7 +122,9 @@ def _retry(
                 except (RuntimeError, OSError) as e:
                     last_error = e
                     if attempt < max_attempts - 1:
-                        _time.sleep(wait)
+                        # ±20% jitter to avoid thundering herd
+                        jitter = wait * 0.2 * (2 * random.random() - 1)
+                        _time.sleep(wait + jitter)
                         wait *= backoff
             raise last_error
 

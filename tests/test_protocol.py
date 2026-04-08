@@ -880,6 +880,33 @@ class TestWriteJsonPathTraversal:
             write_json(link, {"key": "value"})
 
 
+class TestWriteJsonSerialization:
+    """write_json validates data serialization and size."""
+
+    def test_non_serializable_raises(self, tmp_path: Path):
+        """write_json rejects objects that json.dumps cannot serialize."""
+        path = tmp_path / "bad.json"
+        with pytest.raises(ValueError, match="not JSON-serializable"):
+            write_json(path, {"func": object()})
+
+    def test_large_payload_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """write_json rejects payloads exceeding the size limit."""
+        import duo.protocol
+
+        monkeypatch.setattr(duo.protocol, "_MAX_JSON_BYTES", 100)
+        path = tmp_path / "big.json"
+        with pytest.raises(ValueError, match="too large"):
+            write_json(path, {"data": "x" * 200})
+
+    def test_unicode_roundtrips(self, tmp_path: Path):
+        """write_json handles non-ASCII content correctly."""
+        path = tmp_path / "unicode.json"
+        data = {"emoji": "🚀", "chinese": "你好世界", "japanese": "こんにちは"}
+        write_json(path, data)
+        loaded = read_json(path)
+        assert loaded == data
+
+
 # ---------------------------------------------------------------------------
 # Performance: list_tasks with many tasks
 # ---------------------------------------------------------------------------

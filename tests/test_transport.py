@@ -482,7 +482,7 @@ class TestRetry:
 
     @patch("duo.transport._time")
     def test_retry_backoff_timing(self, mock_time):
-        """Verify exponential backoff delays between retries."""
+        """Verify exponential backoff delays between retries (with jitter)."""
         mock_time.sleep = MagicMock()
 
         @_retry(max_attempts=4, delay=1.0, backoff=2.0)
@@ -494,7 +494,12 @@ class TestRetry:
 
         assert mock_time.sleep.call_count == 3
         delays = [c[0][0] for c in mock_time.sleep.call_args_list]
-        assert delays == [1.0, 2.0, 4.0]
+        # Jitter adds ±20%, so check within tolerance
+        expected = [1.0, 2.0, 4.0]
+        for actual, base in zip(delays, expected):
+            assert base * 0.75 <= actual <= base * 1.25, (
+                f"delay {actual} not within ±25% of {base}"
+            )
 
     def test_oserror_retried(self):
         """OSError is retried alongside RuntimeError."""

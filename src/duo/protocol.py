@@ -244,17 +244,32 @@ def read_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+_MAX_JSON_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
+
+
 def write_json(path: Path, data: dict[str, Any]) -> None:
     """Write JSON atomically (write tmp, fsync, then rename)."""
     if ".." in path.parts:
         raise ValueError(f"Path traversal detected: {path}")
     if path.is_symlink():
         raise ValueError(f"Refusing to write through symlink: {path}")
+
+    # Serialize first to validate encoding and check size
+    try:
+        json_str = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Data not JSON-serializable: {e}") from e
+    if len(json_str.encode()) > _MAX_JSON_BYTES:
+        raise ValueError(
+            f"JSON payload too large ({len(json_str.encode())} bytes, "
+            f"max {_MAX_JSON_BYTES})"
+        )
+
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         with open(tmp, "w") as f:
-            f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+            f.write(json_str)
             f.flush()
             os.fsync(f.fileno())
         tmp.rename(path)
