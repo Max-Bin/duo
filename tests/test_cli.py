@@ -703,6 +703,22 @@ class TestCleanup:
         result = runner.invoke(main, ["cleanup", "--all", "--force"])
         assert "fail-task" in result.output
 
+    def test_cleanup_all_includes_escalated(self, runner: CliRunner, make_task):
+        task = make_task("esc-task")
+        task.status = TaskStatus.ESCALATED
+        save_task(task)
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["cleanup", "--all", "--force"])
+        assert "esc-task" in result.output
+
+    def test_cleanup_all_includes_blocked(self, runner: CliRunner, make_task):
+        task = make_task("block-task")
+        task.status = TaskStatus.BLOCKED
+        save_task(task)
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["cleanup", "--all", "--force"])
+        assert "block-task" in result.output
+
     def test_keep_journal(self, runner: CliRunner, make_task):
         from duo.protocol import append_event
 
@@ -3701,6 +3717,17 @@ class TestRunGitNotInstalled:
         out = result.output + (result.stderr or "")
         assert "git is not installed" in out
 
+    def test_run_git_timeout(self, runner: CliRunner, tmp_path: Path):
+        """When git times out, a timeout error is shown."""
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="git", timeout=30),
+        ):
+            result = runner.invoke(main, ["start", "sometask", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        out = result.output + (result.stderr or "")
+        assert "timed out" in out
+
 
 class TestMainTasksDirPermissionDenied:
     def test_main_tasks_dir_permission_denied(
@@ -3900,3 +3927,20 @@ class TestBatchBareArray:
         # Should succeed, not error about missing 'tasks' key
         assert result.exit_code == 0
         assert "2 tasks created" in result.output
+
+
+class TestBatchDuplicateNames:
+    def test_batch_duplicate_names_rejected(self, runner: CliRunner, tmp_path: Path):
+        """Batch file with duplicate task names is rejected."""
+        batch_file = tmp_path / "dupes.json"
+        batch_file.write_text(json.dumps({
+            "tasks": [
+                {"name": "task-a", "description": "first"},
+                {"name": "task-b", "description": "second"},
+                {"name": "task-a", "description": "duplicate"},
+            ]
+        }))
+        result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "duplicate" in result.output.lower()
+        assert "task-a" in result.output

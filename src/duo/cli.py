@@ -44,6 +44,7 @@ class _OrderedGroup(click.Group):
     """Click group that displays commands in categorized sections."""
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        """Format help output with categorized command sections."""
         seen: set[str] = set()
         for section, cmd_names in _COMMAND_SECTIONS.items():
             rows: list[tuple[str, str]] = []
@@ -102,9 +103,13 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
         CompletedProcess result
     """
     try:
-        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8")
+        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=30)
     except FileNotFoundError:
         click.echo("Error: git is not installed. Install: brew install git (macOS) or apt install git (Linux)", err=True)
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        cmd_str = " ".join(["git", *args])
+        click.echo(f"Error: `{cmd_str}` timed out after 30s", err=True)
         sys.exit(1)
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
@@ -559,6 +564,7 @@ def stop(name: str) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=10,
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
@@ -589,6 +595,7 @@ def kill(name: str) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=10,
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
@@ -1373,6 +1380,7 @@ def doctor() -> None:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            timeout=10,
         )
         tmux_ok = result.returncode == 0
     _check(

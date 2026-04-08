@@ -6,12 +6,15 @@ checks against the worktree.  Returns Pass or Correction.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+
+logger = logging.getLogger(__name__)
 
 from duo.protocol import StepResult, Subtask, Task, append_event
 
@@ -45,6 +48,7 @@ def git_diff_names(worktree: str) -> set[str]:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=30,
     )
     if proc.returncode != 0:
         raise RuntimeError(
@@ -62,6 +66,7 @@ def git_diff(worktree: str) -> str:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=30,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()}")
@@ -77,6 +82,7 @@ def git_untracked(worktree: str) -> list[str]:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=30,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()}")
@@ -95,9 +101,12 @@ def run_in_worktree(worktree: str, command: str) -> int:
     except ValueError:
         return 127
     try:
-        proc = subprocess.run(argv, shell=False, cwd=worktree)
+        proc = subprocess.run(argv, shell=False, cwd=worktree, timeout=300)
     except FileNotFoundError:
         return 127
+    except subprocess.TimeoutExpired:
+        logger.warning("Acceptance test timed out after 300s: %s", command)
+        return 124  # standard timeout exit code
     return proc.returncode
 
 

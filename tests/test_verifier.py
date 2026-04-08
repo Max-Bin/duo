@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -171,6 +172,14 @@ class TestRunInWorktree:
     def test_missing_executable_returns_127(self, tmp_path):
         """Non-existent executable returns 127."""
         assert run_in_worktree(str(tmp_path), "nonexistent_binary_xyz") == 127
+
+    def test_timeout_returns_124(self, tmp_path):
+        """Command timeout returns exit code 124."""
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="sleep", timeout=300),
+        ):
+            assert run_in_worktree(str(tmp_path), "sleep 999") == 124
 
 
 # ---------------------------------------------------------------------------

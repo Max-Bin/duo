@@ -11,7 +11,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Monitor crash protection — `start_session` failures no longer crash the monitor loop
 - `_retry` decorator now catches `OSError` alongside `RuntimeError` for transient OS errors
 - Bounds checking in `build_continue_prompt()` for out-of-range step numbers
-- 697 tests with 100% coverage (up from 675)
+- Config upper bound validation (max_parallel≤100, heartbeat≤3600, etc.)
+- Symlink protection in `write_json()` — refuses to write through symlinks
+- JSON corruption logging in `read_json()` with warning on decode errors
+- Dashboard `_build_events_panel` catches OSError for missing journal files
+- Batch file duplicate task name detection
+- `approve_permission()` with operator precedence fix for option selection
+- `_PR_LOG` capped at 10,000 entries to prevent memory leak
+- Monitor pollers dict cleanup for completed tasks
+- All `subprocess.run()` calls have explicit timeout (30s git, 10s tmux, 300s acceptance)
+- `TimeoutExpired` handling in `_run_git` and `run_in_worktree` (exit code 124)
+- 774 tests with 100% coverage (up from 675)
 
 ### Changed
 - Scheduler `promote_queued()` optimized: single `list_tasks()` call instead of O(3N)
@@ -20,11 +30,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Verifier `run_in_worktree()` returns 127 for malformed commands instead of crashing
 - Dashboard timestamp split uses `maxsplit=1` for robustness
 - Git worktree line parsing uses bounds-checked split
+- `send_task_prompt` checks PR budget before writing prompt file
+- Cleanup `--all` now includes ESCALATED and BLOCKED states
+- `--refresh` validates >0, `--lines` validates ≥1, `--age` rejects 0
+- Thread-safe `_pr_callback` access via local variable under lock
+- UTF-8 encoding on all subprocess calls
+- Commander tests use isolated config (no leakage from user config)
 
 ### Fixed
 - Monitor loop survives `start_session()` failure for promoted tasks
 - OSError from tmux kill-pane in orphan cleanup is properly suppressed
 - Float config validation error messages now show `repr()` of the value
+- Operator precedence bug in `approve_permission` option matching
+- `verify_and_advance` catches exceptions from `verify_step` → FAILED state
+- `write_json` fsyncs tmp file before rename (was after)
 
 ## [0.6.0] — 2025-07-23
 

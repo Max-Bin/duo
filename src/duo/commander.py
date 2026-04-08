@@ -210,6 +210,7 @@ def start_session(task: Task) -> None:
         ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
         capture_output=True,
         text=True,
+        timeout=10,
     )
     if result.returncode != 0:
         append_event(task, "session_start_failed", {"error": result.stderr})
@@ -223,7 +224,7 @@ def start_session(task: Task) -> None:
 
     # Tile layout for balance
     _layout = subprocess.run(
-        ["tmux", "select-layout", "tiled"], capture_output=True, text=True
+        ["tmux", "select-layout", "tiled"], capture_output=True, text=True, timeout=10
     )
     if _layout.returncode != 0:
         logger.warning("select-layout failed: %s", _layout.stderr.strip())
@@ -240,7 +241,7 @@ def start_session(task: Task) -> None:
         try:
             subprocess.run(
                 ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True, check=False,
+                capture_output=True, check=False, timeout=10,
             )
         except (subprocess.CalledProcessError, OSError):
             pass
