@@ -102,31 +102,32 @@ def promote_queued() -> list[Task]:
     return promoted
 
 
+def _sorted_queued() -> list[Task]:
+    """Get queued tasks sorted by creation time (FIFO)."""
+    queued = [t for t in list_tasks() if t.status == TaskStatus.QUEUED]
+    queued.sort(key=lambda t: t.created_at)
+    return queued
+
+
 def _next_queued() -> Task | None:
     """Get the next queued task (FIFO by created_at)."""
-    queued = [t for t in list_tasks() if t.status == TaskStatus.QUEUED]
-    if not queued:
-        return None
-    queued.sort(key=lambda t: t.created_at)
-    return queued[0]
+    queued = _sorted_queued()
+    return queued[0] if queued else None
 
 
 def _queue_position(task: Task) -> int:
     """Get a task's position in the queue (1-based)."""
-    queued = [t for t in list_tasks() if t.status == TaskStatus.QUEUED]
-    queued.sort(key=lambda t: t.created_at)
-    for i, t in enumerate(queued):
+    for i, t in enumerate(_sorted_queued()):
         if t.id == task.id:
             return i + 1
-    return len(queued) + 1
+    return len(_sorted_queued()) + 1
 
 
 def queue_status() -> dict[str, Any]:
     """Get queue status summary."""
     tasks = list_tasks()
     active = [t for t in tasks if t.status in ACTIVE_STATUSES]
-    queued = [t for t in tasks if t.status == TaskStatus.QUEUED]
-    queued.sort(key=lambda t: t.created_at)
+    queued = _sorted_queued()
 
     return {
         "active_count": len(active),

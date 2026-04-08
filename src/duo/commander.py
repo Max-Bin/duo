@@ -566,6 +566,13 @@ def restart_session(task: Task) -> None:
         raise
 
 
+def _escalate_pr_budget(task: Task, step: int, attempt: int) -> None:
+    """Escalate task when PR budget is exceeded."""
+    append_event(task, "pr_budget_exceeded", {"step": step, "attempt": attempt})
+    transition(task, TaskStatus.ESCALATED)
+    click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+
+
 def send_task_prompt(task: Task, prompt: str) -> None:
     """Send a prompt and record it."""
     logger.debug(f"Sending prompt for step {task.current_step}")
@@ -573,19 +580,8 @@ def send_task_prompt(task: Task, prompt: str) -> None:
 
     # Check PR budget before consuming a Premium Request
     if not _check_pr_budget(task):
-        append_event(
-            task,
-            "pr_budget_exceeded",
-            {
-                "step": task.current_step,
-                "attempt": task.current_attempt,
-            },
-        )
-        transition(task, TaskStatus.ESCALATED)
-        click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
+        _escalate_pr_budget(task, task.current_step, task.current_attempt)
         return
-
-    # Save prompt to file for debug (after budget check)
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     prompt_path.write_text(prompt)
@@ -633,18 +629,7 @@ def resend_last_prompt(task: Task) -> None:
         prompt = prompt_path.read_text()
         # Check PR budget before consuming a Premium Request
         if not _check_pr_budget(task):
-            append_event(
-                task,
-                "pr_budget_exceeded",
-                {
-                    "step": task.current_step,
-                    "attempt": task.current_attempt,
-                },
-            )
-            transition(task, TaskStatus.ESCALATED)
-            click.echo(
-                f"⚠ PR budget exceeded for task '{task.id}' — escalating to human."
-            )
+            _escalate_pr_budget(task, task.current_step, task.current_attempt)
             return
         if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_RESEND):
             logger.warning(f"Dialog timeout for '{task.pane_label}'")
@@ -824,18 +809,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                 if wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_MONITOR):
                     # Check PR budget before consuming a Premium Request
                     if not _check_pr_budget(task):
-                        append_event(
-                            task,
-                            "pr_budget_exceeded",
-                            {
-                                "step": step,
-                                "attempt": attempt,
-                            },
-                        )
-                        transition(task, TaskStatus.ESCALATED)
-                        click.echo(
-                            f"⚠ PR budget exceeded for task '{task.id}' — escalating to human."
-                        )
+                        _escalate_pr_budget(task, step, attempt)
                         return poll_result
                     select_dialog_option(task.pane_label, "请重试上一个操作")
                     append_event(
@@ -953,7 +927,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
             poller = pollers[task.id]
             try:
                 result = poll_task(task, poller)
-            except Exception as exc:
+            except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as exc:
                 _log_monitor("✗", task.id, f"poll error: {exc}")
                 logger.exception("poll_task failed for %s", task.id)
                 append_event(task, "poll_error", {"error": str(exc)})
@@ -1007,7 +981,7 @@ def _watch_loop(
             break
         try:
             found = wait_for_dialog(label, timeout=timeout, interval=interval)
-        except Exception:
+        except (RuntimeError, OSError):
             _log_monitor("✗", task.id, "pane unavailable, stopping watch")
             break
         if stop.is_set():
@@ -1024,7 +998,7 @@ def _watch_loop(
             approve_permission(label)
             _log_monitor("✓", task.id, "dialog handled")
             append_event(task, "watch_dialog_handled", {})
-        except Exception as exc:
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
             _log_monitor("✗", task.id, f"dialog error: {exc}")
         if once:
             stop.set()
