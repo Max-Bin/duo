@@ -806,3 +806,66 @@ class TestIsPermissionDialog:
         """Empty pane content returns False."""
         mock_read.return_value = ""
         assert is_permission_dialog("test") is False
+
+
+# ── approve_permission ────────────────────────────────────────────────
+
+
+class TestApprovePermission:
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_picks_approve_for_session(self, mock_read, mock_select):
+        """Prefers 'approve for session' over plain Yes."""
+        mock_read.return_value = (
+            "╭──\n"
+            "  1. Yes\n"
+            "  ❯ 2. Yes, approve for session\n"
+            "  3. No, tell me differently\n"
+            "╰──"
+        )
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "2")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_picks_yes_when_no_approve(self, mock_read, mock_select):
+        """Falls back to 'Yes' when no approve option."""
+        mock_read.return_value = "  1. Yes\n  2. No\n"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_skips_no_options(self, mock_read, mock_select):
+        """Skips options starting with 'No'."""
+        mock_read.return_value = "  1. No\n  2. Yes\n"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "2")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_fallback_to_option_1(self, mock_read, mock_select):
+        """Falls back to option 1 when no clear yes/approve."""
+        mock_read.return_value = "  1. Continue\n  2. Cancel\n"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_no_options_falls_back_to_1(self, mock_read, mock_select):
+        """Empty pane with no numbered options falls back to 1."""
+        mock_read.return_value = "some random text"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_add_to_allowed_list(self, mock_read, mock_select):
+        """Picks 'Add to allowed list' option."""
+        mock_read.return_value = (
+            "  1. Yes\n"
+            "  2. Add to allowed list\n"
+            "  3. No\n"
+        )
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "2")
