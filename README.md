@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-947%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1038%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **AI agent orchestrator that treats Premium Requests as a scarce resource.**
@@ -31,6 +31,26 @@ duo watch                # blocks until dialog → prints it → exits
 duo ceo-approve fix-auth # approve the permission dialog
 duo merge fix-auth       # fast-forward merge when done
 ```
+
+## Thinking Workflow
+
+Brainstorm and plan before spending Premium Requests:
+
+```bash
+# Start a thinking session (spawns Claude Code in a tmux pane)
+duo think my-feature --ask "How should we architect the auth system?"
+
+# Ask follow-up questions
+duo think my-feature --ask "What about rate limiting?"
+
+# Generate a plan from the conversation
+duo think my-feature --finalize
+
+# Start a coding task using the plan (zero PRs spent on planning)
+duo start my-feature --from-thinking --repo .
+```
+
+The thinking session uses Claude Code (your existing subscription) — no Copilot PRs consumed until `duo start`.
 
 ## Architecture
 
@@ -67,6 +87,8 @@ The Commander never touches code directly. It writes prompts, polls for results,
 | Command | What it does |
 |---------|-------------|
 | `duo start <task> --repo . --desc "..."` | Create worktree + Copilot session |
+| `duo think <name> --ask "question"` | Brainstorm with Claude Code before coding |
+| `duo start <task> --from-thinking` | Start a task from a thinking plan |
 | `duo send <task> "instruction"` | Send a prompt to a running task |
 | `duo status <task>` | Show task FSM state |
 | `duo watch` | Detect dialog → print → write signal file → exit |
@@ -77,13 +99,14 @@ The Commander never touches code directly. It writes prompts, polls for results,
 | `duo dashboard` | Live Rich terminal dashboard |
 | `duo cleanup --force` | Remove completed/failed tasks |
 
-Run `duo --help` for the full command list (31 commands in 8 groups).
+Run `duo --help` for the full command list (32 commands in 9 groups).
 
 ## More Resources
 
 - **[Getting Started Guide](docs/getting-started.md)** — Complete walkthrough from install to merge
 - **[Architecture Spec](docs/architecture.md)** — FSM states, file protocol schema, security model
 - **[CEO Workflow](docs/ceo-workflow.md)** — Programmatic dialog handling for orchestrating agents
+- **[Thinking Design](docs/design-duo-think.md)** — Architecture and design for `duo think`
 
 ## Development
 

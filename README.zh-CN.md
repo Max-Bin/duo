@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-947%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1038%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI agent 编排器。**
@@ -31,6 +31,26 @@ duo watch                # 阻塞等待弹窗 → 打印内容 → 退出
 duo ceo-approve fix-auth # 批准权限弹窗
 duo merge fix-auth       # 完成后 fast-forward 合并
 ```
+
+## Thinking 工作流
+
+在消耗 Premium Request 之前先头脑风暴和规划：
+
+```bash
+# 启动 thinking 会话（在 tmux pane 中生成 Claude Code）
+duo think my-feature --ask "认证系统应该怎么架构？"
+
+# 追问
+duo think my-feature --ask "限流怎么处理？"
+
+# 从对话生成计划
+duo think my-feature --finalize
+
+# 用计划启动编码任务（规划阶段零 PR 消耗）
+duo start my-feature --from-thinking --repo .
+```
+
+Thinking 会话使用 Claude Code（你已有的订阅），在 `duo start` 之前不消耗 Copilot PR。
 
 ## 架构
 
@@ -67,6 +87,8 @@ Commander 不直接碰代码。它写 prompt、轮询结果、跑验证门禁、
 | 命令 | 作用 |
 |------|------|
 | `duo start <task> --repo . --desc "..."` | 创建 worktree + Copilot 会话 |
+| `duo think <name> --ask "问题"` | 用 Claude Code 在编码前头脑风暴 |
+| `duo start <task> --from-thinking` | 从 thinking 计划启动任务 |
 | `duo send <task> "指令"` | 给运行中的任务发送 prompt |
 | `duo status <task>` | 查看任务 FSM 状态 |
 | `duo watch` | 检测弹窗 → 打印 → 写信号文件 → 退出 |
@@ -77,13 +99,14 @@ Commander 不直接碰代码。它写 prompt、轮询结果、跑验证门禁、
 | `duo dashboard` | Rich 实时终端面板 |
 | `duo cleanup --force` | 清理已完成/失败的任务 |
 
-运行 `duo --help` 查看完整命令列表（8 组 31 个命令）。
+运行 `duo --help` 查看完整命令列表（9 组 32 个命令）。
 
 ## 更多资源
 
 - **[快速上手指南](docs/getting-started.md)** — 从安装到合并的完整走读
 - **[架构规格](docs/architecture.md)** — FSM 状态、文件协议 schema、安全模型
 - **[CEO 工作流](docs/ceo-workflow.md)** — 面向编排 agent 的弹窗处理命令参考
+- **[Thinking 设计文档](docs/design-duo-think.md)** — `duo think` 的架构和设计
 
 ## 开发
 

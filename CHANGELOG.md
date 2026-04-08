@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.7.0] — Unreleased
 
 ### Added
+- `duo think` command for pre-start brainstorming with Claude Code in a tmux pane
+  - `--ask` sends questions, `--finalize` generates plan.md, `--close`/`--delete` manage lifecycle
+  - `duo think list` shows all thinking sessions with status
+- `duo start --from-thinking` reads plan.md from a thinking session as the task description
+- New module `src/duo/thinking.py` with thinking session management, pane lifecycle, response extraction
 - Concurrent duplicate start protection via file-based locking (fcntl)
 - Journal rotation when journal exceeds 10MB (keeps last half)
 - Monitor crash protection — `start_session` failures no longer crash the monitor loop
