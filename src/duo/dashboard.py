@@ -107,7 +107,7 @@ def _build_events_panel(tasks: list[Task], max_events: int = 8) -> Panel:
 
     lines: list[str] = []
     for ts, task_id, event_type in all_events:
-        short_ts = ts.split("T")[1][:8] if "T" in ts else ts[:8]
+        short_ts = ts.split("T", 1)[1][:8] if "T" in ts else ts[:8]
         if "error" in event_type or "failed" in event_type:
             color = "red"
         elif "completed" in event_type or "passed" in event_type:

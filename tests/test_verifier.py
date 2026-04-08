@@ -164,6 +164,14 @@ class TestRunInWorktree:
         run_in_worktree(str(tmp_path), f"echo hello; touch {marker}")
         assert not marker.exists(), "Shell injection was executed!"
 
+    def test_malformed_command_returns_127(self, tmp_path):
+        """Unbalanced quotes in command return 127 instead of crashing."""
+        assert run_in_worktree(str(tmp_path), 'echo "unterminated') == 127
+
+    def test_missing_executable_returns_127(self, tmp_path):
+        """Non-existent executable returns 127."""
+        assert run_in_worktree(str(tmp_path), "nonexistent_binary_xyz") == 127
+
 
 # ---------------------------------------------------------------------------
 # _check_security_scope

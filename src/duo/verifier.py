@@ -81,13 +81,20 @@ def git_untracked(worktree: str) -> list[str]:
 
 
 def run_in_worktree(worktree: str, command: str) -> int:
-    """Run a command inside *worktree* and return its exit code."""
+    """Run a command inside *worktree* and return its exit code.
+
+    Returns 127 if the command string cannot be parsed (e.g. unbalanced quotes)
+    or the executable is not found.
+    """
     worktree = os.path.realpath(worktree)
-    proc = subprocess.run(
-        shlex.split(command),
-        shell=False,
-        cwd=worktree,
-    )
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return 127
+    try:
+        proc = subprocess.run(argv, shell=False, cwd=worktree)
+    except FileNotFoundError:
+        return 127
     return proc.returncode
 
 
