@@ -74,20 +74,26 @@ def promote_queued() -> list[Task]:
     Called by the monitor loop after each poll cycle.
     """
     promoted: list[Task] = []
+    mp = max_parallel()
+    tasks = list_tasks()
+    n_active = sum(1 for t in tasks if t.status in ACTIVE_STATUSES)
+    queued = sorted(
+        (t for t in tasks if t.status == TaskStatus.QUEUED),
+        key=lambda t: t.created_at,
+    )
 
-    while has_slot():
-        next_task = _next_queued()
-        if next_task is None:
+    for next_task in queued:
+        if n_active >= mp:
             break
-        # Transition out of QUEUED so the loop progresses
         transition(next_task, TaskStatus.SESSION_STARTING)
+        n_active += 1
         promoted.append(next_task)
         append_event(
             next_task,
             "task_promoted",
             {
                 "from": "queued",
-                "active": active_count(),
+                "active": n_active,
             },
         )
 
