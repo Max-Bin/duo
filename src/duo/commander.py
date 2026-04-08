@@ -452,7 +452,17 @@ def verify_and_advance(task: Task) -> None:
         return
 
     # Run verification
-    verdict = verify_step(task, result)
+    try:
+        verdict = verify_step(task, result)
+    except Exception as exc:
+        logger.warning("verify_step raised for '%s': %s", task.id, exc)
+        transition(task, TaskStatus.FAILED)
+        append_event(
+            task,
+            "verify_error",
+            {"step": step, "error": str(exc)},
+        )
+        return
 
     if isinstance(verdict, Pass):
         # Advance to next step
