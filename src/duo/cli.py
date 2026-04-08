@@ -1722,7 +1722,7 @@ def diff_cmd(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found.", err=True)
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
 
     if not Path(task.worktree).exists():
