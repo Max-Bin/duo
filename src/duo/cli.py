@@ -811,6 +811,8 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         task = load_task(name)
         if task is None:
             click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
+            sys.exit(1)
+        events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
 
         if as_json:
@@ -1383,7 +1385,7 @@ def resume(name: str | None) -> None:
     if name is not None:
         task = load_task(name)
         if task is None:
-            click.echo(f"Error: task '{name}' not found.", err=True)
+            click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
             sys.exit(1)
         if task.status in TERMINAL_STATES:
             click.echo(f"Task '{name}' is already completed.")
@@ -1420,7 +1422,7 @@ def retry(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found.", err=True)
+        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
         sys.exit(1)
     if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
         click.echo(
