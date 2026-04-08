@@ -10,6 +10,7 @@ import pytest
 from duo.commander import (
     _check_pr_budget,
     _count_corrections,
+    _detect_project_context,
     _get_copilot_model,
     _log_monitor,
     _watch_loop,
@@ -564,6 +565,130 @@ class TestStartSession:
 
 
 class TestClaudeCommander:
+    def test_detect_python_project(self) -> None:
+        """Detects Python project from pyproject.toml."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "pyproject.toml").write_text("[project]\nname='x'")
+            ctx = _detect_project_context(tmp)
+            assert "Python" in ctx
+            assert "pytest" in ctx
+
+    def test_detect_node_project(self) -> None:
+        """Detects Node.js project from package.json."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "package.json").write_text('{"name":"x"}')
+            ctx = _detect_project_context(tmp)
+            assert "Node.js" in ctx
+            assert "npm" in ctx
+
+    def test_detect_rust_project(self) -> None:
+        """Detects Rust project from Cargo.toml."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Cargo.toml").write_text("[package]\nname='x'")
+            ctx = _detect_project_context(tmp)
+            assert "Rust" in ctx
+            assert "cargo" in ctx
+
+    def test_detect_go_project(self) -> None:
+        """Detects Go project from go.mod."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "go.mod").write_text("module x")
+            ctx = _detect_project_context(tmp)
+            assert "Go" in ctx
+
+    def test_detect_java_project(self) -> None:
+        """Detects Java project from pom.xml."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "pom.xml").write_text("<project></project>")
+            ctx = _detect_project_context(tmp)
+            assert "Java" in ctx
+            assert "Maven" in ctx
+
+    def test_detect_unknown_project(self) -> None:
+        """Empty dir returns Unknown type."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = _detect_project_context(tmp)
+            assert "Unknown" in ctx
+
+    def test_includes_instructions_md(self) -> None:
+        """Includes .duo/instructions.md content."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            duo_dir = Path(tmp) / ".duo"
+            duo_dir.mkdir()
+            (duo_dir / "instructions.md").write_text("Use pytest for all tests.")
+            ctx = _detect_project_context(tmp)
+            assert "Use pytest for all tests" in ctx
+
+    def test_skips_template_instructions(self) -> None:
+        """Skips instructions.md that only contains template comments."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            duo_dir = Path(tmp) / ".duo"
+            duo_dir.mkdir()
+            (duo_dir / "instructions.md").write_text(
+                "<!-- Describe your project here -->\n"
+            )
+            ctx = _detect_project_context(tmp)
+            assert "Describe your project" not in ctx
+
+    def test_includes_readme_excerpt(self) -> None:
+        """Includes README.md excerpt."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "README.md").write_text("# My Project\nA cool project.")
+            ctx = _detect_project_context(tmp)
+            assert "My Project" in ctx
+            assert "README" in ctx
+
+    def test_instructions_read_error_handled(self) -> None:
+        """OSError reading .duo/instructions.md is handled gracefully."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            duo_dir = Path(tmp) / ".duo"
+            duo_dir.mkdir()
+            # Create a directory where a file is expected → read_text raises
+            (duo_dir / "instructions.md").mkdir()
+            ctx = _detect_project_context(tmp)
+            assert "Project Instructions" not in ctx
+
+    def test_readme_read_error_handled(self) -> None:
+        """OSError reading README.md is handled gracefully."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # Create a directory where README.md is expected
+            (Path(tmp) / "README.md").mkdir()
+            ctx = _detect_project_context(tmp)
+            assert "README (excerpt)" not in ctx
+
+    def test_includes_directory_listing(self) -> None:
+        """Includes directory listing."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "src").mkdir()
+            (Path(tmp) / "tests").mkdir()
+            ctx = _detect_project_context(tmp)
+            assert "src" in ctx
+            assert "tests" in ctx
+
     def test_write_claude_md_creates_file(self) -> None:
         """write_commander_claude_md creates CLAUDE.md in worktree."""
         task = _make_task()

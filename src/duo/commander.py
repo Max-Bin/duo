@@ -201,17 +201,96 @@ def build_bootstrap_prompt(task: Task) -> str:
     )
 
 
-def write_commander_claude_md(task: Task) -> None:
-    """Write CLAUDE.md into the task worktree so Claude Code CLI picks it up."""
+def _detect_project_context(worktree: str) -> str:
+    """Auto-detect project type and context from the worktree."""
     from pathlib import Path
 
-    content = CLAUDE_COMMANDER_TEMPLATE.format(
+    root = Path(worktree)
+    sections: list[str] = []
+
+    # Detect project type
+    project_type = "Unknown"
+    build_cmd = ""
+    test_cmd = ""
+    if (root / "pyproject.toml").exists():
+        project_type = "Python"
+        build_cmd = "uv sync"
+        test_cmd = "python -m pytest"
+    elif (root / "package.json").exists():
+        project_type = "Node.js"
+        build_cmd = "npm install"
+        test_cmd = "npm test"
+    elif (root / "Cargo.toml").exists():
+        project_type = "Rust"
+        build_cmd = "cargo build"
+        test_cmd = "cargo test"
+    elif (root / "go.mod").exists():
+        project_type = "Go"
+        build_cmd = "go build ./..."
+        test_cmd = "go test ./..."
+    elif (root / "pom.xml").exists():
+        project_type = "Java (Maven)"
+        build_cmd = "mvn package"
+        test_cmd = "mvn test"
+
+    sections.append(f"- **Type:** {project_type}")
+    if build_cmd:
+        sections.append(f"- **Build:** `{build_cmd}`")
+    if test_cmd:
+        sections.append(f"- **Test:** `{test_cmd}`")
+
+    # Read .duo/instructions.md if it exists
+    instructions = root / ".duo" / "instructions.md"
+    if instructions.exists():
+        try:
+            text = instructions.read_text().strip()
+            if text and "<!-- " not in text[:200]:
+                sections.append(f"\n### Project Instructions\n\n{text[:2000]}")
+        except OSError:
+            pass
+
+    # Read first part of README
+    for readme_name in ("README.md", "readme.md", "README.rst", "README"):
+        readme = root / readme_name
+        if readme.exists():
+            try:
+                text = readme.read_text()[:1000].strip()
+                if text:
+                    sections.append(f"\n### README (excerpt)\n\n{text}")
+            except OSError:
+                pass
+            break
+
+    # List top-level directory structure
+    try:
+        entries = sorted(p.name for p in root.iterdir() if not p.name.startswith("."))
+        if entries:
+            tree = "  ".join(entries[:30])
+            sections.append(f"\n### Directory\n\n`{tree}`")
+    except OSError:
+        pass
+
+    return "\n".join(sections)
+
+
+def write_commander_claude_md(task: Task) -> None:
+    """Write CLAUDE.md into the task worktree so Claude Code CLI picks it up.
+
+    Includes auto-detected project context (type, instructions, README).
+    """
+    from pathlib import Path
+
+    base = CLAUDE_COMMANDER_TEMPLATE.format(
         task_dir=str(task.dir),
         task_id=task.id,
         worktree=task.worktree,
         branch=task.branch,
         incarnation=task.incarnation_id,
     )
+
+    project_ctx = _detect_project_context(task.worktree)
+    content = base + "\n## Project Context\n\n" + project_ctx + "\n"
+
     claude_md = Path(task.worktree) / "CLAUDE.md"
     try:
         claude_md.write_text(content)

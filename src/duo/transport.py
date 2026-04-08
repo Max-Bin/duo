@@ -453,17 +453,19 @@ def select_other_option(label: str, text: str) -> None:
     if not is_in_dialog(label):
         raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
 
-    # Count options to determine how many Downs needed
+    # Count options via regex that tolerates box chars (│), spaces, and cursor (❯)
     lines = content.strip().split("\n")
     option_count = 0
     current_pos = 0
+    # Match: optional box char, whitespace, optional cursor, digit, dot, space
+    opt_re = re.compile(r"^\s*[│]?\s*(❯\s*)?(\d+)\.\s")
     for line in lines:
-        stripped = line.strip()
-        for n in range(1, 10):
-            if stripped.startswith(f"{n}.") or f"❯ {n}." in stripped:
-                option_count = max(option_count, n)
-                if "❯" in line:
-                    current_pos = n
+        m = opt_re.match(line)
+        if m:
+            n = int(m.group(2))
+            option_count = max(option_count, n)
+            if m.group(1) is not None:  # cursor present
+                current_pos = n
 
     if option_count < 2:
         raise RuntimeError(f"SAFETY: '{label}' dialog has {option_count} options, need ≥2.")
