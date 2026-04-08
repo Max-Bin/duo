@@ -78,12 +78,12 @@ def _retry(
     def decorator(func: _F) -> _F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_error: RuntimeError = RuntimeError("all retries exhausted")
+            last_error: Exception = RuntimeError("all retries exhausted")
             wait = delay
             for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
-                except RuntimeError as e:
+                except (RuntimeError, OSError) as e:
                     last_error = e
                     if attempt < max_attempts - 1:
                         _time.sleep(wait)

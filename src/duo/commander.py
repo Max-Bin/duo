@@ -647,9 +647,13 @@ def monitor(task_ids: list[str] | None = None) -> None:
         promoted = promote_queued()
         for task in promoted:
             _log_monitor("◷", task.id, "promoted from queue")
-            start_session(task)
-            prompt = build_task_prompt(task)
-            send_task_prompt(task, prompt)
+            try:
+                start_session(task)
+                prompt = build_task_prompt(task)
+                send_task_prompt(task, prompt)
+            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+                _log_monitor("✗", task.id, f"failed to start: {exc}")
+                logger.warning("Failed to start promoted task '%s': %s", task.id, exc)
 
         if not active and not promoted:
             # Check if there are queued tasks waiting

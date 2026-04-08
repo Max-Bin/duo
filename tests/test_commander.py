@@ -1237,6 +1237,45 @@ class TestMonitor:
         mock_start.assert_called_once_with(task)
         mock_send.assert_called_once()
 
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.commander.send_task_prompt")
+    @patch(
+        "duo.commander.start_session",
+        side_effect=RuntimeError("tmux crashed"),
+    )
+    @patch("duo.scheduler.promote_queued")
+    @patch("duo.commander.list_tasks")
+    def test_monitor_survives_start_session_failure(
+        self,
+        mock_list,
+        mock_promote,
+        mock_start,
+        mock_send,
+        mock_poll,
+        mock_sleep,
+        capsys,
+    ):
+        """Monitor continues if start_session fails for a promoted task."""
+        task = _make_task()
+        transition(task, TaskStatus.SESSION_STARTING)
+        mock_list.return_value = [task]
+        mock_promote.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        mock_start.assert_called_once()
+        mock_send.assert_not_called()  # prompt not sent due to failure
+        captured = capsys.readouterr()
+        assert "failed to start" in captured.out
+
 
 # ---------------------------------------------------------------------------
 # _log_monitor

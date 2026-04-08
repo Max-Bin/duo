@@ -493,6 +493,30 @@ class TestRetry:
         delays = [c[0][0] for c in mock_time.sleep.call_args_list]
         assert delays == [1.0, 2.0, 4.0]
 
+    def test_oserror_retried(self):
+        """OSError is retried alongside RuntimeError."""
+        call_count = 0
+
+        @_retry(max_attempts=3, delay=0.01)
+        def fn():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise OSError("transient OS error")
+            return "recovered"
+
+        assert fn() == "recovered"
+        assert call_count == 3
+
+    def test_oserror_exhausts_retries(self):
+        """OSError exhausts all retry attempts."""
+        @_retry(max_attempts=2, delay=0.01)
+        def fn():
+            raise OSError("permanent OS error")
+
+        with pytest.raises(OSError, match="permanent OS error"):
+            fn()
+
 
 # ── PR audit ──────────────────────────────────────────────────────────
 
