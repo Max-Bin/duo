@@ -33,7 +33,6 @@ from duo.protocol import (
     TaskStatus,
     append_event,
     list_tasks,
-    load_task,
     new_incarnation,
     now_iso,
     prompt_hash,
@@ -985,10 +984,6 @@ def monitor(task_ids: list[str] | None = None) -> None:
 # Event-driven watch
 # ---------------------------------------------------------------------------
 
-_TERMINAL_STATUSES = frozenset(
-    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
-)
-
 
 def _watch_loop(
     task: Task,
@@ -998,9 +993,18 @@ def _watch_loop(
     interval: float,
     once: bool,
 ) -> None:
-    """Per-task watch loop: block on dialog, handle it, repeat."""
+    """Per-task watch loop: block on dialog, handle it, repeat.
+
+    Exits when the pane disappears (not when the task FSM enters a terminal
+    state), because the pane may still be alive even after the task is
+    FAILED/COMPLETED.
+    """
     label = task.pane_label
     while not stop.is_set():
+        # Check pane is still alive before waiting for dialog
+        if not is_process_alive(label):
+            _log_monitor("·", task.id, "pane gone, stopping watch")
+            break
         try:
             found = wait_for_dialog(label, timeout=timeout, interval=interval)
         except Exception:
@@ -1009,10 +1013,9 @@ def _watch_loop(
         if stop.is_set():
             break
         if not found:
-            # Timeout — check if task is still active
-            refreshed = load_task(task.id)
-            if refreshed is None or refreshed.status in _TERMINAL_STATUSES:
-                _log_monitor("·", task.id, "task finished, stopping watch")
+            # Timeout — check if pane is still alive
+            if not is_process_alive(label):
+                _log_monitor("·", task.id, "pane gone, stopping watch")
                 break
             continue
         # Dialog detected
@@ -1048,12 +1051,13 @@ def watch_tasks(
         unknown = [tid for tid in task_ids if tid not in known]
         if unknown:
             click.echo(f"[duo] Unknown task(s): {', '.join(unknown)}", err=True)
-    active = [
-        t
-        for t in tasks
-        if t.status not in _TERMINAL_STATUSES
-        and (task_ids is None or t.id in task_ids)
-    ]
+        candidates = [t for t in tasks if t.id in task_ids]
+    else:
+        candidates = list(tasks)
+
+    # Filter by pane alive, not FSM status — a FAILED task may still have
+    # a live pane (e.g., Copilot running a self-review loop).
+    active = [t for t in candidates if is_process_alive(t.pane_label)]
     if not active:
         click.echo("[duo] No active tasks to watch.")
         return 0

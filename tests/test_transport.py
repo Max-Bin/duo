@@ -807,6 +807,17 @@ class TestIsAtMainPromptEdgeCases:
         content = "─────\nRemaining reqs: 10\n❯ Type @ to mention files"
         assert _is_at_main_prompt(content) is True
 
+    def test_spinner_suppresses_prompt(self) -> None:
+        """Spinner marker means Copilot is processing — not idle."""
+        content = "◉ Processing...\n❯ Type @ to mention files"
+        assert _is_at_main_prompt(content) is False
+
+    def test_spinner_variants(self) -> None:
+        """All spinner markers suppress the prompt."""
+        for marker in ("◉ ", "◎ ", "○ "):
+            content = f"{marker}Thinking\n❯ Type @ to mention files"
+            assert _is_at_main_prompt(content) is False, marker
+
 
 # ── is_permission_dialog ──────────────────────────────────────────────
 

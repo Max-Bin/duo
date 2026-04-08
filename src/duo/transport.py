@@ -294,7 +294,15 @@ def get_pr_log() -> list[dict[str, str]]:
 
 
 def _is_at_main_prompt(content: str) -> bool:
-    """True if pane shows Copilot ❯ prompt. ANY input here = PR consumed."""
+    """True if pane is IDLE at Copilot ❯ prompt. ANY input here = PR consumed.
+
+    The ❯ prompt is always rendered at the bottom of Copilot CLI, even while
+    processing — so presence of ❯ alone is not enough. We must also confirm
+    no spinner (active processing) is visible in the pane.
+    """
+    # If a spinner is present, Copilot is actively processing — not idle.
+    if any(marker in content for marker in ("◉ ", "◎ ", "○ ")):
+        return False
     for line in reversed(content.strip().split("\n")):
         s = line.strip()
         if s.startswith("❯") and ("Type @" in s or s == "❯" or "mention files" in s):

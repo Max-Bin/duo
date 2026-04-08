@@ -2027,44 +2027,46 @@ class TestWatchTasks:
         return task
 
     def test_no_active_tasks(self) -> None:
-        """Returns 0 when no active tasks."""
-        with patch("duo.commander.list_tasks", return_value=[]):
+        """Returns 0 when no active tasks (no live panes)."""
+        with (
+            patch("duo.commander.list_tasks", return_value=[]),
+            patch("duo.commander.is_process_alive", return_value=False),
+        ):
             result = watch_tasks()
         assert result == 0
 
     def test_unknown_task_ids_warned(self, capsys) -> None:
         """Unknown task IDs produce a warning."""
-        with patch("duo.commander.list_tasks", return_value=[]):
+        with (
+            patch("duo.commander.list_tasks", return_value=[]),
+            patch("duo.commander.is_process_alive", return_value=False),
+        ):
             result = watch_tasks(["nonexistent"])
         assert result == 0
         captured = capsys.readouterr()
         assert "Unknown task(s): nonexistent" in captured.err
 
-    def test_filters_terminal_states(self) -> None:
-        """Completed/failed/escalated tasks are excluded."""
+    def test_filters_dead_panes(self) -> None:
+        """Tasks with dead panes are excluded."""
         tasks = [self._finished(f"t{i}") for i in range(3)]
-        with patch("duo.commander.list_tasks", return_value=tasks):
+        with (
+            patch("duo.commander.list_tasks", return_value=tasks),
+            patch("duo.commander.is_process_alive", return_value=False),
+        ):
             result = watch_tasks()
         assert result == 0
 
-    def test_filters_by_task_ids(self) -> None:
-        """Only watches specified task IDs."""
-        t1 = self._active("watch-me")
-        t2 = self._active("skip-me")
-        with (
-            patch("duo.commander.list_tasks", return_value=[t1, t2]),
-            patch("duo.commander.wait_for_dialog", return_value=False),
-            patch("duo.commander.load_task", return_value=None),
-        ):
-            result = watch_tasks(["watch-me"], timeout=0.01, interval=0.01)
-        assert result == 1
-
-    def test_dialog_handled(self) -> None:
-        """Dialog is detected and approved, then task finishes."""
-        task = self._active("dlg")
-        finished = self._finished("dlg-fin")
+    def test_failed_task_with_live_pane_watched(self) -> None:
+        """A FAILED task is still watched if its pane is alive."""
+        task = self._finished("alive-fail")
 
         call_count = 0
+        alive_calls = 0
+
+        def _fake_alive(label: str) -> bool:
+            nonlocal alive_calls
+            alive_calls += 1
+            return alive_calls <= 3
 
         def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
             nonlocal call_count
@@ -2073,10 +2075,57 @@ class TestWatchTasks:
 
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", side_effect=_fake_alive),
+            patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
+            patch("duo.commander.approve_permission"),
+            patch("duo.commander.append_event"),
+        ):
+            result = watch_tasks(timeout=0.1, interval=0.01)
+        assert result == 1
+
+    def test_filters_by_task_ids(self) -> None:
+        """Only watches specified task IDs."""
+        t1 = self._active("watch-me")
+        t2 = self._active("skip-me")
+
+        alive_count = 0
+
+        def _fake_alive(label: str) -> bool:
+            nonlocal alive_count
+            alive_count += 1
+            return alive_count <= 2
+
+        with (
+            patch("duo.commander.list_tasks", return_value=[t1, t2]),
+            patch("duo.commander.is_process_alive", side_effect=_fake_alive),
+            patch("duo.commander.wait_for_dialog", return_value=False),
+        ):
+            result = watch_tasks(["watch-me"], timeout=0.01, interval=0.01)
+        assert result == 1
+
+    def test_dialog_handled(self) -> None:
+        """Dialog is detected and approved, then pane dies."""
+        task = self._active("dlg")
+
+        call_count = 0
+        alive_count = 0
+
+        def _fake_alive(label: str) -> bool:
+            nonlocal alive_count
+            alive_count += 1
+            return alive_count <= 3
+
+        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+            nonlocal call_count
+            call_count += 1
+            return call_count == 1
+
+        with (
+            patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", side_effect=_fake_alive),
             patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
             patch("duo.commander.approve_permission") as mock_approve,
             patch("duo.commander.append_event"),
-            patch("duo.commander.load_task", return_value=finished),
         ):
             result = watch_tasks(timeout=0.1, interval=0.01)
         assert result == 1
@@ -2085,9 +2134,14 @@ class TestWatchTasks:
     def test_dialog_error_logged(self) -> None:
         """Error during approve_permission is logged, watch continues."""
         task = self._active("err")
-        finished = self._finished("err-fin")
 
         call_count = 0
+        alive_count = 0
+
+        def _fake_alive(label: str) -> bool:
+            nonlocal alive_count
+            alive_count += 1
+            return alive_count <= 3
 
         def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
             nonlocal call_count
@@ -2096,22 +2150,34 @@ class TestWatchTasks:
 
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", side_effect=_fake_alive),
             patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
             patch(
                 "duo.commander.approve_permission",
                 side_effect=RuntimeError("not in dialog"),
             ),
             patch("duo.commander.append_event"),
-            patch("duo.commander.load_task", return_value=finished),
         ):
             result = watch_tasks(timeout=0.1, interval=0.01)
         assert result == 1
+
+    def test_pane_dead_before_wait(self) -> None:
+        """_watch_loop exits when pane is already dead before wait_for_dialog."""
+        import threading as _th
+
+        task = self._active("dead-pane")
+        stop = _th.Event()
+
+        with patch("duo.commander.is_process_alive", return_value=False):
+            _watch_loop(task, stop, timeout=1, interval=0.01, once=False)
+        # Loop exited without error — pane was dead, logged and broke out
 
     def test_pane_unavailable(self) -> None:
         """Watch loop exits when pane raises exception."""
         task = self._active("gone")
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", return_value=True),
             patch(
                 "duo.commander.wait_for_dialog", side_effect=OSError("no pane")
             ),
@@ -2125,6 +2191,7 @@ class TestWatchTasks:
 
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", return_value=True),
             patch("duo.commander.wait_for_dialog", return_value=True),
             patch("duo.commander.approve_permission"),
             patch("duo.commander.append_event"),
@@ -2133,42 +2200,35 @@ class TestWatchTasks:
         assert result == 1
 
     def test_stop_set_during_wait(self) -> None:
-        """Watch loop exits when stop event set during wait_for_dialog."""
-        import threading as _th
-
+        """Watch loop exits when pane dies during polling."""
         task = self._active("stop-mid")
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
-            # Simulate stop being set by another thread
-            for t in _th.enumerate():
-                if t.name.startswith("Thread"):
-                    # The watch_tasks function uses stop.set() — we need
-                    # to find it via the _watch_loop closure.  Easier:
-                    # just return False after a short sleep.
-                    pass
-            return False
-
-        # Task still active → continue branch; then stop_set breaks
         call_count = 0
 
         def _wait_then_stop(label: str, timeout: float = 300, interval: float = 5) -> bool:
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
-                # Signal we should stop by raising
                 raise OSError("done")
             return False
 
+        alive_count = 0
+
+        def _fake_alive(label: str) -> bool:
+            nonlocal alive_count
+            alive_count += 1
+            return True
+
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", side_effect=_fake_alive),
             patch("duo.commander.wait_for_dialog", side_effect=_wait_then_stop),
-            patch("duo.commander.load_task", return_value=task),
         ):
             result = watch_tasks(timeout=0.01, interval=0.01)
         assert result == 1
 
     def test_task_still_active_continues(self) -> None:
-        """Watch loop continues polling when task still active after timeout."""
+        """Watch loop continues polling when pane still alive after timeout."""
         task = self._active("cont")
 
         call_count = 0
@@ -2182,8 +2242,8 @@ class TestWatchTasks:
 
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", return_value=True),
             patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
-            patch("duo.commander.load_task", return_value=task),
         ):
             result = watch_tasks(timeout=0.01, interval=0.01)
         assert result == 1
@@ -2192,17 +2252,14 @@ class TestWatchTasks:
     def test_stop_event_after_wait_returns(self) -> None:
         """Break when stop event is set after wait_for_dialog returns."""
         task = self._active("stop-after")
-        # We need two tasks so that when once=True triggers on the first,
-        # the second sees stop.is_set() == True after its wait returns.
         task2 = self._active("stop-after2")
 
         def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
-            # Return True for first task, this triggers once→stop.set()
-            # Second task will see stop.is_set() after returning
             return True
 
         with (
             patch("duo.commander.list_tasks", return_value=[task, task2]),
+            patch("duo.commander.is_process_alive", return_value=True),
             patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
             patch("duo.commander.approve_permission"),
             patch("duo.commander.append_event"),
@@ -2221,5 +2278,8 @@ class TestWatchTasks:
             stop.set()  # Simulate stop being set while waiting
             return False
 
-        with patch("duo.commander.wait_for_dialog", side_effect=_fake_wait):
+        with (
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
+        ):
             _watch_loop(task, stop, timeout=1, interval=0.01, once=False)
