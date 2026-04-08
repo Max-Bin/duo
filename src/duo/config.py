@@ -8,6 +8,16 @@ from typing import Any
 
 from duo.protocol import DUO_DIR
 
+__all__ = [
+    "CONFIG_PATH",
+    "DEFAULTS",
+    "get_config",
+    "load_config",
+    "reset_config",
+    "save_config",
+    "set_config",
+]
+
 CONFIG_PATH = DUO_DIR / "config.json"
 
 logger = logging.getLogger(__name__)

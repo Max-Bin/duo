@@ -18,6 +18,32 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+__all__ = [
+    "DUO_DIR",
+    "TRANSITIONS",
+    "SecurityPolicy",
+    "StepResult",
+    "Subtask",
+    "Task",
+    "TaskStatus",
+    "append_event",
+    "create_task",
+    "list_tasks",
+    "load_task",
+    "new_incarnation",
+    "now_iso",
+    "prompt_hash",
+    "read_ack_for_step",
+    "read_heartbeat",
+    "read_json",
+    "read_jsonl",
+    "read_result_for_step",
+    "replay_state",
+    "save_task",
+    "transition",
+    "write_json",
+]
+
 logger = logging.getLogger(__name__)
 
 # === Constants ===

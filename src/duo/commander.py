@@ -14,6 +14,14 @@ import time
 
 import click
 
+__all__ = [
+    "monitor",
+    "restart_session",
+    "send_task_prompt",
+    "start_session",
+    "watch_tasks",
+]
+
 logger = logging.getLogger(__name__)
 
 from duo.config import get_config

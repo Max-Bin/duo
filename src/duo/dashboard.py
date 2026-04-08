@@ -5,6 +5,8 @@ Displays task status, queue info, and recent events in a live-updating table.
 
 from __future__ import annotations
 
+__all__ = ["run_dashboard"]
+
 import time
 from datetime import datetime
 

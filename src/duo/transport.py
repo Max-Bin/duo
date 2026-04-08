@@ -18,6 +18,39 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+__all__ = [
+    "PaneInfo",
+    "approve_permission",
+    "bridge",
+    "cancel_current",
+    "clear_bootstrap_done",
+    "diagnose_pane",
+    "doctor",
+    "get_pane_id",
+    "get_pr_log",
+    "is_in_dialog",
+    "is_in_dialog_stable",
+    "is_permission_dialog",
+    "is_process_alive",
+    "list_panes",
+    "name_pane",
+    "read_pane",
+    "resolve_label",
+    "safe_enter",
+    "select_dialog_option",
+    "select_other_option",
+    "send_bootstrap",
+    "send_eof",
+    "send_keys",
+    "send_message",
+    "send_prompt",
+    "send_shell_command",
+    "set_pr_callback",
+    "type_text",
+    "wait_for_dialog",
+    "wait_for_idle",
+]
+
 logger = logging.getLogger(__name__)
 
 _SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+$")

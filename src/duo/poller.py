@@ -10,6 +10,8 @@ import logging
 from datetime import UTC, datetime
 from enum import StrEnum
 
+__all__ = ["AdaptivePoller", "PollResult", "age"]
+
 logger = logging.getLogger(__name__)
 
 from duo.protocol import Task, read_heartbeat, read_result_for_step

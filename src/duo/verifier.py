@@ -6,6 +6,8 @@ checks against the worktree.  Returns Pass or Correction.
 
 from __future__ import annotations
 
+__all__ = ["Correction", "Pass", "run_in_worktree", "verify_step"]
+
 import logging
 import os
 import re
