@@ -44,6 +44,7 @@ def git_diff_names(worktree: str) -> set[str]:
         cwd=worktree,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if proc.returncode != 0:
         raise RuntimeError(
@@ -60,6 +61,7 @@ def git_diff(worktree: str) -> str:
         cwd=worktree,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()}")
@@ -74,6 +76,7 @@ def git_untracked(worktree: str) -> list[str]:
         cwd=worktree,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()}")
