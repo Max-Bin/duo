@@ -33,6 +33,9 @@ def load_config() -> dict[str, Any]:
     if CONFIG_PATH.exists():
         try:
             stored = json.loads(CONFIG_PATH.read_text())
+            unknown = [k for k in stored if k not in DEFAULTS]
+            if unknown:
+                logger.warning("Unknown config keys (ignored for defaults): %s", ", ".join(unknown))
             config.update(stored)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Config file corrupted or empty, using defaults: %s", e)

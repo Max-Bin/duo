@@ -1,0 +1,4 @@
+# file: /Users/wangbin/duo/src/duo/transport.py
+# hypothesis_version: 6.151.11
+
+[0.0, 0.2, 0.5, 1.0, 2.0, 30.0, 200, 300, 10000, '-bash', '-zsh', '1', 'Allow directory', 'C-c', 'C-d', 'Do you want to allow', 'Do you want to edit', 'Do you want to run', 'Down', 'Enter', 'Remaining reqs', 'Type @', '[❯\\s]+(\\d+)\\.\\s+(.+)', '^[a-zA-Z0-9_.-]+$', '_F', 'action', 'add', 'allowed', 'approve', 'bash', 'bootstrap', 'context', 'dialog_option', 'dialog_other', 'differently', 'doctor', 'esc', 'fish', 'id', 'keys', 'label', 'list', 'mention files', 'message', 'name', 'no', 'read', 'resolve', 'sh', 'shift+tab', 'tell', 'tmux-bridge', 'ts', 'type', 'yes', 'zsh', '─', '╭─', '╰─', '❯']

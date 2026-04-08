@@ -1,0 +1,4 @@
+# file: /Users/wangbin/duo/src/duo/scheduler.py
+# hypothesis_version: 6.151.11
+
+['active', 'active_count', 'active_tasks', 'from', 'max', 'max_parallel', 'position', 'queued', 'queued_count', 'queued_tasks', 'started', 'task_promoted', 'task_queued']

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -269,3 +270,25 @@ class TestTaskTimeoutDefault:
     def test_task_timeout_default_value(self):
         cfg = config_mod.load_config()
         assert cfg["task_timeout"] == 0
+
+
+class TestUnknownConfigKeys:
+    def test_unknown_keys_preserved(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Unknown config keys are preserved for forward compatibility."""
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps({"unknown_key": 42, "max_parallel": 5}))
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        config = config_mod.load_config()
+        assert config["unknown_key"] == 42
+        assert config["max_parallel"] == 5
+
+    def test_unknown_keys_logged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog):
+        """Unknown keys produce a warning log."""
+        import logging
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps({"typo_key": "oops"}))
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        with caplog.at_level(logging.WARNING, logger="duo.config"):
+            config_mod.load_config()
+        assert "unknown config keys" in caplog.text.lower()
+        assert "typo_key" in caplog.text

@@ -52,7 +52,7 @@ def git_diff_names(worktree: str) -> set[str]:
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"git diff --name-only failed in {worktree}: {proc.stderr.strip()}"
+            f"git diff --name-only failed in {worktree}: {proc.stderr.strip()[:500]}"
         )
     return {line for line in proc.stdout.strip().splitlines() if line}
 
@@ -69,7 +69,7 @@ def git_diff(worktree: str) -> str:
         timeout=30,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()}")
+        raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()[:500]}")
     return proc.stdout
 
 
@@ -85,7 +85,7 @@ def git_untracked(worktree: str) -> list[str]:
         timeout=30,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()}")
+        raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()[:500]}")
     return [line for line in proc.stdout.strip().splitlines() if line]
 
 

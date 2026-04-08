@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import string
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
+from hypothesis import given
+from hypothesis import strategies as st
 
 import duo.cli
 import duo.protocol
@@ -17,6 +21,7 @@ from duo.cli import (
     _create_worktree,
     _fmt_ts,
     _load_batch_file,
+    _parse_age,
     _validate_task_name,
     main,
 )
@@ -962,6 +967,57 @@ class TestValidateTaskName:
         import click
         with pytest.raises(click.BadParameter):
             _validate_task_name(f"task{char}name")
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis property-based tests
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyBased:
+    """Property-based tests using hypothesis for validation functions."""
+
+    @given(st.text(alphabet=string.ascii_letters + string.digits + "_-", min_size=1, max_size=63))
+    def test_valid_task_names_always_accepted(self, name: str):
+        """Any string of valid characters ≤63 chars is accepted."""
+        _validate_task_name(name)  # Should not raise
+
+    @given(st.text(min_size=64, max_size=200))
+    def test_long_names_always_rejected(self, name: str):
+        """Names >63 chars are always rejected."""
+        import click
+        with pytest.raises(click.BadParameter, match="at most 63"):
+            _validate_task_name(name)
+
+    @given(st.sampled_from(["d", "h", "m", "s"]), st.integers(min_value=1, max_value=999))
+    def test_parse_age_unit_conversion(self, unit: str, value: int):
+        """All valid age strings produce correct seconds."""
+        expected = value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
+        assert _parse_age(f"{value}{unit}") == expected
+
+    @given(st.text().filter(lambda s: not re.match(r"^\d+[dhms]$", s)))
+    def test_parse_age_rejects_invalid(self, age_str: str):
+        """Invalid age strings cause sys.exit."""
+        with pytest.raises(SystemExit):
+            _parse_age(age_str)
+
+    @given(
+        st.dictionaries(
+            st.text(min_size=1, max_size=20),
+            st.one_of(st.integers(), st.text(max_size=50), st.booleans()),
+            max_size=5,
+        )
+    )
+    def test_json_roundtrip(self, data: dict):
+        """write_json → read_json preserves data."""
+        import tempfile
+
+        from duo.protocol import read_json, write_json
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "test.json"
+            write_json(p, data)
+            result = read_json(p)
+            assert result == data
 
 
 # ---------------------------------------------------------------------------

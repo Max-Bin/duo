@@ -1,0 +1,4 @@
+# file: /Users/wangbin/duo/src/duo/poller.py
+# hypothesis_version: 6.151.11
+
+[0.0, 1.5, 5.0, 90.0, 120.0, 'heartbeat_timeout', 'inf', 'result_ready', 'unknown', 'working']
