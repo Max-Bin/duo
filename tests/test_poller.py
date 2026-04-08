@@ -314,3 +314,33 @@ class TestPoll:
         poller = AdaptivePoller()
         # Wrong incarnation heartbeat is ignored, and prompt is stale → timeout
         assert poller.poll(task) == PollResult.HEARTBEAT_TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# Property-based tests (hypothesis)
+# ---------------------------------------------------------------------------
+
+
+class TestAgePropertyBased:
+    """Property-based tests for age() using hypothesis."""
+
+    @pytest.mark.parametrize("offset_seconds", [0, 1, 60, 3600, 86400])
+    def test_age_monotonically_nonnegative(self, offset_seconds):
+        """age() always returns >= 0 for past timestamps."""
+        ts = (datetime.now(UTC) - timedelta(seconds=offset_seconds)).isoformat()
+        result = age(ts)
+        assert result >= 0.0
+
+    def test_age_with_garbage_returns_inf(self):
+        """age() returns inf for unparseable strings."""
+        for garbage in ["not-a-date", "", "12345", "T", "2025-99-99T00:00:00"]:
+            assert age(garbage) == float("inf")
+
+    def test_age_with_none_returns_inf(self):
+        """age(None) returns inf."""
+        assert age(None) == float("inf")
+
+    def test_age_future_timestamp_clamped_to_zero(self):
+        """age() returns 0.0 for timestamps in the future."""
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        assert age(future) == 0.0
