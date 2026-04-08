@@ -25,6 +25,7 @@ from duo.protocol import (
     create_task,
     list_tasks,
     load_task,
+    read_json,
     read_jsonl,
     replay_state,
 )
@@ -34,7 +35,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
     "Recovery": ["recover", "resume", "retry"],
-    "Data & Audit": ["export", "audit", "cleanup"],
+    "Data & Audit": ["export", "audit", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
     "Misc": ["version", "completion"],
 }
@@ -1662,6 +1663,111 @@ def _export_as_text(task: Task) -> str:
         lines.append(f"  {ts} {ev.get('event', '?')}")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# duo events — watch-event signal file management
+# ---------------------------------------------------------------------------
+
+_WATCH_EVENTS_DIR = Path(os.path.expanduser("~/.duo/watch-events"))
+
+
+@main.group()
+def events() -> None:
+    """Manage watch-event signal files."""
+    pass
+
+
+@events.command("list")
+@click.option("-n", "--limit", default=20, help="Max events to show")
+def events_list(limit: int) -> None:
+    """List recent watch events (newest first)."""
+    if not _WATCH_EVENTS_DIR.exists():
+        click.echo("No events.")
+        return
+    files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
+    if not files:
+        click.echo("No events.")
+        return
+    for f in files[:limit]:
+        data = read_json(f)
+        if data is None:
+            continue
+        ts = _fmt_ts(data.get("detected_at", "?"))
+        task = data.get("task_id", "?")
+        click.echo(f"  {ts}  {task}  {f.name}")
+
+
+@events.command("show")
+@click.argument("name", default="latest")
+def events_show(name: str) -> None:
+    """Show a single event (by filename or 'latest')."""
+    if not _WATCH_EVENTS_DIR.exists():
+        raise click.ClickException("No events directory.")
+    if name == "latest":
+        files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
+        if not files:
+            raise click.ClickException("No events found.")
+        target = files[0]
+    else:
+        target = _WATCH_EVENTS_DIR / name
+        if not target.exists():
+            target = _WATCH_EVENTS_DIR / f"{name}.json"
+    if not target.exists():
+        raise click.ClickException(f"Event file not found: {name}")
+    data = read_json(target)
+    if data is None:
+        raise click.ClickException(f"Invalid event file: {target.name}")
+    click.echo(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+@events.command("tail")
+@click.option("-n", "--limit", default=5, help="Initial events to show")
+def events_tail(limit: int) -> None:
+    """Follow watch events in real-time (Ctrl-C to stop)."""
+    import time
+
+    _WATCH_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    # Show existing events first
+    existing = sorted(_WATCH_EVENTS_DIR.glob("*.json"))
+    for f in existing[-limit:]:
+        data = read_json(f)
+        if data:
+            ts = _fmt_ts(data.get("detected_at", "?"))
+            click.echo(f"  {ts}  {data.get('task_id', '?')}  {f.name}")
+        seen.add(f.name)
+    click.echo("--- following (Ctrl-C to stop) ---")
+    try:
+        while True:
+            for f in sorted(_WATCH_EVENTS_DIR.glob("*.json")):
+                if f.name not in seen:
+                    seen.add(f.name)
+                    data = read_json(f)
+                    if data:
+                        ts = _fmt_ts(data.get("detected_at", "?"))
+                        click.echo(f"  {ts}  {data.get('task_id', '?')}  {f.name}")
+            time.sleep(1)
+    except KeyboardInterrupt:
+        click.echo("\nStopped.")
+
+
+@events.command("clear")
+@click.option("--force", is_flag=True, help="Skip confirmation")
+def events_clear(force: bool) -> None:
+    """Delete all watch-event signal files."""
+    if not _WATCH_EVENTS_DIR.exists():
+        click.echo("No events to clear.")
+        return
+    files = list(_WATCH_EVENTS_DIR.glob("*.json"))
+    if not files:
+        click.echo("No events to clear.")
+        return
+    if not force:
+        click.confirm(f"Delete {len(files)} event(s)?", abort=True)
+    for f in files:
+        f.unlink(missing_ok=True)
+    click.echo(f"Cleared {len(files)} event(s).")
 
 
 @main.command()
