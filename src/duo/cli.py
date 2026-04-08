@@ -450,7 +450,7 @@ def merge(name: str, dry_run: bool) -> None:
     click.echo("Fetching and rebasing...")
     r = _run_git(["fetch", "origin", "main"], cwd=worktree, check=False)
     if r.returncode != 0:
-        click.echo("Warning: fetch failed, proceeding with local state")
+        click.echo("Warning: fetch failed, proceeding with local state", err=True)
 
     r = _run_git(["rebase", "origin/main"], cwd=worktree, check=False)
     if r.returncode != 0:
@@ -526,10 +526,13 @@ def stop(name: str) -> None:
         return
 
     # Kill the pane but preserve worktree and branch
-    subprocess.run(
+    r = subprocess.run(
         ["tmux", "kill-pane", "-t", task.pane_label],
         capture_output=True,
+        text=True,
     )
+    if r.returncode != 0:
+        click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
 
     previous = task.status.value
     transition(task, TaskStatus.BLOCKED)
@@ -552,10 +555,13 @@ def kill(name: str) -> None:
         sys.exit(1)
 
     # Try to kill the pane
-    subprocess.run(
+    r = subprocess.run(
         ["tmux", "kill-pane", "-t", task.pane_label],
         capture_output=True,
+        text=True,
     )
+    if r.returncode != 0:
+        click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
 
     # Find parent repo
     main_worktree = None

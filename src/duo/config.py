@@ -34,8 +34,8 @@ def load_config() -> dict[str, Any]:
         try:
             stored = json.loads(CONFIG_PATH.read_text())
             config.update(stored)
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Config file corrupted or empty, using defaults: %s", e)
     return config
 
 

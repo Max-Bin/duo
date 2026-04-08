@@ -45,7 +45,8 @@ def age(iso_ts: str | None) -> float:
         dt = datetime.fromisoformat(iso_ts)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=UTC)
-        return (datetime.now(UTC) - dt).total_seconds()
+        elapsed = (datetime.now(UTC) - dt).total_seconds()
+        return max(0.0, elapsed)  # Protect against future timestamps
     except ValueError:
         logger.debug("Failed to parse timestamp: %s", iso_ts)
         return float("inf")

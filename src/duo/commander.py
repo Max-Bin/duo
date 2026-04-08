@@ -220,7 +220,11 @@ def start_session(task: Task) -> None:
     name_pane(pane_id, task.pane_label)
 
     # Tile layout for balance
-    subprocess.run(["tmux", "select-layout", "tiled"], capture_output=True)
+    _layout = subprocess.run(
+        ["tmux", "select-layout", "tiled"], capture_output=True, text=True
+    )
+    if _layout.returncode != 0:
+        logger.warning("select-layout failed: %s", _layout.stderr.strip())
 
     # cd to worktree, then start copilot (no -C flag available)
     time.sleep(_SESSION_SPLIT_WAIT)
