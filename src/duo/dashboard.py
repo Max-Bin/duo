@@ -161,7 +161,12 @@ def run_dashboard(task_ids: list[str] | None = None, refresh_rate: float = 2.0) 
                 )
 
                 live.update(layout)
-                time.sleep(refresh_rate)
+                # Sleep in small increments for responsive Ctrl+C handling
+                _remaining = refresh_rate
+                while _remaining > 0:
+                    _chunk = min(_remaining, 0.25)
+                    time.sleep(_chunk)
+                    _remaining -= _chunk
         except KeyboardInterrupt:
             pass
 

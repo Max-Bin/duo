@@ -589,7 +589,11 @@ def send_task_prompt(task: Task, prompt: str) -> None:
         return
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
-    prompt_path.write_text(prompt)
+    try:
+        prompt_path.write_text(prompt, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Failed to write prompt file %s: %s", prompt_path, exc)
+        raise
 
     # Wait for dialog then send (all post-bootstrap interaction goes through dialog)
     if not wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_SEND):
@@ -630,8 +634,12 @@ def send_task_prompt(task: Task, prompt: str) -> None:
 def resend_last_prompt(task: Task) -> None:
     """Resend the last prompt (e.g. after ack timeout)."""
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-    if prompt_path.exists():
-        prompt = prompt_path.read_text()
+    try:
+        prompt = prompt_path.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("Cannot read prompt file %s — skipping resend", prompt_path)
+        return
+    if prompt:
         # Check PR budget before consuming a Premium Request
         if not _check_pr_budget(task):
             _escalate_pr_budget(task, task.current_step, task.current_attempt)

@@ -603,6 +603,30 @@ class TestAppendEventEdgeCases:
         lines_after = len(task.journal_path.read_text().splitlines())
         assert lines_after < lines_before
 
+    def test_journal_rotation_oserror_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Journal rotation OSError is caught and event still appended."""
+        import duo.protocol
+
+        task = create_task("rotate-err", "d", "/w", "b", "c", [_make_subtask()])
+        for i in range(20):
+            append_event(task, f"event_{i}", {"i": i})
+        monkeypatch.setattr(duo.protocol, "MAX_JOURNAL_BYTES", 100)
+        # Patch Path.read_text to fail only for the journal path
+        _orig_read_text = Path.read_text
+
+        def _guarded_read_text(self, *a, **kw):
+            if self == task.journal_path:
+                raise OSError("simulated disk error")
+            return _orig_read_text(self, *a, **kw)
+
+        monkeypatch.setattr(Path, "read_text", _guarded_read_text)
+        # Should NOT raise — OSError caught in rotation, event still appended
+        append_event(task, "after_error", {})
+        # Restore read_text only (keep TASKS_DIR patched) to verify journal
+        monkeypatch.setattr(Path, "read_text", _orig_read_text)
+        content = task.journal_path.read_text()
+        assert "after_error" in content
+
 
 # ---------------------------------------------------------------------------
 # list_tasks edge cases

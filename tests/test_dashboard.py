@@ -288,6 +288,26 @@ class TestRunDashboard:
         # Should not raise
         run_dashboard()
 
+    @patch("duo.dashboard.Console")
+    @patch("duo.dashboard.Live")
+    def test_run_dashboard_chunked_sleep(self, mock_live, mock_console):
+        """Chunked sleep loop decrements _remaining before exit."""
+        from duo.dashboard import run_dashboard
+
+        mock_live.return_value.__enter__ = lambda s: s
+        mock_live.return_value.__exit__ = lambda s, *a: False
+        call_count = 0
+
+        def _sleep_then_raise(_duration):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 1:
+                raise KeyboardInterrupt
+
+        with patch("duo.dashboard.time.sleep", side_effect=_sleep_then_raise):
+            run_dashboard(refresh_rate=0.3)
+        assert call_count == 2
+
     @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
     @patch("duo.dashboard.Console")
     @patch("duo.dashboard.Live")

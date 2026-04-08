@@ -1158,6 +1158,21 @@ class TestStartSessionError:
         events = read_jsonl(task.journal_path)
         assert any(e.get("event") == "dialog_timeout" for e in events)
 
+    def test_send_task_prompt_write_oserror(self, monkeypatch: pytest.MonkeyPatch):
+        """OSError writing prompt file is logged and re-raised."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        _orig_write_text = Path.write_text
+
+        def _guarded_write_text(self, *a, **kw):
+            if "prompt-" in str(self):
+                raise OSError("read-only filesystem")
+            return _orig_write_text(self, *a, **kw)
+
+        monkeypatch.setattr(Path, "write_text", _guarded_write_text)
+        with pytest.raises(OSError, match="read-only filesystem"):
+            send_task_prompt(task, "prompt")
+
 
 # ---------------------------------------------------------------------------
 # resend_last_prompt

@@ -321,12 +321,19 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
     """Append an event to the task's journal."""
     task.journal_path.parent.mkdir(parents=True, exist_ok=True)
     journal = task.journal_path
-    if journal.exists() and journal.stat().st_size > MAX_JOURNAL_BYTES:
-        # Rotate: keep last half
-        lines = journal.read_text().splitlines()
-        half = len(lines) // 2
-        journal.write_text("\n".join(lines[half:]) + "\n")
-        logger.info("Rotated journal for task '%s' (%d entries removed)", task.id, half)
+    try:
+        if journal.exists() and journal.stat().st_size > MAX_JOURNAL_BYTES:
+            # Rotate: keep last half
+            lines = journal.read_text(encoding="utf-8").splitlines()
+            half = len(lines) // 2
+            journal.write_text(
+                "\n".join(lines[half:]) + "\n", encoding="utf-8"
+            )
+            logger.info(
+                "Rotated journal for task %r (%d entries removed)", task.id, half
+            )
+    except OSError:
+        logger.warning("Journal rotation failed for task %r — skipping", task.id)
     entry = {"ts": now_iso(), "event": event, "data": data or {}}
     with open(task.journal_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
