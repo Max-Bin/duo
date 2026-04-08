@@ -496,7 +496,7 @@ class TestRetry:
         delays = [c[0][0] for c in mock_time.sleep.call_args_list]
         # Jitter adds ±20%, so check within tolerance
         expected = [1.0, 2.0, 4.0]
-        for actual, base in zip(delays, expected):
+        for actual, base in zip(delays, expected, strict=True):
             assert base * 0.75 <= actual <= base * 1.25, (
                 f"delay {actual} not within ±25% of {base}"
             )

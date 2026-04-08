@@ -119,16 +119,13 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
     try:
         result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=_GIT_TIMEOUT)
     except FileNotFoundError:
-        click.echo("Error: git is not installed. Install: brew install git (macOS) or apt install git (Linux)", err=True)
-        sys.exit(1)
+        raise click.ClickException("git is not installed. Install: brew install git (macOS) or apt install git (Linux)") from None
     except subprocess.TimeoutExpired:
         cmd_str = " ".join(["git", *args])
-        click.echo(f"Error: `{cmd_str}` timed out after {_GIT_TIMEOUT}s. Try `duo doctor` to check system state.", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"`{cmd_str}` timed out after {_GIT_TIMEOUT}s. Try `duo doctor` to check system state.") from None
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
-        click.echo(f"Error: `{cmd_str}` failed: {result.stderr.strip()[:500]}", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"`{cmd_str}` failed: {result.stderr.strip()[:500]}")
     return result
 
 
@@ -147,9 +144,9 @@ def main(ctx: click.Context, verbose: bool) -> None:
     try:
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
     except (OSError, PermissionError) as e:
-        click.echo(f"Error: cannot create tasks directory '{TASKS_DIR}': {e}", err=True)
-        click.echo("Hint: check write permissions or run `duo doctor`.", err=True)
-        sys.exit(1)
+        raise click.ClickException(
+            f"cannot create tasks directory '{TASKS_DIR}': {e}\nHint: check write permissions or run `duo doctor`."
+        ) from None
 
 
 def _create_worktree(name: str, repo: str) -> tuple[str, str]:
@@ -217,11 +214,9 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
     # Check for duplicate task
     existing = load_task(name)
     if existing is not None:
-        click.echo(
-            f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first."
         )
-        sys.exit(1)
 
     # Acquire lockfile to prevent concurrent duplicate creation (TOCTOU)
     lock_path = TASKS_DIR / f".{name}.lock"
@@ -231,20 +226,19 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
         lock_fd = open(lock_path, "w")  # noqa: SIM115
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError):
-        click.echo(f"Error: task '{name}' is being created by another process. Wait and retry, or run `duo cleanup` if stuck.", err=True)
         if lock_fd is not None:
             lock_fd.close()
-        sys.exit(1)
+        raise click.ClickException(
+            f"task '{name}' is being created by another process. Wait and retry, or run `duo cleanup` if stuck."
+        ) from None
 
     try:
         # Re-check after acquiring lock
         existing = load_task(name)
         if existing is not None:
-            click.echo(
-                f"Error: task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first.",
-                err=True,
+            raise click.ClickException(
+                f"task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first."
             )
-            sys.exit(1)
 
         worktree, base_commit = _create_worktree(name, repo)
         branch = f"duo/{name}"
@@ -309,15 +303,12 @@ def send(name: str, prompt: str) -> None:
 
     _validate_task_name(name)
     if not prompt or not prompt.strip():
-        click.echo("Error: prompt cannot be empty. Usage: duo send TASK_NAME \"your instruction\"", err=True)
-        sys.exit(1)
+        raise click.UsageError("prompt cannot be empty. Usage: duo send TASK_NAME \"your instruction\"")
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     if task.status == TaskStatus.QUEUED:
         click.echo(
@@ -339,11 +330,9 @@ def status(name: str | None = None, *, as_json: bool = False) -> None:
     if name:
         task = load_task(name)
         if task is None:
-            click.echo(
-                f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-                err=True,
+            raise click.ClickException(
+                f"task '{name}' not found. Run 'duo list' to see available tasks."
             )
-            sys.exit(1)
         if as_json:
             output = {
                 "id": task.id,
@@ -467,11 +456,9 @@ def watch(names: tuple[str, ...], timeout: float, interval: float, once: bool) -
       duo watch --once    # foreground: handle one dialog, return
     """
     if timeout <= 0:
-        click.echo("Error: --timeout must be > 0. Example: --timeout 60", err=True)
-        sys.exit(1)
+        raise click.UsageError("--timeout must be > 0. Example: --timeout 60")
     if interval <= 0:
-        click.echo("Error: --interval must be > 0. Example: --interval 5", err=True)
-        sys.exit(1)
+        raise click.UsageError("--interval must be > 0. Example: --interval 5")
     from duo.commander import watch_tasks
 
     task_ids = list(names) if names else None
@@ -510,19 +497,15 @@ def merge(name: str, dry_run: bool) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     if task.status != TaskStatus.COMPLETED:
-        click.echo(
-            f"Error: task '{name}' is '{task.status.value}', not 'completed'. "
-            f"Check progress with 'duo status {name}' or 'duo inspect {name}'.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' is '{task.status.value}', not 'completed'. "
+            f"Check progress with 'duo status {name}' or 'duo inspect {name}'."
         )
-        sys.exit(1)
 
     worktree = task.worktree
 
@@ -535,11 +518,9 @@ def merge(name: str, dry_run: bool) -> None:
         return
 
     if not os.path.exists(worktree):
-        click.echo(
-            f"Error: worktree '{worktree}' does not exist. Task may have been cleaned up.",
-            err=True,
+        raise click.ClickException(
+            f"worktree '{worktree}' does not exist. Task may have been cleaned up."
         )
-        sys.exit(1)
 
     # Fetch and rebase
     click.echo("Fetching and rebasing...")
@@ -549,13 +530,12 @@ def merge(name: str, dry_run: bool) -> None:
 
     r = _run_git(["rebase", "origin/main"], cwd=worktree, check=False)
     if r.returncode != 0:
-        click.echo(f"Rebase conflict! Escalating to human.\n{r.stderr}", err=True)
         abort = _run_git(["rebase", "--abort"], cwd=worktree, check=False)
         if abort.returncode != 0:
             click.echo(
                 f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True
             )
-        sys.exit(1)
+        raise click.ClickException(f"Rebase conflict! Escalating to human.\n{r.stderr}")
 
     # Get parent repo from worktree
     main_worktree: str | None = None
@@ -570,18 +550,15 @@ def merge(name: str, dry_run: bool) -> None:
             break
 
     if main_worktree is None:
-        click.echo(
-            "Error: cannot find main worktree. Ensure the task's worktree was created from a valid git repository.",
-            err=True,
+        raise click.ClickException(
+            "cannot find main worktree. Ensure the task's worktree was created from a valid git repository."
         )
-        sys.exit(1)
 
     # ff-only merge
     click.echo(f"Merging {task.branch} into main...")
     r = _run_git(["merge", task.branch, "--ff-only"], cwd=main_worktree, check=False)
     if r.returncode != 0:
-        click.echo(f"Merge failed: {r.stderr}", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"Merge failed: {r.stderr}")
 
     # Cleanup
     click.echo("Cleaning up worktree and branch...")
@@ -606,11 +583,9 @@ def stop(name: str) -> None:
 
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     if task.status in terminal_states:
@@ -646,11 +621,9 @@ def kill(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     # Try to kill the pane
     r = subprocess.run(
@@ -710,15 +683,12 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
     try:
         size = file_path.stat().st_size
         if size > _MAX_BATCH_FILE_BYTES:
-            click.echo(
-                f"Error: batch file '{file}' too large ({size} bytes, max {_MAX_BATCH_FILE_BYTES})",
-                err=True,
+            raise click.UsageError(
+                f"batch file '{file}' too large ({size} bytes, max {_MAX_BATCH_FILE_BYTES})"
             )
-            sys.exit(1)
         content = file_path.read_text()
     except (FileNotFoundError, PermissionError, OSError) as e:
-        click.echo(f"Error: cannot read batch file '{file}': {e}", err=True)
-        sys.exit(1)
+        raise click.UsageError(f"cannot read batch file '{file}': {e}") from None
 
     if file_path.suffix in (".yaml", ".yml"):
         try:
@@ -726,36 +696,32 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
 
             tasks_data = yaml.safe_load(content)
         except ImportError:
-            click.echo(
-                "Error: PyYAML not installed. Run: uv pip install pyyaml", err=True
-            )
-            click.echo("Or use JSON format instead.", err=True)
-            sys.exit(1)
+            raise click.UsageError(
+                "PyYAML not installed. Run: uv pip install pyyaml\nOr use JSON format instead."
+            ) from None
         except yaml.YAMLError as e:
-            click.echo(f"Error: invalid YAML in '{file}': {e}", err=True)
-            click.echo("Hint: validate with `python -c \"import yaml; yaml.safe_load(open('{file}'))\"` or use JSON.", err=True)
-            sys.exit(1)
+            raise click.UsageError(
+                f"invalid YAML in '{file}': {e}\n"
+                "Hint: validate with `python -c \"import yaml; yaml.safe_load(open('{file}'))\"` or use JSON."
+            ) from None
     else:
         try:
             tasks_data = json.loads(content)
         except json.JSONDecodeError as e:
-            click.echo(f"Error: invalid JSON in '{file}': {e}", err=True)
-            click.echo(f"Hint: validate with `python -m json.tool {file}`.", err=True)
-            sys.exit(1)
+            raise click.UsageError(
+                f"invalid JSON in '{file}': {e}\nHint: validate with `python -m json.tool {file}`."
+            ) from None
 
     if not isinstance(tasks_data, dict) or "tasks" not in tasks_data:
         if isinstance(tasks_data, list):
             tasks_data = {"tasks": tasks_data}
         else:
-            click.echo(
-                "Error: file must contain a 'tasks' key with a list of tasks. See examples/tasks.json",
-                err=True,
+            raise click.UsageError(
+                "file must contain a 'tasks' key with a list of tasks. See examples/tasks.json"
             )
-            sys.exit(1)
 
     if not tasks_data.get("tasks"):
-        click.echo("No tasks defined in file.", err=True)
-        sys.exit(1)
+        raise click.UsageError("No tasks defined in file.")
 
     tasks_list: list[dict[str, Any]] = list(tasks_data["tasks"])
 
@@ -768,10 +734,9 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
             dupes.append(n)
         seen.add(n)
     if dupes:
-        click.echo(
-            f"Error: duplicate task names in batch file: {', '.join(dupes)}", err=True
+        raise click.UsageError(
+            f"duplicate task names in batch file: {', '.join(dupes)}"
         )
-        sys.exit(1)
 
     return tasks_list
 
@@ -919,8 +884,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         # Single task audit
         task = load_task(name)
         if task is None:
-            click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
-            sys.exit(1)
+            raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
         events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
 
@@ -995,13 +959,11 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
 def dashboard(names: tuple[str, ...], refresh: float) -> None:
     """Live terminal dashboard for task monitoring."""
     if refresh <= 0:
-        click.echo("Error: --refresh must be > 0. Example: --refresh 2", err=True)
-        sys.exit(1)
+        raise click.UsageError("--refresh must be > 0. Example: --refresh 2")
     try:
         from duo.dashboard import run_dashboard
     except ImportError:
-        click.echo("Error: 'rich' library required. Run: uv add rich", err=True)
-        sys.exit(1)
+        raise click.ClickException("'rich' library required. Run: uv add rich") from None
 
     task_ids = list(names) if names else None
     run_dashboard(task_ids, refresh_rate=refresh)
@@ -1019,11 +981,9 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: boo
 
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     events = read_jsonl(task.journal_path)
     if not events:
@@ -1083,11 +1043,9 @@ def inspect(name: str, as_json: bool, include_files: bool) -> None:
 
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     if as_json:
         data: dict[str, Any] = {
@@ -1291,8 +1249,7 @@ def init(repo: str) -> None:
 
     # Must be a git repo
     if not (repo_path / ".git").exists():
-        click.echo("Error: not a git repository. Run 'git init' first.", err=True)
-        sys.exit(1)
+        raise click.ClickException("not a git repository. Run 'git init' first.")
 
     created: list[str] = []
 
@@ -1484,7 +1441,7 @@ def doctor() -> None:
 
     click.echo(f"\n{checks_passed}/{checks_total} checks passed")
     if critical_failed:
-        sys.exit(1)
+        raise click.ClickException("critical checks failed")
 
 
 @main.command()
@@ -1499,8 +1456,7 @@ def resume(name: str | None) -> None:
     if name is not None:
         task = load_task(name)
         if task is None:
-            click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
-            sys.exit(1)
+            raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
         if task.status in TERMINAL_STATES:
             click.echo(f"Task '{name}' is already completed.")
             return
@@ -1536,15 +1492,12 @@ def retry(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
     if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
-        click.echo(
-            f"Error: task '{name}' is '{task.status.value}', not retryable."
-            " Only FAILED or BLOCKED tasks can be retried.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' is '{task.status.value}', not retryable."
+            " Only FAILED or BLOCKED tasks can be retried."
         )
-        sys.exit(1)
     transition(task, TaskStatus.SESSION_STARTING)
     click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
 
@@ -1563,8 +1516,7 @@ def config_get(key: str) -> None:
 
     value = get_config(key)
     if value is None:
-        click.echo(f"Unknown key: {key}", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"Unknown key: {key}")
     click.echo(f"{key} = {value}")
 
 
@@ -1714,11 +1666,9 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
     """Export task report (events, files changed, summary)."""
     task = load_task(name)
     if task is None:
-        click.echo(
-            f"Error: task '{name}' not found. Run 'duo list' to see available tasks.",
-            err=True,
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
         )
-        sys.exit(1)
 
     if fmt == "jsonl":
         events = read_jsonl(task.journal_path) if task.journal_path.exists() else []
@@ -1754,18 +1704,15 @@ def _parse_age(age_str: str) -> int:
     import re
     match = re.match(r"^(\d+)([dhms])$", age_str)
     if not match:
-        click.echo("Error: invalid age format. Use: 7d, 24h, 30m, 3600s", err=True)
-        sys.exit(1)
+        raise click.UsageError("invalid age format. Use: 7d, 24h, 30m, 3600s")
     value, unit = int(match.group(1)), match.group(2)
     if value == 0:
-        click.echo("Error: age value must be > 0", err=True)
-        sys.exit(1)
+        raise click.UsageError("age value must be > 0")
     seconds = value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
     if seconds > _MAX_AGE_SECONDS:
-        click.echo(
-            f"Error: age '{age_str}' too large (max ~1000 years).", err=True
+        raise click.UsageError(
+            f"age '{age_str}' too large (max ~1000 years)."
         )
-        sys.exit(1)
     return seconds
 
 
@@ -1855,16 +1802,13 @@ def diff_cmd(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        click.echo(f"Error: task '{name}' not found. Run 'duo list' to see available tasks.", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
 
     if not Path(task.worktree).exists():
-        click.echo(
-            f"Error: worktree '{task.worktree}' not found. "
-            "It may have been cleaned up. Run 'duo cleanup' to remove stale tasks.",
-            err=True,
+        raise click.ClickException(
+            f"worktree '{task.worktree}' not found. "
+            "It may have been cleaned up. Run 'duo cleanup' to remove stale tasks."
         )
-        sys.exit(1)
 
     result = _run_git(["diff", task.base_commit], cwd=task.worktree, check=False)
     if result.stdout:

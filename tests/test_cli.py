@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 from hypothesis import given
@@ -1017,13 +1018,13 @@ class TestPropertyBased:
 
     @given(st.text().filter(lambda s: not re.match(r"^\d+[dhms]$", s)))
     def test_parse_age_rejects_invalid(self, age_str: str):
-        """Invalid age strings cause sys.exit."""
-        with pytest.raises(SystemExit):
+        """Invalid age strings raise UsageError."""
+        with pytest.raises(click.UsageError):
             _parse_age(age_str)
 
     def test_parse_age_rejects_too_large(self):
         """Age exceeding ~1000 years is rejected."""
-        with pytest.raises(SystemExit):
+        with pytest.raises(click.UsageError):
             _parse_age("999999d")
 
     @given(
@@ -1077,7 +1078,7 @@ class TestCreateWorktree:
             mock_run.return_value = MagicMock(
                 returncode=128, stdout="", stderr="not a git repo"
             )
-            with pytest.raises(SystemExit):
+            with pytest.raises(click.ClickException):
                 _create_worktree("fail-task", "/not/a/repo")
 
     def test_worktree_add_fails(self, tmp_path: Path):
@@ -1090,7 +1091,7 @@ class TestCreateWorktree:
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
                 MagicMock(returncode=1, stdout="", stderr="branch already exists"),
             ]
-            with pytest.raises(SystemExit):
+            with pytest.raises(click.ClickException):
                 _create_worktree("dup-task", "/fake/repo")
 
 
@@ -1632,21 +1633,21 @@ class TestLoadBatchFile:
             return real_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=fake_import):
-            with pytest.raises(SystemExit):
+            with pytest.raises(click.UsageError):
                 _load_batch_file(str(f))
 
     def test_missing_tasks_key(self, tmp_path: Path):
-        """JSON file without 'tasks' key exits with error."""
+        """JSON file without 'tasks' key raises UsageError."""
         f = tmp_path / "bad.json"
         f.write_text('{"items": []}')
-        with pytest.raises(SystemExit):
+        with pytest.raises(click.UsageError):
             _load_batch_file(str(f))
 
     def test_empty_tasks_list(self, tmp_path: Path):
-        """JSON file with empty tasks list exits."""
+        """JSON file with empty tasks list raises UsageError."""
         f = tmp_path / "empty.json"
         f.write_text('{"tasks": []}')
-        with pytest.raises(SystemExit):
+        with pytest.raises(click.UsageError):
             _load_batch_file(str(f))
 
     def test_load_yaml_safe_load_path(self, tmp_path: Path):
@@ -1665,8 +1666,8 @@ class TestLoadBatchFile:
             mock_yaml.safe_load.assert_called_once()
 
     def test_load_batch_file_read_error(self):
-        """_load_batch_file exits when the file cannot be read."""
-        with pytest.raises(SystemExit):
+        """_load_batch_file raises UsageError when the file cannot be read."""
+        with pytest.raises(click.UsageError):
             _load_batch_file("/no/such/path/batch.json")
 
     def test_load_batch_yaml_parse_error(self, tmp_path: Path):
@@ -1681,7 +1682,7 @@ class TestLoadBatchFile:
         mock_yaml.safe_load.side_effect = yaml_error("parse error")
 
         with patch.dict(sys.modules, {"yaml": mock_yaml}):
-            with pytest.raises(SystemExit):
+            with pytest.raises(click.UsageError):
                 _load_batch_file(str(f))
 
 
@@ -1756,7 +1757,7 @@ class TestCreateTaskFromBatchDef:
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="not a git repo"
             )
-            with pytest.raises(SystemExit):
+            with pytest.raises(click.ClickException):
                 _create_single_task(defn, str(tmp_path))
 
 
@@ -3078,10 +3079,10 @@ class TestBatchValidation:
     """Additional edge cases for batch file validation."""
 
     def test_batch_tasks_null(self, tmp_path: Path):
-        """_load_batch_file exits when 'tasks' value is null."""
+        """_load_batch_file raises UsageError when 'tasks' value is null."""
         f = tmp_path / "bad.json"
         f.write_text(json.dumps({"tasks": None}))
-        with pytest.raises(SystemExit):
+        with pytest.raises(click.UsageError):
             _load_batch_file(str(f))
 
     def test_batch_missing_name_in_task_def(
