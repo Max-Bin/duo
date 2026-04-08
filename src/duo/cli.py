@@ -225,7 +225,7 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_fd: Any = None
     try:
-        lock_fd = open(lock_path, "w")  # noqa: SIM115
+        lock_fd = open(lock_path, "w", encoding="utf-8")  # noqa: SIM115
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError):
         if lock_fd is not None:
@@ -1322,7 +1322,7 @@ def init(repo: str) -> None:
                 needs_entry = False
                 break
     if needs_entry:
-        with open(gitignore, "a") as f:
+        with open(gitignore, "a", encoding="utf-8") as f:
             if content and not content.endswith("\n"):
                 f.write("\n")
             f.write(".duo/\n")

@@ -272,7 +272,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
-        with open(tmp, "w") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             f.write(json_str)
             f.flush()
             os.fsync(f.fileno())
@@ -301,7 +301,7 @@ def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
         result = deque(maxlen=tail)
     else:
         result = []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for raw in f:
             stripped = raw.strip()
             if stripped:
@@ -328,7 +328,7 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
         journal.write_text("\n".join(lines[half:]) + "\n")
         logger.info("Rotated journal for task '%s' (%d entries removed)", task.id, half)
     entry = {"ts": now_iso(), "event": event, "data": data or {}}
-    with open(task.journal_path, "a") as f:
+    with open(task.journal_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         f.flush()
         os.fsync(f.fileno())
