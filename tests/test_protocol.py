@@ -855,6 +855,22 @@ class TestReplayStateMalformed:
             )
         assert replay_state(task) == TaskStatus.CREATED
 
+    def test_last_status_wins(self):
+        """replay_state uses the last status_changed event."""
+        task = create_task("replay-last", "d", "/w", "b", "c", [_make_subtask()])
+        with open(task.journal_path, "a") as f:
+            f.write(
+                json.dumps(
+                    {"event": "status_changed", "data": {"to": "session_starting"}}
+                )
+                + "\n"
+            )
+            f.write(
+                json.dumps({"event": "status_changed", "data": {"to": "failed"}})
+                + "\n"
+            )
+        assert replay_state(task) == TaskStatus.FAILED
+
 
 # ---------------------------------------------------------------------------
 # Security: path traversal protection

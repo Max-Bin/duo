@@ -689,6 +689,17 @@ class TestClaudeCommander:
             assert "src" in ctx
             assert "tests" in ctx
 
+    def test_multi_config_python_wins(self) -> None:
+        """When both pyproject.toml and package.json exist, Python wins (elif chain)."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "pyproject.toml").touch()
+            (Path(tmp) / "package.json").write_text("{}")
+            ctx = _detect_project_context(tmp)
+            assert "Python" in ctx
+            assert "Node.js" not in ctx
+
     def test_write_claude_md_creates_file(self) -> None:
         """write_commander_claude_md creates CLAUDE.md in worktree."""
         task = _make_task()

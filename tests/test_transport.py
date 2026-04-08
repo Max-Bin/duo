@@ -613,6 +613,20 @@ class TestIsInDialog:
         )
         assert is_in_dialog("test-pane") is False
 
+    @patch("subprocess.run")
+    def test_box_without_options_rejected(self, mock_run):
+        """Box borders without numbered options → not a dialog."""
+        content = "╭─ Info ─╮\nSome text here\n╰────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert is_in_dialog("test-pane") is False
+
+    @patch("subprocess.run")
+    def test_options_without_box_rejected(self, mock_run):
+        """Numbered options without box borders → not a dialog."""
+        content = "1. Yes\n2. No\n3. Maybe"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert is_in_dialog("test-pane") is False
+
 
 # ── wait_for_idle ────────────────────────────────────────────────────
 
@@ -822,6 +836,26 @@ class TestIsAtMainPromptEdgeCases:
         for marker in ("◉ ", "◎ ", "○ "):
             content = f"{marker}Thinking\n❯ Type @ to mention files"
             assert _is_at_main_prompt(content) is False, marker
+
+    def test_shift_tab_skipped(self) -> None:
+        """shift+tab line is skipped when scanning for prompt."""
+        content = "shift+tab to switch\n❯ Type @ to mention files"
+        assert _is_at_main_prompt(content) is True
+
+    def test_remaining_reqs_skipped(self) -> None:
+        """Remaining reqs line is skipped when scanning for prompt."""
+        content = "Remaining reqs: 5\n❯"
+        assert _is_at_main_prompt(content) is True
+
+    def test_non_prompt_text_breaks_scan(self) -> None:
+        """Non-separator, non-prompt text between bottom and ❯ stops scan."""
+        # ❯ is NOT the last stripped line — 'Some output' appears below
+        content = "❯ Type @ to mention files\nSome output"
+        assert _is_at_main_prompt(content) is False
+
+    def test_mention_files_prompt(self) -> None:
+        """❯ with 'mention files' text is at prompt."""
+        assert _is_at_main_prompt("❯ mention files to include") is True
 
 
 # ── is_permission_dialog ──────────────────────────────────────────────
