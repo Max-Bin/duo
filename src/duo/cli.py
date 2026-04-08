@@ -91,6 +91,20 @@ def _fmt_ts(ts: str) -> str:
         return "?"
 
 
+_GIT_TIMEOUT = 30  # seconds for git subprocess calls
+_TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
+_MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
+
+
+def _safe_join(base: str, name: str) -> str:
+    """Join base directory and name, rejecting path traversal."""
+    base_path = Path(base).resolve()
+    joined = (base_path / name).resolve()
+    if not str(joined).startswith(str(base_path) + os.sep) and joined != base_path:
+        raise click.BadParameter(f"Path traversal detected: {name}")
+    return str(joined)
+
+
 def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
     """Run a git command with consistent error handling.
 
@@ -103,13 +117,13 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
         CompletedProcess result
     """
     try:
-        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=30)
+        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=_GIT_TIMEOUT)
     except FileNotFoundError:
         click.echo("Error: git is not installed. Install: brew install git (macOS) or apt install git (Linux)", err=True)
         sys.exit(1)
     except subprocess.TimeoutExpired:
         cmd_str = " ".join(["git", *args])
-        click.echo(f"Error: `{cmd_str}` timed out after 30s. Try `duo doctor` to check system state.", err=True)
+        click.echo(f"Error: `{cmd_str}` timed out after {_GIT_TIMEOUT}s. Try `duo doctor` to check system state.", err=True)
         sys.exit(1)
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
@@ -141,7 +155,7 @@ def main(ctx: click.Context, verbose: bool) -> None:
 def _create_worktree(name: str, repo: str) -> tuple[str, str]:
     """Create git worktree for task. Returns (worktree_path, base_commit)."""
     worktree_base = get_config("worktree_base_path")
-    worktree = os.path.join(worktree_base, name)
+    worktree = _safe_join(worktree_base, name)
     branch = f"duo/{name}"
 
     result = _run_git(["rev-parse", "HEAD"], cwd=repo)
@@ -613,7 +627,7 @@ def stop(name: str) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=10,
+        timeout=_TMUX_TIMEOUT,
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
@@ -644,7 +658,7 @@ def kill(name: str) -> None:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=10,
+        timeout=_TMUX_TIMEOUT,
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
@@ -793,7 +807,7 @@ def _create_single_task(
         return None
 
     worktree_base = get_config("worktree_base_path")
-    worktree = os.path.join(worktree_base, name)
+    worktree = _safe_join(worktree_base, name)
     branch = f"duo/{name}"
 
     # Get base commit
@@ -1450,7 +1464,7 @@ def doctor() -> None:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=10,
+            timeout=_TMUX_TIMEOUT,
         )
         tmux_ok = result.returncode == 0
     _check(
@@ -1746,7 +1760,13 @@ def _parse_age(age_str: str) -> int:
     if value == 0:
         click.echo("Error: age value must be > 0", err=True)
         sys.exit(1)
-    return value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
+    seconds = value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
+    if seconds > _MAX_AGE_SECONDS:
+        click.echo(
+            f"Error: age '{age_str}' too large (max ~1000 years).", err=True
+        )
+        sys.exit(1)
+    return seconds
 
 
 @main.command()

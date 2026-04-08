@@ -55,6 +55,8 @@ logger = logging.getLogger(__name__)
 
 _SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
+_BRIDGE_TIMEOUT = 30  # seconds for tmux-bridge subprocess calls
+
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
@@ -144,11 +146,11 @@ def bridge(cmd: list[str], *, check: bool = True) -> str:
             [_bridge_bin(), *cmd],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=_BRIDGE_TIMEOUT,
         )
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            f"tmux-bridge {cmd[0]} timed out after 30s"
+            f"tmux-bridge {cmd[0]} timed out after {_BRIDGE_TIMEOUT}s"
         ) from exc
     if check and result.returncode != 0:
         raise RuntimeError(f"tmux-bridge {cmd[0]} failed: {result.stderr.strip()}")

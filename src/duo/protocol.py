@@ -117,6 +117,13 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.FAILED: {TaskStatus.SESSION_STARTING},
     TaskStatus.COMPLETED: set(),
 }
+# FSM topology:
+#   Entry:      CREATED → QUEUED (capacity wait) or SESSION_STARTING (immediate)
+#   Happy path: SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING
+#               → RESULT_REPORTED → VERIFYING → COMPLETED
+#   Correction: VERIFYING → CORRECTING → PROMPT_SENT (loop)
+#   Recovery:   FAILED → SESSION_STARTING (restart)
+#   Terminal:   COMPLETED (no outgoing transitions)
 
 
 # === Data models ===

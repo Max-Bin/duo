@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 from duo.protocol import StepResult, Subtask, Task, append_event
 
+_GIT_TIMEOUT = 30  # seconds for git diff/ls-files
+_TEST_SUITE_TIMEOUT = 300  # seconds for acceptance test commands
+
 # === Result types ===
 
 
@@ -50,7 +53,7 @@ def git_diff_names(worktree: str) -> set[str]:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=30,
+        timeout=_GIT_TIMEOUT,
     )
     if proc.returncode != 0:
         raise RuntimeError(
@@ -68,7 +71,7 @@ def git_diff(worktree: str) -> str:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=30,
+        timeout=_GIT_TIMEOUT,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()[:500]}")
@@ -84,7 +87,7 @@ def git_untracked(worktree: str) -> list[str]:
         capture_output=True,
         text=True,
         encoding="utf-8",
-        timeout=30,
+        timeout=_GIT_TIMEOUT,
     )
     if proc.returncode != 0:
         raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()[:500]}")
@@ -103,11 +106,11 @@ def run_in_worktree(worktree: str, command: str) -> int:
     except ValueError:
         return 127
     try:
-        proc = subprocess.run(argv, shell=False, cwd=worktree, timeout=300)
+        proc = subprocess.run(argv, shell=False, cwd=worktree, timeout=_TEST_SUITE_TIMEOUT)
     except FileNotFoundError:
         return 127
     except subprocess.TimeoutExpired:
-        logger.warning("Acceptance test timed out after 300s: %s", command)
+        logger.warning("Acceptance test timed out after %ds: %s", _TEST_SUITE_TIMEOUT, command)
         return 124  # standard timeout exit code
     return proc.returncode
 

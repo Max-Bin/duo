@@ -22,6 +22,7 @@ from duo.cli import (
     _fmt_ts,
     _load_batch_file,
     _parse_age,
+    _safe_join,
     _validate_task_name,
     main,
 )
@@ -928,6 +929,25 @@ class TestConfigListEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# _safe_join
+# ---------------------------------------------------------------------------
+
+
+class TestSafeJoin:
+    def test_safe_join_normal(self, tmp_path: Path) -> None:
+        """Normal name is joined correctly."""
+        result = _safe_join(str(tmp_path), "my-task")
+        assert result == str(tmp_path / "my-task")
+
+    def test_safe_join_traversal_rejected(self, tmp_path: Path) -> None:
+        """Path traversal via '..' is rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="traversal"):
+            _safe_join(str(tmp_path), "../../../etc")
+
+
+# ---------------------------------------------------------------------------
 # _validate_task_name
 # ---------------------------------------------------------------------------
 
@@ -1000,6 +1020,11 @@ class TestPropertyBased:
         """Invalid age strings cause sys.exit."""
         with pytest.raises(SystemExit):
             _parse_age(age_str)
+
+    def test_parse_age_rejects_too_large(self):
+        """Age exceeding ~1000 years is rejected."""
+        with pytest.raises(SystemExit):
+            _parse_age("999999d")
 
     @given(
         st.dictionaries(
