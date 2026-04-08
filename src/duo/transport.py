@@ -245,8 +245,9 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
     }
     with _LOCK:
         _PR_LOG.append(entry)
-    if _pr_callback is not None:
-        _pr_callback(label, action, context)
+        callback = _pr_callback
+    if callback is not None:
+        callback(label, action, context)
 
 
 def get_pr_log() -> list[dict[str, str]]:
@@ -372,7 +373,7 @@ def approve_permission(label: str) -> None:
         if text_lower.startswith("no"):
             continue
         # Prefer "approve for session" / "approve all" / "add to allowed"
-        if "approve" in text_lower or "add" in text_lower and "allowed" in text_lower:
+        if "approve" in text_lower or ("add" in text_lower and "allowed" in text_lower):
             best = num
             break
         # Otherwise plain "Yes"

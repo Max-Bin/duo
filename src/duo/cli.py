@@ -885,6 +885,9 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
 @click.option("--refresh", default=2.0, help="Refresh rate in seconds")
 def dashboard(names: tuple[str, ...], refresh: float) -> None:
     """Live terminal dashboard for task monitoring."""
+    if refresh <= 0:
+        click.echo("Error: --refresh must be > 0", err=True)
+        sys.exit(1)
     try:
         from duo.dashboard import run_dashboard
     except ImportError:
@@ -897,7 +900,7 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 
 @main.command()
 @click.argument("name")
-@click.option("-n", "--lines", default=20, help="Number of recent events to show")
+@click.option("-n", "--lines", default=20, type=click.IntRange(1), help="Number of recent events")
 @click.option("--all", "show_all", is_flag=True, help="Show all events")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_context
@@ -1643,6 +1646,9 @@ def _parse_age(age_str: str) -> int:
         click.echo("Error: invalid age format. Use: 7d, 24h, 30m, 3600s", err=True)
         sys.exit(1)
     value, unit = int(match.group(1)), match.group(2)
+    if value == 0:
+        click.echo("Error: age value must be > 0", err=True)
+        sys.exit(1)
     return value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
 
 
