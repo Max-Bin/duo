@@ -3471,6 +3471,58 @@ class TestStartFlags:
         # Clean up env var
         monkeypatch.delenv("DUO_COPILOT_MODEL", raising=False)
 
+    def test_start_from_thinking(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """start --from-thinking reads plan.md from thinking session."""
+        fake_thinking = tmp_path / "thinking"
+        tdir = fake_thinking / "my-app"
+        tdir.mkdir(parents=True)
+        (tdir / "plan.md").write_text("# Plan: my-app\n\nBuild the app.", encoding="utf-8")
+
+        monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session"),
+            patch("duo.scheduler.enqueue_or_start", return_value="started"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "my-app"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "my-app", "--from-thinking", "--repo", str(tmp_path)],
+            )
+            assert result.exit_code == 0
+            assert "Plan: loaded from thinking session" in result.output
+
+        task = load_task("my-app")
+        assert task is not None
+        assert "Plan: my-app" in task.description
+
+    def test_start_from_thinking_no_plan(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """start --from-thinking fails if plan.md doesn't exist."""
+        fake_thinking = tmp_path / "thinking"
+        monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
+        with patch("duo.thinking.thinking_dir", return_value=fake_thinking / "no-plan"):
+            result = runner.invoke(
+                main,
+                ["start", "no-plan", "--from-thinking", "--repo", str(tmp_path)],
+            )
+        assert result.exit_code != 0
+        assert "No plan.md" in result.output
+
+    def test_start_from_thinking_empty_plan(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """start --from-thinking fails if plan.md is empty."""
+        fake_thinking = tmp_path / "thinking"
+        tdir = fake_thinking / "empty-plan"
+        tdir.mkdir(parents=True)
+        (tdir / "plan.md").write_text("", encoding="utf-8")
+
+        monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
+        result = runner.invoke(
+            main,
+            ["start", "empty-plan", "--from-thinking", "--repo", str(tmp_path)],
+        )
+        assert result.exit_code != 0
+        assert "empty" in result.output.lower()
+
 
 # ---------------------------------------------------------------------------
 # _create_single_task queue_only=True path

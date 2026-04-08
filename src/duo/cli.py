@@ -204,12 +204,34 @@ def completion(shell: str) -> None:
 @click.option("--desc", default="", help="Task description")
 @click.option("--model", default=None, help="Override copilot model for this task")
 @click.option("--queue", "start_queued", is_flag=True, help="Create task in queued state")
-def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool) -> None:
+@click.option(
+    "--from-thinking",
+    "from_thinking",
+    is_flag=True,
+    help="Use plan.md from a thinking session as the task description",
+)
+def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool, from_thinking: bool) -> None:
     """Create a task with worktree + Copilot session."""
     from duo.commander import start_session
 
     _validate_task_name(name)
     repo = os.path.abspath(repo)
+
+    if from_thinking:
+        from duo.thinking import thinking_dir
+
+        plan_path = thinking_dir(name) / "plan.md"
+        if not plan_path.exists():
+            raise click.ClickException(
+                f"No plan.md found for thinking session '{name}'. "
+                f"Run 'duo think {name} --finalize' first."
+            )
+        plan_content = plan_path.read_text(encoding="utf-8").strip()
+        if not plan_content:
+            raise click.ClickException(
+                f"plan.md for '{name}' is empty. Run 'duo think {name} --finalize' again."
+            )
+        desc = plan_content
 
     if model:
         os.environ["DUO_COPILOT_MODEL"] = model
@@ -270,6 +292,8 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
     click.echo(f"  Worktree: {worktree}")
     click.echo(f"  Branch: {branch}")
     click.echo(f"  Incarnation: {task.incarnation_id}")
+    if from_thinking:
+        click.echo("  Plan: loaded from thinking session")
 
     if start_queued:
         from duo.protocol import transition
