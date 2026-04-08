@@ -497,7 +497,8 @@ def merge(name: str, dry_run: bool) -> None:
             line.startswith("worktree ")
             and get_config("worktree_base_path") not in line
         ):
-            main_worktree = line.split(" ", 1)[1]
+            parts = line.split(" ", 1)
+            main_worktree = parts[1] if len(parts) > 1 else parts[0]
             break
 
     if main_worktree is None:
@@ -602,7 +603,8 @@ def kill(name: str) -> None:
             line.startswith("worktree ")
             and get_config("worktree_base_path") not in line
         ):
-            main_worktree = line.split(" ", 1)[1]
+            parts = line.split(" ", 1)
+            main_worktree = parts[1] if len(parts) > 1 else parts[0]
             break
     repo_cwd = main_worktree or "."
 
@@ -1400,7 +1402,7 @@ def resume(name: str | None) -> None:
         pane_alive = False
         try:
             pane_alive = is_process_alive(task.pane_label)
-        except Exception:
+        except (RuntimeError, OSError):
             click.echo(f"  Warning: could not check pane status for '{task.id}', assuming dead", err=True)
 
         if pane_alive:

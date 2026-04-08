@@ -154,6 +154,8 @@ def build_continue_prompt(task: Task) -> str:
     """Build continuation prompt (doesn't consume Premium Request)."""
     step = task.current_step
     attempt = task.current_attempt
+    if step < 1 or step > len(task.subtasks):
+        raise ValueError(f"current_step {step} out of range [1..{len(task.subtasks)}]")
     subtask = task.subtasks[step - 1]
     target_list = ", ".join(subtask.target_files)
 
@@ -240,7 +242,7 @@ def start_session(task: Task) -> None:
                 ["tmux", "kill-pane", "-t", pane_id],
                 capture_output=True, check=False,
             )
-        except Exception:
+        except (subprocess.CalledProcessError, OSError):
             pass
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)

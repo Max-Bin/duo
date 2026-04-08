@@ -542,6 +542,22 @@ class TestBuildTaskPromptEdgeCases:
             build_task_prompt(task)
 
 
+class TestBuildPromptBounds:
+    def test_continue_prompt_step_too_high(self):
+        """build_continue_prompt rejects out-of-range step."""
+        task = _make_task()
+        task.current_step = 999
+        with pytest.raises(ValueError, match="out of range"):
+            build_continue_prompt(task)
+
+    def test_continue_prompt_step_zero(self):
+        """build_continue_prompt rejects step 0."""
+        task = _make_task()
+        task.current_step = 0
+        with pytest.raises(ValueError, match="out of range"):
+            build_continue_prompt(task)
+
+
 # ---------------------------------------------------------------------------
 # _get_copilot_model
 # ---------------------------------------------------------------------------
@@ -632,7 +648,9 @@ class TestStartSessionError:
             split_result.stdout = "%99\n"
             layout_result = MagicMock()
             layout_result.returncode = 0
-            mock_run.side_effect = [split_result, layout_result]
+            kill_result = MagicMock()
+            kill_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result, kill_result]
 
             with pytest.raises(RuntimeError, match="tmux bridge error"):
                 start_session(task)
@@ -1401,7 +1419,9 @@ class TestStartSessionOrphanedPaneCleanup:
             split_result.stdout = "%77\n"
             layout_result = MagicMock()
             layout_result.returncode = 0
-            mock_run.side_effect = [split_result, layout_result]
+            kill_result = MagicMock()
+            kill_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result, kill_result]
 
             with pytest.raises(RuntimeError, match="connection lost"):
                 start_session(task)

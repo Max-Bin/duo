@@ -87,17 +87,15 @@ def set_config(key: str, value: str) -> bool | int | float | str:
             "poll_max_interval": 0,
         }
         if key in _INT_MINIMUMS:
-            assert isinstance(coerced, int)
             minimum = _INT_MINIMUMS[key]
-            if coerced < minimum:
+            if not isinstance(coerced, int) or coerced < minimum:
                 raise ValueError(
-                    f"'{key}' must be >= {minimum}, got {coerced}"
+                    f"'{key}' must be an integer >= {minimum}, got {coerced!r}"
                 )
         if key in _FLOAT_MINIMUMS:
-            assert isinstance(coerced, float)
-            if coerced <= 0:
+            if not isinstance(coerced, (int, float)) or coerced <= 0:
                 raise ValueError(
-                    f"'{key}' must be > 0, got {coerced}"
+                    f"'{key}' must be a number > 0, got {coerced!r}"
                 )
     if key not in DEFAULTS:
         logger.warning("Unknown config key: '%s'", key)

@@ -218,6 +218,16 @@ class TestSetConfigValidation:
         with pytest.raises(ValueError, match="poll_base_interval.*> 0"):
             config_mod.set_config("poll_base_interval", "-1.0")
 
+    def test_set_float_key_zero_rejected(self):
+        """Float config keys reject zero."""
+        with pytest.raises(ValueError, match="must be a number > 0"):
+            config_mod.set_config("poll_base_interval", "0")
+
+    def test_set_float_key_negative_rejected(self):
+        """Float config keys reject negative values."""
+        with pytest.raises(ValueError, match="must be a number > 0"):
+            config_mod.set_config("poll_base_interval", "-5.0")
+
     def test_set_config_negative_task_timeout(self):
         with pytest.raises(ValueError, match="task_timeout.*>= 0"):
             config_mod.set_config("task_timeout", "-1")
