@@ -869,3 +869,14 @@ class TestApprovePermission:
         )
         approve_permission("test")
         mock_select.assert_called_once_with("test", "2")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_skips_tell_differently(self, mock_read, mock_select):
+        """Skips options with 'tell differently' or 'esc'."""
+        mock_read.return_value = (
+            "  1. Sounds good, tell me differently\n"
+            "  2. Yes\n"
+        )
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "2")
