@@ -875,6 +875,7 @@ class TestApprovePermission:
     def test_skips_tell_differently(self, mock_read, mock_select):
         """Skips options containing 'no' with 'tell differently' or 'esc'."""
         mock_read.return_value = (
+            "Do you want to proceed?\n"
             "  1. I'd say no, tell me differently\n"
             "  2. Yes\n"
         )
