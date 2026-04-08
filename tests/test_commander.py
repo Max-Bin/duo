@@ -22,9 +22,11 @@ from duo.commander import (
     resend_last_prompt,
     restart_session,
     send_task_prompt,
+    start_claude_commander,
     start_session,
     verify_and_advance,
     watch_tasks,
+    write_commander_claude_md,
 )
 from duo.poller import AdaptivePoller, PollResult
 from duo.protocol import (
@@ -509,6 +511,7 @@ class TestStartSession:
             patch("duo.commander.wait_for_idle"),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
         ):
             # tmux split-window succeeds
             split_result = MagicMock()
@@ -541,6 +544,7 @@ class TestStartSession:
             patch("duo.commander.wait_for_idle"),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
         ):
             split_result = MagicMock()
             split_result.returncode = 0
@@ -552,6 +556,187 @@ class TestStartSession:
 
             start_session(task)
             assert task.status == TaskStatus.PROMPT_SENT
+
+
+# ---------------------------------------------------------------------------
+# write_commander_claude_md and start_claude_commander
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeCommander:
+    def test_write_claude_md_creates_file(self) -> None:
+        """write_commander_claude_md creates CLAUDE.md in worktree."""
+        task = _make_task()
+        # _make_task uses /fake/worktree — need real dir
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            write_commander_claude_md(task)
+            claude_md = Path(tmp) / "CLAUDE.md"
+            assert claude_md.exists()
+            content = claude_md.read_text()
+            assert "Commander" in content
+            assert task.id in content
+            assert task.incarnation_id in content
+
+    def test_write_claude_md_handles_missing_dir(self) -> None:
+        """write_commander_claude_md handles write failure gracefully."""
+        task = _make_task()
+        task.worktree = "/nonexistent/path/does/not/exist"
+        # Should NOT raise
+        write_commander_claude_md(task)
+
+    def test_start_claude_commander_success(self) -> None:
+        """start_claude_commander opens pane and launches claude."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch("duo.commander.send_shell_command"),
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%50\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result]
+
+                result = start_claude_commander(task)
+                assert result == "%50"
+
+                events = read_jsonl(task.journal_path)
+                assert any(e.get("event") == "claude_commander_started" for e in events)
+
+    def test_start_claude_commander_tmux_failure(self) -> None:
+        """start_claude_commander returns None when tmux fails."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with patch("duo.commander.subprocess.run") as mock_run:
+                fail = MagicMock()
+                fail.returncode = 1
+                fail.stderr = "no server"
+                mock_run.return_value = fail
+
+                result = start_claude_commander(task)
+                assert result is None
+
+    def test_start_claude_commander_transport_failure(self) -> None:
+        """start_claude_commander cleans up pane on transport error."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch(
+                    "duo.commander.send_shell_command",
+                    side_effect=RuntimeError("broken"),
+                ),
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%60\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                kill_result = MagicMock()
+                kill_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result, kill_result]
+
+                result = start_claude_commander(task)
+                assert result is None
+
+    def test_start_claude_commander_kill_pane_failure_suppressed(self) -> None:
+        """start_claude_commander suppresses OSError when kill-pane fails."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch(
+                    "duo.commander.send_shell_command",
+                    side_effect=RuntimeError("broken"),
+                ),
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%60\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result, OSError("kill failed")]
+
+                result = start_claude_commander(task)
+                assert result is None
+
+    def test_start_session_with_claude_commander(self) -> None:
+        """start_session also launches Claude commander when config enabled."""
+        task = _make_task()
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch("duo.commander.send_shell_command"),
+                patch("duo.commander.wait_for_idle"),
+                patch("duo.commander.send_bootstrap"),
+                patch("duo.commander.time.sleep"),
+                patch("duo.commander.get_config", return_value=True),
+                patch("duo.commander.start_claude_commander", return_value="%99") as mock_claude,
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%42\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result]
+
+                start_session(task)
+                mock_claude.assert_called_once_with(task)
+
+    def test_start_session_claude_commander_failure_nonfatal(self) -> None:
+        """start_session continues even if Claude commander fails to start."""
+        task = _make_task()
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch("duo.commander.send_shell_command"),
+                patch("duo.commander.wait_for_idle"),
+                patch("duo.commander.send_bootstrap"),
+                patch("duo.commander.time.sleep"),
+                patch("duo.commander.get_config", return_value=True),
+                patch("duo.commander.start_claude_commander", return_value=None),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%42\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result]
+
+                start_session(task)
+                # Task still succeeds
+                assert task.status == TaskStatus.PROMPT_SENT
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +859,7 @@ class TestStartSessionError:
             patch("duo.commander.wait_for_idle"),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
         ):
             split_result = MagicMock()
             split_result.returncode = 0

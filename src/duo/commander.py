@@ -18,8 +18,10 @@ __all__ = [
     "monitor",
     "restart_session",
     "send_task_prompt",
+    "start_claude_commander",
     "start_session",
     "watch_tasks",
+    "write_commander_claude_md",
 ]
 
 logger = logging.getLogger(__name__)
@@ -112,6 +114,84 @@ SESSION_BOOTSTRAP_TEMPLATE = """\
 当前 incarnation: {incarnation}
 """
 
+# Template for CLAUDE.md placed in the worktree so Claude Code CLI
+# automatically learns its Commander role when opened in that directory.
+CLAUDE_COMMANDER_TEMPLATE = """\
+# Duo Commander Mode
+
+You are the **Commander** (规划者) in the Duo agent orchestration framework.
+A Copilot CLI executor is running in an adjacent tmux pane, following the file
+protocol below.  Your job is to **plan**, **decompose**, **review**, and
+**coordinate** — NOT to edit code files directly.
+
+## Your Responsibilities
+
+1. **Plan** — Break the user's request into small, verifiable subtasks
+2. **Send** — Use `duo send <task> "<instruction>"` to give the executor work
+3. **Monitor** — Use `duo status <task>` or `duo watch` to track progress
+4. **Review** — Read the executor's result files and verify correctness
+5. **Correct** — If the result is wrong, send a correction via `duo send`
+
+## Key Commands
+
+```bash
+duo status <task>          # Check task status and current step
+duo send <task> "prompt"   # Send instruction to executor
+duo list                   # List all tasks
+duo watch                  # Watch for dialog events
+duo monitor                # Start automated polling monitor
+duo inspect <task>         # Show detailed task info
+duo logs <task>            # Show task journal events
+duo diff <task>            # Show code changes in worktree
+```
+
+## File Protocol v1
+
+The executor writes JSON files in the task directory:
+
+**Task directory:** `{task_dir}`
+
+| File | When | Content |
+|------|------|---------|
+| `steps/step-NNNN/ack-attempt-AA.json` | After receiving instruction | `{{"step":N, "attempt":A, "incarnation":"...", "acked_at":"ISO"}}` |
+| `heartbeat.json` | After each file edit | `{{"ts":"ISO", "incarnation":"...", "step":N, "status":"working"}}` |
+| `steps/step-NNNN/result-attempt-AA.json` | After completing work | `{{"step":N, "attempt":A, "status":"done", "files_changed":[...], "summary":"..."}}` |
+
+## Current Task
+
+- **Task ID:** {task_id}
+- **Worktree:** {worktree}
+- **Branch:** {branch}
+- **Incarnation:** {incarnation}
+
+## Workflow Example
+
+```bash
+# 1. Check what's happening
+duo status {task_id}
+
+# 2. Give the executor a specific instruction
+duo send {task_id} "Implement JWT authentication in src/auth.py with login/logout endpoints"
+
+# 3. Monitor progress
+duo watch --once
+
+# 4. Review the result
+duo diff {task_id}
+duo inspect {task_id}
+
+# 5. If it needs correction, send feedback
+duo send {task_id} "The login endpoint is missing rate limiting. Add it."
+```
+
+## Rules
+
+- Do NOT edit code files directly — that's the executor's job
+- Keep instructions specific and verifiable
+- One instruction at a time for best results
+- Review changes with `duo diff` before approving
+"""
+
 
 def build_bootstrap_prompt(task: Task) -> str:
     """Build the initial session bootstrap prompt with file protocol instructions."""
@@ -119,6 +199,76 @@ def build_bootstrap_prompt(task: Task) -> str:
         task_dir=str(task.dir),
         incarnation=task.incarnation_id,
     )
+
+
+def write_commander_claude_md(task: Task) -> None:
+    """Write CLAUDE.md into the task worktree so Claude Code CLI picks it up."""
+    from pathlib import Path
+
+    content = CLAUDE_COMMANDER_TEMPLATE.format(
+        task_dir=str(task.dir),
+        task_id=task.id,
+        worktree=task.worktree,
+        branch=task.branch,
+        incarnation=task.incarnation_id,
+    )
+    claude_md = Path(task.worktree) / "CLAUDE.md"
+    try:
+        claude_md.write_text(content)
+        logger.info("Wrote CLAUDE.md to %s", claude_md)
+    except OSError as exc:
+        logger.warning("Failed to write CLAUDE.md to %s: %s", claude_md, exc)
+
+
+def start_claude_commander(task: Task) -> str | None:
+    """Open a tmux pane running Claude Code CLI as the Commander.
+
+    Returns the pane ID on success, None on failure.
+    """
+    # Write CLAUDE.md so Claude Code auto-discovers its role
+    write_commander_claude_md(task)
+
+    result = subprocess.run(
+        ["tmux", "split-window", "-v", "-P", "-F", "#{pane_id}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        logger.warning("Failed to create Claude commander pane: %s", result.stderr)
+        return None
+
+    pane_id = result.stdout.strip()
+    commander_label = f"duo-commander-{task.id}"
+    name_pane(pane_id, commander_label)
+
+    # Tile layout
+    subprocess.run(
+        ["tmux", "select-layout", "tiled"], capture_output=True, text=True, timeout=10
+    )
+
+    time.sleep(_SESSION_SPLIT_WAIT)
+    try:
+        send_shell_command(commander_label, f"cd {task.worktree}")
+        time.sleep(_SESSION_CD_WAIT)
+        send_shell_command(commander_label, "claude")
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        logger.warning("Failed to start Claude commander: %s", exc)
+        try:
+            subprocess.run(
+                ["tmux", "kill-pane", "-t", pane_id],
+                capture_output=True, check=False, timeout=10,
+            )
+        except (subprocess.CalledProcessError, OSError):
+            pass
+        return None
+
+    append_event(
+        task,
+        "claude_commander_started",
+        {"pane": commander_label, "pane_id": pane_id},
+    )
+    return pane_id
 
 
 # === Task Prompt Templates ===
@@ -295,6 +445,15 @@ def start_session(task: Task) -> None:
     )
 
     transition(task, TaskStatus.PROMPT_SENT)
+
+    # Also start Claude Code CLI as commander (non-blocking, best-effort)
+    if get_config("auto_claude_commander"):
+        click.echo("Starting Claude Code commander pane...")
+        pane = start_claude_commander(task)
+        if pane:
+            click.echo(f"Claude commander started. Pane: duo-commander-{task.id}")
+        else:
+            click.echo("Warning: Failed to start Claude commander (non-fatal).")
 
 
 def restart_session(task: Task) -> None:

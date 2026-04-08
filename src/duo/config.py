@@ -30,6 +30,7 @@ DEFAULTS: dict[str, Any] = {
     "poll_base_interval": 5.0,
     "poll_max_interval": 120.0,
     "auto_allow_all": True,
+    "auto_claude_commander": True,
     "max_parallel": 3,
     "pr_budget": 0,  # 0 = unlimited, >0 = max PR per task
     "task_timeout": 0,  # 0 = disabled, >0 = max seconds per task
