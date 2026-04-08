@@ -738,6 +738,28 @@ class TestCleanup:
         # Journal should still exist
         assert task.journal_path.exists()
 
+    def test_corrupted_empty(self, runner: CliRunner):
+        result = runner.invoke(main, ["cleanup", "--corrupted"])
+        assert result.exit_code == 0
+        assert "No quarantined" in result.output
+
+    def test_corrupted_purge(self, runner: CliRunner, make_task):
+        from duo.protocol import quarantine_task
+
+        task = make_task("bad-task")
+        quarantine_task(task.id, "test")
+        result = runner.invoke(main, ["cleanup", "--corrupted", "--force"])
+        assert result.exit_code == 0
+        assert "Purged 1" in result.output
+
+    def test_corrupted_confirm_abort(self, runner: CliRunner, make_task):
+        from duo.protocol import quarantine_task
+
+        task = make_task("bad2")
+        quarantine_task(task.id, "test")
+        result = runner.invoke(main, ["cleanup", "--corrupted"], input="n\n")
+        assert result.exit_code != 0  # aborted
+
     def test_cleanup_symlink_in_task_dir(self, runner: CliRunner, make_task, tmp_path):
         """Symlinks in task dir are removed without following."""
         task = make_task("sym-task")

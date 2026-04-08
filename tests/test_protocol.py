@@ -21,11 +21,13 @@ from duo.protocol import (
     _clear_task_cache,
     append_event,
     create_task,
+    list_corrupted,
     list_tasks,
     load_task,
     new_incarnation,
     now_iso,
     prompt_hash,
+    quarantine_task,
     read_ack_for_step,
     read_heartbeat,
     read_json,
@@ -45,7 +47,9 @@ from duo.protocol import (
 @pytest.fixture(autouse=True)
 def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Redirect TASKS_DIR to a temporary directory for every test."""
-    monkeypatch.setattr("duo.protocol.TASKS_DIR", tmp_path / "tasks")
+    tasks = tmp_path / "tasks"
+    monkeypatch.setattr("duo.protocol.TASKS_DIR", tasks)
+    monkeypatch.setattr("duo.protocol._CORRUPTED_DIR", tasks / "_corrupted")
 
 
 @pytest.fixture(autouse=True)
@@ -1060,3 +1064,76 @@ class TestTransitionExhaustiveIllegal:
                 rejected_count += 1
         # Sanity: we tested a meaningful number of illegal transitions
         assert rejected_count > 100
+
+
+# ---------------------------------------------------------------------------
+# Quarantine / list_corrupted
+# ---------------------------------------------------------------------------
+
+
+class TestQuarantineTask:
+    """Tests for quarantine_task()."""
+
+    def test_quarantine_moves_dir(self) -> None:
+        import duo.protocol as _p
+        create_task("qtask", "d", "/w", "b", "c", [_make_subtask()])
+        dst = quarantine_task("qtask", "bad json")
+        assert dst is not None
+        assert dst.exists()
+        assert not (_p.TASKS_DIR / "qtask").exists()
+        assert "_corrupted" in str(dst)
+
+    def test_quarantine_nonexistent_returns_none(self) -> None:
+        assert quarantine_task("no-such-task") is None
+
+    def test_quarantine_removes_from_cache(self) -> None:
+        create_task("cached", "d", "/w", "b", "c", [_make_subtask()])
+        list_tasks()  # populate cache
+        quarantine_task("cached", "corrupt")
+        from duo.protocol import _task_cache
+        assert "cached" not in _task_cache
+
+
+class TestListCorrupted:
+    """Tests for list_corrupted()."""
+
+    def test_empty_when_no_corrupted_dir(self) -> None:
+        assert list_corrupted() == []
+
+    def test_lists_quarantined_tasks(self) -> None:
+        create_task("bad1", "d", "/w", "b", "c", [_make_subtask()])
+        create_task("bad2", "d", "/w", "b", "c", [_make_subtask()])
+        quarantine_task("bad1", "reason1")
+        quarantine_task("bad2", "reason2")
+        items = list_corrupted()
+        assert len(items) == 2
+        names = [p.name for p in items]
+        assert any("bad1" in n for n in names)
+        assert any("bad2" in n for n in names)
+
+
+class TestListTasksAutoQuarantine:
+    """Test that list_tasks auto-quarantines corrupted tasks."""
+
+    def test_corrupted_task_json_gets_quarantined(self) -> None:
+        import duo.protocol as _p
+        create_task("good", "d", "/w", "b", "c", [_make_subtask()])
+        # Create a corrupted task (invalid JSON)
+        bad_dir = _p.TASKS_DIR / "corrupt1"
+        bad_dir.mkdir(parents=True, exist_ok=True)
+        (bad_dir / "task.json").write_text("{{{invalid json")
+        tasks = list_tasks()
+        # Only the good task should be returned
+        assert len(tasks) == 1
+        assert tasks[0].id == "good"
+        # The corrupted task should be quarantined
+        assert list_corrupted()
+
+    def test_underscore_dirs_skipped(self) -> None:
+        import duo.protocol as _p
+        create_task("ok", "d", "/w", "b", "c", [_make_subtask()])
+        # Manually create _corrupted dir
+        (_p.TASKS_DIR / "_corrupted").mkdir(parents=True, exist_ok=True)
+        tasks = list_tasks()
+        assert len(tasks) == 1
+        assert tasks[0].id == "ok"

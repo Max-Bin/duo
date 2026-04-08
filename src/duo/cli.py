@@ -1744,9 +1744,27 @@ def _parse_age(age_str: str) -> int:
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--keep-journal", is_flag=True, help="Keep journal files")
 @click.option("--age", type=str, default=None, help="Only clean tasks older than duration (e.g., 7d, 24h, 30m)")
-def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None) -> None:
+@click.option("--corrupted", is_flag=True, help="List and purge quarantined corrupted tasks")
+def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None, corrupted: bool) -> None:
     """Clean up completed and failed tasks."""
     import shutil
+
+    if corrupted:
+        from duo.protocol import list_corrupted
+
+        items = list_corrupted()
+        if not items:
+            click.echo("No quarantined tasks.")
+            return
+        click.echo(f"Quarantined tasks ({len(items)}):")
+        for p in items:
+            click.echo(f"  {p.name}")
+        if not force:
+            click.confirm("Delete all quarantined tasks?", abort=True)
+        for p in items:
+            shutil.rmtree(p, ignore_errors=True)
+        click.echo(f"Purged {len(items)} quarantined task(s).")
+        return
 
     tasks = list_tasks()
 

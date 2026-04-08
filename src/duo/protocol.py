@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -28,11 +29,13 @@ __all__ = [
     "TaskStatus",
     "append_event",
     "create_task",
+    "list_corrupted",
     "list_tasks",
     "load_task",
     "new_incarnation",
     "now_iso",
     "prompt_hash",
+    "quarantine_task",
     "read_ack_for_step",
     "read_heartbeat",
     "read_json",
@@ -50,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 DUO_DIR = Path(os.path.expanduser("~/.duo"))
 TASKS_DIR = DUO_DIR / "tasks"
+_CORRUPTED_DIR = TASKS_DIR / "_corrupted"
 
 
 # === FSM State Enum ===
@@ -518,13 +522,17 @@ def _clear_task_cache() -> None:
 
 
 def list_tasks() -> list[Task]:
-    """List all tasks, using mtime-based caching to skip re-parsing unchanged files."""
+    """List all tasks, using mtime-based caching to skip re-parsing unchanged files.
+
+    Corrupted tasks (those that fail to load) are auto-quarantined to
+    ``_corrupted/`` on first encounter — no repeated warnings.
+    """
     if not TASKS_DIR.exists():
         return []
     tasks: list[Task] = []
     seen: set[str] = set()
     for d in sorted(TASKS_DIR.iterdir()):
-        if not d.is_dir():
+        if not d.is_dir() or d.name.startswith("_"):
             continue
         task_json = d / "task.json"
         try:
@@ -540,10 +548,36 @@ def list_tasks() -> list[Task]:
             if t is not None:
                 _task_cache[d.name] = (mtime, t)
                 tasks.append(t)
+            else:
+                quarantine_task(d.name, "failed to load")
     # Evict entries for deleted tasks
     for stale in set(_task_cache) - seen:
         del _task_cache[stale]
     return tasks
+
+
+def quarantine_task(task_id: str, reason: str = "") -> Path | None:
+    """Move a corrupted task directory to _corrupted/ quarantine.
+
+    Returns the quarantine path, or None if the task dir doesn't exist.
+    """
+    src = TASKS_DIR / task_id
+    if not src.is_dir():
+        return None
+    _CORRUPTED_DIR.mkdir(parents=True, exist_ok=True)
+    ts = now_iso().replace(":", "-")
+    dst = _CORRUPTED_DIR / f"{task_id}-{ts}"
+    shutil.move(str(src), str(dst))
+    logger.info("Quarantined corrupted task '%s' → %s (reason: %s)", task_id, dst, reason)
+    _task_cache.pop(task_id, None)
+    return dst
+
+
+def list_corrupted() -> list[Path]:
+    """List quarantined (corrupted) task directories."""
+    if not _CORRUPTED_DIR.exists():
+        return []
+    return sorted(d for d in _CORRUPTED_DIR.iterdir() if d.is_dir())
 
 
 # === File protocol readers (step/attempt-aware) ===
