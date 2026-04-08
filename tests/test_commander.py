@@ -14,6 +14,7 @@ from duo.commander import (
     _get_copilot_model,
     _log_monitor,
     _watch_loop,
+    _write_watch_event,
     build_bootstrap_prompt,
     build_continue_prompt,
     build_correction_prompt,
@@ -2114,8 +2115,8 @@ class TestWatchTasks:
             result = watch_tasks(["watch-me"], timeout=0.01, interval=0.01)
         assert result == 1
 
-    def test_dialog_handled(self) -> None:
-        """Dialog is detected and approved, then pane dies."""
+    def test_dialog_handled_auto_approve(self) -> None:
+        """Dialog is detected and auto-approved when auto_approve=True."""
         task = self._active("dlg")
 
         call_count = 0
@@ -2138,9 +2139,26 @@ class TestWatchTasks:
             patch("duo.commander.approve_permission") as mock_approve,
             patch("duo.commander.append_event"),
         ):
-            result = watch_tasks(timeout=0.1, interval=0.01)
+            result = watch_tasks(timeout=0.1, interval=0.01, auto_approve=True)
         assert result == 1
         mock_approve.assert_called_once_with(task.pane_label)
+
+    def test_dialog_detected_default_mode(self) -> None:
+        """Default mode: dialog detected → print + signal file → exit."""
+        task = self._active("detect")
+
+        with (
+            patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", return_value=True),
+            patch("duo.commander.read_pane", return_value="╭─ Allow? ─╮\n1. Yes"),
+            patch("duo.commander._write_watch_event") as mock_write,
+            patch("duo.commander.append_event"),
+        ):
+            mock_write.return_value = Path("/tmp/fake-signal.json")
+            result = watch_tasks(timeout=0.1, interval=0.01)
+        assert result == 1
+        mock_write.assert_called_once()
 
     def test_dialog_error_logged(self) -> None:
         """Error during approve_permission is logged, watch continues."""
@@ -2169,7 +2187,7 @@ class TestWatchTasks:
             ),
             patch("duo.commander.append_event"),
         ):
-            result = watch_tasks(timeout=0.1, interval=0.01)
+            result = watch_tasks(timeout=0.1, interval=0.01, auto_approve=True)
         assert result == 1
 
     def test_pane_dead_before_wait(self) -> None:
@@ -2180,7 +2198,9 @@ class TestWatchTasks:
         stop = _th.Event()
 
         with patch("duo.commander.is_process_alive", return_value=False):
-            _watch_loop(task, stop, timeout=1, interval=0.01, once=False)
+            _watch_loop(
+                task, stop, timeout=1, interval=0.01, once=False, auto_approve=False
+            )
         # Loop exited without error — pane was dead, logged and broke out
 
     def test_pane_unavailable(self) -> None:
@@ -2196,8 +2216,8 @@ class TestWatchTasks:
             result = watch_tasks(timeout=0.1, interval=0.01)
         assert result == 1
 
-    def test_once_flag(self) -> None:
-        """--once stops after first dialog."""
+    def test_once_flag_auto_approve(self) -> None:
+        """--once + --auto-approve stops after first auto-approved dialog."""
         task = self._active("once")
 
         with (
@@ -2207,8 +2227,27 @@ class TestWatchTasks:
             patch("duo.commander.approve_permission"),
             patch("duo.commander.append_event"),
         ):
+            result = watch_tasks(
+                once=True, timeout=0.1, interval=0.01, auto_approve=True
+            )
+        assert result == 1
+
+    def test_once_flag_default_mode(self) -> None:
+        """--once in default mode: detect → signal → exit."""
+        task = self._active("once-detect")
+
+        with (
+            patch("duo.commander.list_tasks", return_value=[task]),
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", return_value=True),
+            patch("duo.commander.read_pane", return_value="dialog content"),
+            patch("duo.commander._write_watch_event") as mock_write,
+            patch("duo.commander.append_event"),
+        ):
+            mock_write.return_value = Path("/tmp/sig.json")
             result = watch_tasks(once=True, timeout=0.1, interval=0.01)
         assert result == 1
+        mock_write.assert_called_once()
 
     def test_stop_set_during_wait(self) -> None:
         """Watch loop exits when pane dies during polling."""
@@ -2275,7 +2314,9 @@ class TestWatchTasks:
             patch("duo.commander.approve_permission"),
             patch("duo.commander.append_event"),
         ):
-            result = watch_tasks(once=True, timeout=0.1, interval=0.01)
+            result = watch_tasks(
+                once=True, timeout=0.1, interval=0.01, auto_approve=True
+            )
         assert result == 2
 
     def test_stop_set_during_wait_direct(self) -> None:
@@ -2293,4 +2334,43 @@ class TestWatchTasks:
             patch("duo.commander.is_process_alive", return_value=True),
             patch("duo.commander.wait_for_dialog", side_effect=_fake_wait),
         ):
-            _watch_loop(task, stop, timeout=1, interval=0.01, once=False)
+            _watch_loop(
+                task, stop, timeout=1, interval=0.01, once=False, auto_approve=False
+            )
+
+
+class TestWriteWatchEvent:
+    """Tests for _write_watch_event signal file creation."""
+
+    def test_creates_signal_file(self) -> None:
+        """Signal file is created with correct content."""
+        import json
+        import tempfile
+
+        task = _make_task()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("duo.commander._WATCH_EVENTS_DIR", Path(tmp)),
+        ):
+            path = _write_watch_event(task, "╭─ Allow? ─╮\n1. Yes")
+            assert path.exists()
+            data = json.loads(path.read_text())
+            assert data["task_id"] == task.id
+            assert data["pane_label"] == task.pane_label
+            assert "pane_content" in data
+            assert "detected_at" in data
+
+    def test_truncates_large_content(self) -> None:
+        """Pane content is truncated to 2000 chars."""
+        import json
+        import tempfile
+
+        task = _make_task()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("duo.commander._WATCH_EVENTS_DIR", Path(tmp)),
+        ):
+            big_content = "x" * 5000
+            path = _write_watch_event(task, big_content)
+            data = json.loads(path.read_text())
+            assert len(data["pane_content"]) == 2000

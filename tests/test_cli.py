@@ -2472,7 +2472,7 @@ class TestWatchCommand:
             result = runner.invoke(main, ["watch", "task-a", "task-b"])
             assert result.exit_code == 0
             mock_w.assert_called_once_with(
-                ["task-a", "task-b"], timeout=300, interval=5.0, once=False
+                ["task-a", "task-b"], timeout=300, interval=5.0, once=False, auto_approve=False
             )
 
     def test_watch_no_names(self, runner: CliRunner):
@@ -2482,7 +2482,7 @@ class TestWatchCommand:
             result = runner.invoke(main, ["watch"])
             assert result.exit_code == 0
             mock_w.assert_called_once_with(
-                None, timeout=300, interval=5.0, once=False
+                None, timeout=300, interval=5.0, once=False, auto_approve=False
             )
 
     def test_watch_options(self, runner: CliRunner):
@@ -2494,7 +2494,7 @@ class TestWatchCommand:
             )
             assert result.exit_code == 0
             mock_w.assert_called_once_with(
-                None, timeout=60.0, interval=2.0, once=True
+                None, timeout=60.0, interval=2.0, once=True, auto_approve=False
             )
 
     def test_watch_negative_timeout(self, runner: CliRunner):
@@ -2508,6 +2508,16 @@ class TestWatchCommand:
         result = runner.invoke(main, ["watch", "--interval", "0"])
         assert result.exit_code != 0
         assert "--interval must be > 0" in result.output
+
+    def test_watch_auto_approve_flag(self, runner: CliRunner):
+        """--auto-approve passes auto_approve=True."""
+        with patch("duo.commander.watch_tasks") as mock_w:
+            mock_w.return_value = 1
+            result = runner.invoke(main, ["watch", "--auto-approve"])
+            assert result.exit_code == 0
+            mock_w.assert_called_once_with(
+                None, timeout=300, interval=5.0, once=False, auto_approve=True
+            )
 
 
 # ---------------------------------------------------------------------------

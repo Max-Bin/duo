@@ -437,23 +437,35 @@ def monitor(names: tuple[str, ...], max_time: int) -> None:
     default=5.0,
     help="Poll interval in seconds (default: 5).",
 )
-@click.option("--once", is_flag=True, help="Exit after handling one dialog.")
-def watch(names: tuple[str, ...], timeout: float, interval: float, once: bool) -> None:
-    """Event-driven pane watcher with auto dialog handling.
+@click.option("--once", is_flag=True, help="Exit after detecting one dialog.")
+@click.option(
+    "--auto-approve",
+    is_flag=True,
+    default=False,
+    help="Auto-approve permission dialogs (legacy). Default: detect and report only.",
+)
+def watch(
+    names: tuple[str, ...],
+    timeout: float,
+    interval: float,
+    once: bool,
+    auto_approve: bool,
+) -> None:
+    """Pane dialog detector — monitors tasks and reports dialogs.
 
-    Blocks on each task pane waiting for permission dialogs and
-    automatically approves them.  Complementary to ``monitor``
-    (which polls heartbeat/result files for task lifecycle).
+    Default mode: watches task panes for permission dialogs. When a dialog
+    is detected, prints its content, writes a signal file to
+    ``~/.duo/watch-events/``, and exits so the CEO process can decide
+    what to do next.
 
-    \b
-    Use ``duo monitor`` for: heartbeat timeouts, result verification,
-    step advancement.
-    Use ``duo watch`` for: permission auto-approval while tasks run.
+    With ``--auto-approve``: automatically approves permission dialogs
+    (unattended mode).
 
     \b
     Example:
-      duo monitor &       # background: lifecycle management
-      duo watch --once    # foreground: handle one dialog, return
+      duo watch                # detect dialog → print → signal → exit
+      duo watch --auto-approve # auto-approve dialogs (legacy behavior)
+      duo watch --once         # exit after first detection
     """
     if timeout <= 0:
         raise click.UsageError("--timeout must be > 0. Example: --timeout 60")
@@ -463,7 +475,13 @@ def watch(names: tuple[str, ...], timeout: float, interval: float, once: bool) -
 
     task_ids = list(names) if names else None
     try:
-        watch_tasks(task_ids, timeout=timeout, interval=interval, once=once)
+        watch_tasks(
+            task_ids,
+            timeout=timeout,
+            interval=interval,
+            once=once,
+            auto_approve=auto_approve,
+        )
     except KeyboardInterrupt:
         click.echo("\n[duo] Watch stopped.")
 

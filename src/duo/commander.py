@@ -11,6 +11,7 @@ import os
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import click
 
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 from duo.config import get_config
 from duo.poller import AdaptivePoller, PollResult, age
 from duo.protocol import (
+    DUO_DIR,
     Task,
     TaskStatus,
     append_event,
@@ -41,6 +43,7 @@ from duo.protocol import (
     read_result_for_step,
     save_task,
     transition,
+    write_json,
 )
 from duo.transport import (
     approve_permission,
@@ -48,6 +51,7 @@ from duo.transport import (
     diagnose_pane,
     is_process_alive,
     name_pane,
+    read_pane,
     select_dialog_option,
     send_bootstrap,
     send_shell_command,
@@ -63,6 +67,7 @@ _SESSION_CD_WAIT = 0.3
 _TERMINAL_SLICE = 500  # chars of terminal output to include in events
 _IDLE_GRACE_SECONDS = 30  # seconds before considering a prompted task idle
 _LOG_LOCK = threading.Lock()  # guards _log_monitor output across watch threads
+_WATCH_EVENTS_DIR = DUO_DIR / "watch-events"
 
 # Dialog wait timeouts (seconds)
 _DIALOG_TIMEOUT_SEND = 60.0
@@ -959,6 +964,23 @@ def monitor(task_ids: list[str] | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _write_watch_event(task: Task, pane_content: str) -> Path:
+    """Write a watch-event signal file for the detected dialog."""
+    _WATCH_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    ts = now_iso().replace(":", "-")
+    path = _WATCH_EVENTS_DIR / f"{task.id}-{ts}.json"
+    write_json(
+        path,
+        {
+            "task_id": task.id,
+            "pane_label": task.pane_label,
+            "detected_at": now_iso(),
+            "pane_content": pane_content[-2000:],
+        },
+    )
+    return path
+
+
 def _watch_loop(
     task: Task,
     stop: threading.Event,
@@ -966,12 +988,16 @@ def _watch_loop(
     timeout: float,
     interval: float,
     once: bool,
+    auto_approve: bool,
 ) -> None:
-    """Per-task watch loop: block on dialog, handle it, repeat.
+    """Per-task watch loop: block on dialog detection.
 
-    Exits when the pane disappears (not when the task FSM enters a terminal
-    state), because the pane may still be alive even after the task is
-    FAILED/COMPLETED.
+    Default mode (auto_approve=False): detect dialog → print content →
+    write signal file → set stop event → return. The external CEO process
+    reads the signal file and decides what to do next.
+
+    Legacy mode (auto_approve=True): detect dialog → auto-approve the
+    permission dialog → continue watching.
     """
     label = task.pane_label
     while not stop.is_set():
@@ -992,15 +1018,32 @@ def _watch_loop(
                 _log_monitor("·", task.id, "pane gone, stopping watch")
                 break
             continue
-        # Dialog detected
+        # Dialog detected — read pane content for signal file
         _log_monitor("⚡", task.id, "dialog detected")
+        pane_content = ""
         try:
-            approve_permission(label)
-            _log_monitor("✓", task.id, "dialog handled")
-            append_event(task, "watch_dialog_handled", {})
-        except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
-            _log_monitor("✗", task.id, f"dialog error: {exc}")
-        if once:
+            pane_content = read_pane(label, 40)
+        except (RuntimeError, OSError):
+            pass
+        if auto_approve:
+            # Legacy mode: auto-approve the permission dialog
+            try:
+                approve_permission(label)
+                _log_monitor("✓", task.id, "dialog auto-approved")
+                append_event(task, "watch_dialog_handled", {})
+            except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+                _log_monitor("✗", task.id, f"dialog error: {exc}")
+            if once:
+                stop.set()
+                break
+        else:
+            # Default mode: write signal file and return control to CEO
+            click.echo(f"\n[duo:watch] Dialog detected in '{task.id}':")
+            if pane_content:
+                click.echo(pane_content)
+            sig = _write_watch_event(task, pane_content)
+            _log_monitor("📄", task.id, f"signal → {sig.name}")
+            append_event(task, "watch_dialog_detected", {"signal_file": str(sig)})
             stop.set()
             break
 
@@ -1011,10 +1054,18 @@ def watch_tasks(
     timeout: float = 300,
     interval: float = 5.0,
     once: bool = False,
+    auto_approve: bool = False,
 ) -> int:
-    """Event-driven pane watcher with auto dialog handling.
+    """Event-driven pane watcher — pure detector by default.
 
-    Returns the number of dialogs handled.
+    Default mode: monitors panes for dialogs, prints content, writes a
+    signal file to ``~/.duo/watch-events/``, and returns so the CEO
+    process can decide what to do.
+
+    With ``auto_approve=True``: automatically approves permission dialogs
+    (legacy behavior for unattended runs).
+
+    Returns the number of tasks watched.
 
     Note: Callers should handle ``KeyboardInterrupt`` to allow graceful
     shutdown when the user presses Ctrl-C (see ``cli.py``).
@@ -1043,7 +1094,12 @@ def watch_tasks(
         t = threading.Thread(
             target=_watch_loop,
             args=(task, stop),
-            kwargs={"timeout": timeout, "interval": interval, "once": once},
+            kwargs={
+                "timeout": timeout,
+                "interval": interval,
+                "once": once,
+                "auto_approve": auto_approve,
+            },
             daemon=True,
         )
         t.start()
