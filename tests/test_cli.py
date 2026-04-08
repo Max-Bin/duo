@@ -917,6 +917,23 @@ class TestValidateTaskName:
         assert result.exit_code != 0
         assert "at most 63 characters" in result.output
 
+    def test_boundary_length_63_accepted(self):
+        """Exactly 63 characters should be accepted."""
+        _validate_task_name("a" * 63)
+
+    def test_boundary_length_64_rejected(self):
+        """64 characters should be rejected."""
+        import click
+        with pytest.raises(click.BadParameter, match="at most 63"):
+            _validate_task_name("a" * 64)
+
+    @pytest.mark.parametrize("char", list("!@#$%^&*()+=[]{}|\\:;\"'<>,./? \t\n"))
+    def test_special_characters_rejected(self, char):
+        """Each special character in task name is rejected."""
+        import click
+        with pytest.raises(click.BadParameter):
+            _validate_task_name(f"task{char}name")
+
 
 # ---------------------------------------------------------------------------
 # _create_worktree helper
