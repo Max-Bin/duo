@@ -83,3 +83,6 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["F", "E", "W", "I", "UP", "B", "RET"]
 ignore = ["E501", "E741", "E402", "RET504"]  # line length (formatter), ambiguous vars, conditional imports, unnecessary assign
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["F811"]  # same-named methods in different test classes are fine

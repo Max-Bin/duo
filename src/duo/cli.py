@@ -1797,6 +1797,14 @@ def _log_pr_budget_warning(label: str, flag: str) -> None:
         f.write(f"{now_iso()} WARNING {flag} used on pane '{label}'\n")
 
 
+def _enforce_not_at_main_prompt(label: str, force_new_session: bool) -> None:
+    """Check main prompt guard; bypass only with force_new_session (+ log)."""
+    if force_new_session:
+        _log_pr_budget_warning(label, "--force-new-session")
+    else:
+        assert_not_at_main_prompt(label)
+
+
 def assert_not_at_main_prompt(label: str) -> None:
     """Raise ClickException if the pane is at Copilot's main ❯ prompt.
 
@@ -1874,9 +1882,13 @@ def ceo_select(
     create a new Premium Request). Override with --force-new-session.
     """
     from duo.transport import (
+        DialogKind,
+        get_dialog_kind,
         is_in_dialog_stable,
+        safe_enter,
         select_dialog_option,
         select_other_option,
+        type_text,
     )
 
     if option is not None and other_text is not None:
@@ -1885,15 +1897,24 @@ def ceo_select(
         raise click.UsageError("Must specify OPTION or --other TEXT.")
 
     t = _load_task_or_fail(task)
-    if force_new_session:
-        _log_pr_budget_warning(t.pane_label, "--force-new-session")
-    else:
-        assert_not_at_main_prompt(t.pane_label)
+    _enforce_not_at_main_prompt(t.pane_label, force_new_session)
     if not is_in_dialog_stable(t.pane_label):
         raise click.ClickException(
             f"Pane '{t.pane_label}' is not in a stable dialog. Refusing to select."
         )
-    if other_text is not None:
+    kind = get_dialog_kind(t.pane_label)
+    if kind == DialogKind.TEXT:
+        # Text-input dialog: no numbered options
+        if option is not None:
+            raise click.ClickException(
+                "This is a text-input dialog with no numbered options. "
+                "Use --other TEXT to type a response."
+            )
+        assert other_text is not None
+        type_text(t.pane_label, other_text)
+        safe_enter(t.pane_label)
+        click.echo(f"Typed text: {other_text}")
+    elif other_text is not None:
         select_other_option(t.pane_label, other_text)
         click.echo(f"Selected 'Other' with text: {other_text}")
     else:
@@ -1925,10 +1946,7 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
     from duo.transport import approve_permission, is_permission_dialog
 
     t = _load_task_or_fail(task)
-    if force_new_session:
-        _log_pr_budget_warning(t.pane_label, "--force-new-session")
-    else:
-        assert_not_at_main_prompt(t.pane_label)
+    _enforce_not_at_main_prompt(t.pane_label, force_new_session)
     if not is_permission_dialog(t.pane_label):
         raise click.ClickException(
             f"'{task}' is not showing a permission dialog. Use 'duo ceo-select' for other dialogs."
@@ -1948,16 +1966,17 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
 def ceo_status(task: str, assert_in_dialog: bool) -> None:
     """Print the current pane state as a single JSON line.
 
-    States: idle, processing, dialog, dead.
+    States: idle, processing, dialog, text_dialog, dead.
 
     \b
-    Output example:
+    Output examples:
       {"task":"e2e-test","state":"dialog","options":5}
+      {"task":"e2e-test","state":"text_dialog"}
 
     Use --assert-in-dialog in scripts:
       duo ceo-status my-task --assert-in-dialog || handle_no_dialog
     """
-    from duo.transport import is_in_dialog, is_process_alive, read_pane
+    from duo.transport import DialogKind, get_dialog_kind, is_process_alive, read_pane
 
     t = _load_task_or_fail(task)
     label = t.pane_label
@@ -1969,15 +1988,20 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
         return
 
     content = read_pane(label, 30)
+    kind = get_dialog_kind(label)
 
     # Check dialog first (most specific)
-    if is_in_dialog(label):
+    if kind == DialogKind.OPTION:
         # Count options
         opt_count = 0
         for line in content.split("\n"):
             if re.match(r"\s*[│]?\s*(❯\s*)?\d+\.\s", line):
                 opt_count += 1
         click.echo(json.dumps({"task": task, "state": "dialog", "options": opt_count}))
+        return
+
+    if kind == DialogKind.TEXT:
+        click.echo(json.dumps({"task": task, "state": "text_dialog"}))
         return
 
     # Check spinner (processing)

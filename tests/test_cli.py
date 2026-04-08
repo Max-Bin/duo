@@ -36,6 +36,7 @@ from duo.protocol import (
     read_jsonl,
     save_task,
 )
+from duo.transport import DialogKind
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -4384,6 +4385,58 @@ class TestCeoWait:
         mock_wait.assert_called_once_with(task.pane_label, timeout=300, interval=2.0)
 
 
+class TestPrBudgetSafety:
+    """Tests for assert_not_at_main_prompt and _log_pr_budget_warning."""
+
+    def test_log_pr_budget_warning_writes_file(self) -> None:
+        """_log_pr_budget_warning writes to pr-budget.log."""
+        from duo.cli import _log_pr_budget_warning
+        from duo.protocol import DUO_DIR
+
+        _log_pr_budget_warning("duo:test-label", "--force-new-session")
+        log_path = DUO_DIR / "pr-budget.log"
+        assert log_path.exists()
+        content = log_path.read_text()
+        assert "--force-new-session" in content
+        assert "duo:test-label" in content
+
+    def test_assert_not_at_main_prompt_raises(self) -> None:
+        """assert_not_at_main_prompt raises when at ❯ prompt."""
+        from duo.cli import assert_not_at_main_prompt
+
+        with patch("duo.transport._is_at_main_prompt", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ Type @"):
+            with pytest.raises(click.exceptions.ClickException, match="REFUSED"):
+                assert_not_at_main_prompt("duo:test-label")
+
+    def test_assert_not_at_main_prompt_passes(self) -> None:
+        """assert_not_at_main_prompt returns None when not at prompt."""
+        from duo.cli import assert_not_at_main_prompt
+
+        with patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value=""):
+            assert assert_not_at_main_prompt("duo:test-label") is None
+
+    def test_enforce_force_new_session_logs(self) -> None:
+        """_enforce_not_at_main_prompt with force=True logs warning."""
+        from duo.cli import _enforce_not_at_main_prompt
+        from duo.protocol import DUO_DIR
+
+        _enforce_not_at_main_prompt("duo:enforce-label", force_new_session=True)
+        log_path = DUO_DIR / "pr-budget.log"
+        assert log_path.exists()
+        assert "duo:enforce-label" in log_path.read_text()
+
+    def test_enforce_no_force_checks_prompt(self) -> None:
+        """_enforce_not_at_main_prompt with force=False calls assert."""
+        from duo.cli import _enforce_not_at_main_prompt
+
+        with patch("duo.transport._is_at_main_prompt", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ Type @"):
+            with pytest.raises(click.exceptions.ClickException, match="REFUSED"):
+                _enforce_not_at_main_prompt("duo:test-label", force_new_session=False)
+
+
 class TestCeoSelect:
     """Tests for duo ceo-select."""
 
@@ -4455,9 +4508,11 @@ class TestCeoSelect:
         with patch("duo.transport.is_in_dialog_stable", return_value=True), \
              patch("duo.transport._is_at_main_prompt", return_value=True), \
              patch("duo.transport.read_pane", return_value="❯ Type @"), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION), \
              patch("duo.transport.select_dialog_option"):
             result = runner.invoke(
-                main, ["ceo-select", task.id, "1", "--force-new-session"]
+                main, ["ceo-select", task.id, "1", "--force-new-session"],
+                catch_exceptions=False,
             )
         assert result.exit_code == 0
         # Check budget log was written
@@ -4466,8 +4521,31 @@ class TestCeoSelect:
         assert log_path.exists()
         assert "--force-new-session" in log_path.read_text()
 
+    def test_text_dialog_option_number_rejected(self, runner: CliRunner, make_task) -> None:
+        """Selecting a number in a TEXT dialog is rejected."""
+        task = make_task("sel-text-num")
+        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT):
+            result = runner.invoke(main, ["ceo-select", task.id, "1"])
+        assert result.exit_code != 0
+        assert "text-input dialog" in result.output
 
-class TestCeoApprove:
+    def test_text_dialog_other_works(self, runner: CliRunner, make_task) -> None:
+        """--other in a TEXT dialog types directly + Enter."""
+        task = make_task("sel-text-ok")
+        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT), \
+             patch("duo.transport.type_text") as mock_type, \
+             patch("duo.transport.safe_enter") as mock_enter:
+            result = runner.invoke(main, ["ceo-select", task.id, "--other", "my answer"])
+        assert result.exit_code == 0
+        assert "Typed text" in result.output
+        mock_type.assert_called_once_with(task.pane_label, "my answer")
+        mock_enter.assert_called_once_with(task.pane_label)
     """Tests for duo ceo-approve."""
 
     def test_task_not_found(self, runner: CliRunner) -> None:
@@ -4566,7 +4644,7 @@ class TestCeoStatus:
         pane_content = "╭─ Question ─╮\n│ 1. Yes  \n│ 2. No   \n│ 3. Other\n╰─"
         with patch("duo.transport.is_process_alive", return_value=True), \
              patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.is_in_dialog", return_value=True):
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -4577,7 +4655,7 @@ class TestCeoStatus:
         task = make_task("stat-proc")
         with patch("duo.transport.is_process_alive", return_value=True), \
              patch("duo.transport.read_pane", return_value="◉ Thinking..."), \
-             patch("duo.transport.is_in_dialog", return_value=False):
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -4587,7 +4665,7 @@ class TestCeoStatus:
         task = make_task("stat-idle")
         with patch("duo.transport.is_process_alive", return_value=True), \
              patch("duo.transport.read_pane", return_value="❯ "), \
-             patch("duo.transport.is_in_dialog", return_value=False):
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -4603,7 +4681,7 @@ class TestCeoStatus:
         pane_content = "╭─ Question ─╮\n│ 1. Yes  \n│ 2. No\n╰─"
         with patch("duo.transport.is_process_alive", return_value=True), \
              patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.is_in_dialog", return_value=True):
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 0
 
@@ -4612,7 +4690,7 @@ class TestCeoStatus:
         task = make_task("stat-aid-idle")
         with patch("duo.transport.is_process_alive", return_value=True), \
              patch("duo.transport.read_pane", return_value="❯ "), \
-             patch("duo.transport.is_in_dialog", return_value=False):
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         # SystemExit(1) — Click wraps as exit_code=1
         assert result.exit_code == 1
@@ -4622,7 +4700,7 @@ class TestCeoStatus:
         task = make_task("stat-aid-proc")
         with patch("duo.transport.is_process_alive", return_value=True), \
              patch("duo.transport.read_pane", return_value="◉ Thinking..."), \
-             patch("duo.transport.is_in_dialog", return_value=False):
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 1
 
@@ -4632,3 +4710,25 @@ class TestCeoStatus:
         with patch("duo.transport.is_process_alive", return_value=False):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 1
+
+    def test_text_dialog_state(self, runner: CliRunner, make_task) -> None:
+        """ceo-status reports text_dialog for text-input dialogs."""
+        task = make_task("stat-text")
+        pane_content = "╭─ Question ─╮\n Type your answer\n╰────────────╯"
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == {"task": task.id, "state": "text_dialog"}
+
+    def test_assert_in_dialog_passes_for_text_dialog(self, runner: CliRunner, make_task) -> None:
+        """--assert-in-dialog exits 0 for text_dialog (it IS a dialog)."""
+        task = make_task("stat-aid-text")
+        pane_content = "╭─ Q ─╮\n Type your answer\n╰─"
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT):
+            result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
+        assert result.exit_code == 0

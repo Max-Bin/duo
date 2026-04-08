@@ -45,6 +45,7 @@ from duo.protocol import (
     transition,
     write_json,
 )
+from duo.transport import DialogKind
 from duo.verifier import Correction, Pass
 
 # ---------------------------------------------------------------------------
@@ -828,7 +829,7 @@ class TestCeoE2EScenarios:
         # Step 2: ceo-status reports dialog
         with _patch("duo.transport.is_process_alive", return_value=True), \
              _patch("duo.transport.read_pane", return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─"), \
-             _patch("duo.transport.is_in_dialog", return_value=True):
+             _patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         import json

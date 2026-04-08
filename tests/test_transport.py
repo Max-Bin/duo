@@ -10,6 +10,7 @@ import pytest
 
 import duo.transport
 from duo.transport import (
+    DialogKind,
     PaneInfo,
     _find_bridge,
     _is_at_main_prompt,
@@ -19,6 +20,7 @@ from duo.transport import (
     cancel_current,
     diagnose_pane,
     doctor,
+    get_dialog_kind,
     get_pane_id,
     is_in_dialog,
     is_in_dialog_stable,
@@ -626,6 +628,58 @@ class TestIsInDialog:
         content = "1. Yes\n2. No\n3. Maybe"
         mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
         assert is_in_dialog("test-pane") is False
+
+    @patch("subprocess.run")
+    def test_text_dialog_detected(self, mock_run):
+        """Box with 'Type your answer' but no options → TEXT dialog → is_in_dialog True."""
+        content = "╭─ Question ─╮\n Type your answer\n╰────────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert is_in_dialog("test-pane") is True
+
+
+# ── DialogKind / get_dialog_kind ─────────────────────────────────────
+
+
+class TestDialogKind:
+    @patch("subprocess.run")
+    def test_option_dialog(self, mock_run):
+        content = "╭─ Question ─╮\n1. Yes\n2. No\n╰────────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.OPTION
+
+    @patch("subprocess.run")
+    def test_text_dialog(self, mock_run):
+        content = "╭─ Question ─╮\n Type your answer\n╰────────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.TEXT
+
+    @patch("subprocess.run")
+    def test_text_dialog_enter_to_submit(self, mock_run):
+        """'Enter to submit' also triggers TEXT kind."""
+        content = "╭─ Question ─╮\nPlease type\nEnter to submit\n╰─"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.TEXT
+
+    @patch("subprocess.run")
+    def test_main_prompt_none(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="❯ Type @ to mention files", stderr=""
+        )
+        assert get_dialog_kind("test-pane") == DialogKind.NONE
+
+    @patch("subprocess.run")
+    def test_no_box_none(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="normal output", stderr=""
+        )
+        assert get_dialog_kind("test-pane") == DialogKind.NONE
+
+    @patch("subprocess.run")
+    def test_box_without_options_or_text_none(self, mock_run):
+        """Box with no options and no text indicator → NONE."""
+        content = "╭─ Info ─╮\nSome info\n╰────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.NONE
 
 
 # ── wait_for_idle ────────────────────────────────────────────────────

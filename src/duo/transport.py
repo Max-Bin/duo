@@ -6,6 +6,7 @@ list_panes() is diagnostic only — scheduling truth comes from the file protoco
 
 from __future__ import annotations
 
+import enum
 import functools
 import logging
 import os
@@ -19,7 +20,16 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+
+class DialogKind(enum.Enum):
+    """Kind of dialog detected in a Copilot pane."""
+
+    NONE = "none"
+    OPTION = "option"  # Numbered options (1. 2. 3.)
+    TEXT = "text"  # Free-text input ("Type your answer...")
+
 __all__ = [
+    "DialogKind",
     "PaneInfo",
     "approve_permission",
     "bridge",
@@ -27,6 +37,7 @@ __all__ = [
     "clear_bootstrap_done",
     "diagnose_pane",
     "doctor",
+    "get_dialog_kind",
     "get_pane_id",
     "get_pr_log",
     "is_in_dialog",
@@ -321,17 +332,35 @@ def _is_at_main_prompt(content: str) -> bool:
     return False
 
 
-def is_in_dialog(label: str) -> bool:
-    """True if Copilot shows a ╭╰ dialog box with numbered options."""
-    content = read_pane(label, 20)
+def _detect_dialog_kind(content: str) -> DialogKind:
+    """Classify dialog kind from pane content (no I/O)."""
     if _is_at_main_prompt(content):
-        return False
+        return DialogKind.NONE
     has_box = any("╰─" in l or "╭─" in l for l in content.split("\n"))
+    if not has_box:
+        return DialogKind.NONE
     has_opt = any(
         any(l.strip().startswith(f"{n}.") or f"❯ {n}." in l for n in range(1, 7))
         for l in content.split("\n")
     )
-    return has_box and has_opt
+    if has_opt:
+        return DialogKind.OPTION
+    # Text-input dialog: box present but no numbered options
+    text_indicators = ("Type your answer", "Enter to submit", "type your response")
+    if any(ind in content for ind in text_indicators):
+        return DialogKind.TEXT
+    return DialogKind.NONE
+
+
+def get_dialog_kind(label: str) -> DialogKind:
+    """Read pane and classify the dialog kind."""
+    content = read_pane(label, 20)
+    return _detect_dialog_kind(content)
+
+
+def is_in_dialog(label: str) -> bool:
+    """True if Copilot shows any dialog (option or text-input)."""
+    return get_dialog_kind(label) != DialogKind.NONE
 
 
 def is_in_dialog_stable(label: str) -> bool:
@@ -340,7 +369,6 @@ def is_in_dialog_stable(label: str) -> bool:
         return False
     _time.sleep(1.0)
     return is_in_dialog(label)
-
 
 def wait_for_idle(
     label: str, timeout: float = 30.0, poll_interval: float = 1.0
