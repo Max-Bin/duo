@@ -4333,3 +4333,176 @@ class TestEventsCommand:
         monkeypatch.setattr("time.sleep", fake_sleep)
         result = runner.invoke(main, ["events", "tail"])
         assert "new-task" in result.output
+
+
+# ---------------------------------------------------------------------------
+# CEO Workflow command tests
+# ---------------------------------------------------------------------------
+
+
+class TestCeoWait:
+    """Tests for duo ceo-wait."""
+
+    def test_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-wait", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_pane_dead(self, runner: CliRunner, make_task) -> None:
+        task = make_task("wait-dead")
+        with patch("duo.transport.is_process_alive", return_value=False):
+            result = runner.invoke(main, ["ceo-wait", task.id])
+        assert result.exit_code != 0
+        assert "not alive" in result.output
+
+    def test_timeout(self, runner: CliRunner, make_task) -> None:
+        task = make_task("wait-timeout")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.wait_for_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-wait", task.id, "--timeout", "10"])
+        assert result.exit_code != 0
+        assert "Timeout" in result.output
+
+    def test_dialog_found(self, runner: CliRunner, make_task) -> None:
+        task = make_task("wait-ok")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.wait_for_dialog", return_value=True), \
+             patch("duo.transport.read_pane", return_value="dialog content here"), \
+             patch("duo.commander._write_watch_event") as mock_write:
+            result = runner.invoke(main, ["ceo-wait", task.id])
+        assert result.exit_code == 0
+        assert "dialog content here" in result.output
+        mock_write.assert_called_once()
+
+    def test_custom_interval(self, runner: CliRunner, make_task) -> None:
+        task = make_task("wait-interval")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.wait_for_dialog", return_value=True) as mock_wait, \
+             patch("duo.transport.read_pane", return_value="content"), \
+             patch("duo.commander._write_watch_event"):
+            runner.invoke(main, ["ceo-wait", task.id, "--interval", "2"])
+        mock_wait.assert_called_once_with(task.pane_label, timeout=300, interval=2.0)
+
+
+class TestCeoSelect:
+    """Tests for duo ceo-select."""
+
+    def test_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-select", "nope", "1"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_not_in_dialog(self, runner: CliRunner, make_task) -> None:
+        task = make_task("sel-nodlg")
+        with patch("duo.transport.is_in_dialog_stable", return_value=False):
+            result = runner.invoke(main, ["ceo-select", task.id, "1"])
+        assert result.exit_code != 0
+        assert "not in a stable dialog" in result.output
+
+    def test_select_number(self, runner: CliRunner, make_task) -> None:
+        task = make_task("sel-num")
+        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport.select_dialog_option") as mock_sel:
+            result = runner.invoke(main, ["ceo-select", task.id, "2"])
+        assert result.exit_code == 0
+        assert "Selected option 2" in result.output
+        mock_sel.assert_called_once_with(task.pane_label, "2")
+
+    def test_select_other(self, runner: CliRunner, make_task) -> None:
+        task = make_task("sel-other")
+        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport.select_other_option") as mock_other:
+            result = runner.invoke(main, ["ceo-select", task.id, "_", "--other", "my custom text"])
+        assert result.exit_code == 0
+        assert "Other" in result.output
+        mock_other.assert_called_once_with(task.pane_label, "my custom text")
+
+    def test_bad_task_name(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-select", "bad name!!", "1"])
+        assert result.exit_code != 0
+
+
+class TestCeoApprove:
+    """Tests for duo ceo-approve."""
+
+    def test_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-approve", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_approve_success(self, runner: CliRunner, make_task) -> None:
+        task = make_task("appr-ok")
+        with patch("duo.transport.approve_permission") as mock_approve:
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code == 0
+        assert "Approved" in result.output
+        mock_approve.assert_called_once_with(task.pane_label)
+
+    def test_approve_not_in_dialog(self, runner: CliRunner, make_task) -> None:
+        task = make_task("appr-fail")
+        with patch("duo.transport.approve_permission", side_effect=RuntimeError("SAFETY: not in dialog")):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code != 0
+
+    def test_approve_oserror(self, runner: CliRunner, make_task) -> None:
+        task = make_task("appr-os")
+        with patch("duo.transport.approve_permission", side_effect=OSError("pane gone")):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code != 0
+
+    def test_bad_task_name(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-approve", "inv@lid"])
+        assert result.exit_code != 0
+
+
+class TestCeoStatus:
+    """Tests for duo ceo-status."""
+
+    def test_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-status", "nope"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_dead_pane(self, runner: CliRunner, make_task) -> None:
+        task = make_task("stat-dead")
+        with patch("duo.transport.is_process_alive", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == {"task": task.id, "state": "dead"}
+
+    def test_dialog_state(self, runner: CliRunner, make_task) -> None:
+        task = make_task("stat-dlg")
+        pane_content = "╭─ Question ─╮\n│ 1. Yes  \n│ 2. No   \n│ 3. Other\n╰─"
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.is_in_dialog", return_value=True):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["state"] == "dialog"
+        assert data["options"] == 3
+
+    def test_processing_state(self, runner: CliRunner, make_task) -> None:
+        task = make_task("stat-proc")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value="◉ Thinking..."), \
+             patch("duo.transport.is_in_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == {"task": task.id, "state": "processing"}
+
+    def test_idle_state(self, runner: CliRunner, make_task) -> None:
+        task = make_task("stat-idle")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value="❯ "), \
+             patch("duo.transport.is_in_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == {"task": task.id, "state": "idle"}
+
+    def test_bad_task_name(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-status", "bad name"])
+        assert result.exit_code != 0

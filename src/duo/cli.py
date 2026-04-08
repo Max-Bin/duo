@@ -34,6 +34,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
     "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
+    "CEO Workflow": ["ceo-wait", "ceo-select", "ceo-approve", "ceo-status"],
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
@@ -1768,6 +1769,142 @@ def events_clear(force: bool) -> None:
     for f in files:
         f.unlink(missing_ok=True)
     click.echo(f"Cleared {len(files)} event(s).")
+
+
+# ---------------------------------------------------------------------------
+# duo ceo-* — Ergonomic CEO workflow commands
+# ---------------------------------------------------------------------------
+
+
+def _load_task_or_fail(name: str) -> Task:
+    """Validate task name, load it, or raise ClickException."""
+    _validate_task_name(name)
+    task = load_task(name)
+    if task is None:
+        raise click.ClickException(
+            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        )
+    return task
+
+
+@main.command("ceo-wait")
+@click.argument("task")
+@click.option("--timeout", default=300, type=float, help="Max seconds to wait")
+@click.option("--interval", default=5, type=float, help="Poll interval in seconds")
+def ceo_wait(task: str, timeout: float, interval: float) -> None:
+    """Wait for a dialog to appear in a task's pane.
+
+    Blocks until the pane shows a stable dialog box, then prints the
+    dialog content to stdout, writes a watch-event signal file, and
+    exits 0. On timeout, exits 1.
+    """
+    from duo.commander import _write_watch_event
+    from duo.transport import is_process_alive, read_pane, wait_for_dialog
+
+    t = _load_task_or_fail(task)
+    if not is_process_alive(t.pane_label):
+        raise click.ClickException(f"Pane '{t.pane_label}' is not alive.")
+    found = wait_for_dialog(t.pane_label, timeout=timeout, interval=interval)
+    if not found:
+        raise click.ClickException(
+            f"Timeout after {timeout}s: no dialog detected in '{task}'."
+        )
+    content = read_pane(t.pane_label, 40)
+    click.echo(content)
+    _write_watch_event(t, content)
+
+
+@main.command("ceo-select")
+@click.argument("task")
+@click.argument("option")
+@click.option(
+    "--other",
+    "other_text",
+    default=None,
+    help="Navigate to the 'Other' option and type this text instead",
+)
+def ceo_select(task: str, option: str, other_text: str | None) -> None:
+    """Select a dialog option in a task's pane.
+
+    OPTION can be a number (1-9) to pick that option, or use --other TEXT
+    to navigate to the last option ("Other"/"type your answer") and type
+    custom text.
+
+    Safety: refuses to act if the pane is not in a stable dialog.
+    """
+    from duo.transport import (
+        is_in_dialog_stable,
+        select_dialog_option,
+        select_other_option,
+    )
+
+    t = _load_task_or_fail(task)
+    if not is_in_dialog_stable(t.pane_label):
+        raise click.ClickException(
+            f"Pane '{t.pane_label}' is not in a stable dialog. Refusing to select."
+        )
+    if other_text is not None:
+        select_other_option(t.pane_label, other_text)
+        click.echo(f"Selected 'Other' with text: {other_text}")
+    else:
+        select_dialog_option(t.pane_label, option)
+        click.echo(f"Selected option {option}")
+
+
+@main.command("ceo-approve")
+@click.argument("task")
+def ceo_approve(task: str) -> None:
+    """Auto-approve a permission dialog in a task's pane.
+
+    Reads the dialog options and picks the "most positive" yes option:
+    prefers "Yes + approve for session" over plain "Yes", skips "No".
+    """
+    from duo.transport import approve_permission
+
+    t = _load_task_or_fail(task)
+    approve_permission(t.pane_label)
+    click.echo(f"Approved dialog in '{task}'")
+
+
+@main.command("ceo-status")
+@click.argument("task")
+def ceo_status(task: str) -> None:
+    """Print the current pane state as a single JSON line.
+
+    States: idle, processing, dialog, dead.
+
+    \b
+    Output example:
+      {"task":"e2e-test","state":"dialog","options":5}
+    """
+    from duo.transport import is_in_dialog, is_process_alive, read_pane
+
+    t = _load_task_or_fail(task)
+    label = t.pane_label
+
+    if not is_process_alive(label):
+        click.echo(json.dumps({"task": task, "state": "dead"}))
+        return
+
+    content = read_pane(label, 30)
+
+    # Check dialog first (most specific)
+    if is_in_dialog(label):
+        # Count options
+        opt_count = 0
+        for line in content.split("\n"):
+            if re.match(r"\s*[│]?\s*(❯\s*)?\d+\.\s", line):
+                opt_count += 1
+        click.echo(json.dumps({"task": task, "state": "dialog", "options": opt_count}))
+        return
+
+    # Check spinner (processing)
+    if any(m in content for m in ("◉ ", "◎ ", "○ ")):
+        click.echo(json.dumps({"task": task, "state": "processing"}))
+        return
+
+    # Otherwise idle
+    click.echo(json.dumps({"task": task, "state": "idle"}))
 
 
 @main.command()
