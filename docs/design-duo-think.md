@@ -1,67 +1,89 @@
 # Design: `duo think` — Pre-Start Thinking Sessions
 
-> **Status:** Draft — awaiting review before implementation.
+> **Status:** Draft v2 — addressing review feedback.
 
 ## Problem
 
 `duo start` immediately spawns a Copilot pane, creates a worktree, and
 sends the first prompt.  This burns a Premium Request (PR) even if the
-user's idea is half-formed.  There's no structured way to *refine* a
-task before committing resources.
+idea is half-formed.  There's no structured way to *refine* a task
+before committing resources.
 
-**Goal:** Let users (or the CEO agent) brainstorm a task's scope,
-requirements, and approach *before* any Copilot session exists, then
-hand off the refined plan as the initial prompt.
+This isn't just a human problem — it's primarily a **CEO agent**
+problem.  The typical Duo workflow is: user talks to Claude Code (the
+CEO), CEO orchestrates executors via `duo start`.  The CEO needs a way
+to do structured brainstorming *before* spawning Copilot sessions, so
+it can produce well-scoped, actionable plans that minimize wasted PRs.
+
+**Goal:** Give the CEO agent (and optionally humans) a structured
+thinking channel that refines ideas into actionable plans, at zero
+Copilot cost, then hands off to `duo start`.
 
 ## Command Interface
 
 ```
-duo think <name>              # start / resume interactive session
-duo think <name> --ask "..."  # one-shot question (append + respond)
-duo think <name> --finalize   # generate plan → ready for duo start
+duo think <name>              # start / resume interactive REPL (secondary mode)
+duo think <name> --ask "..."  # one-shot question — CEO primary path
+duo think <name> --finalize   # generate plan.md → ready for duo start
 duo think list                # show all open thinking sessions
 duo think <name> --delete     # remove a thinking session
 ```
 
-### `duo think <name>`
+### `duo think <name> --ask "..."` (Primary Path — CEO)
 
-Opens an interactive REPL-style loop in the terminal:
+Appends a single user turn, gets one Claude response, prints it, and
+exits.  This is the **primary interface** — designed for programmatic
+use by the CEO agent:
+
+```bash
+# CEO brainstorms via sequential --ask calls
+duo think rate-limiter --ask "I want to add rate limiting to the API. What approaches exist?"
+duo think rate-limiter --ask "Let's go with token bucket. What edge cases should we handle?"
+duo think rate-limiter --ask "Good. What about distributed environments with Redis?"
+duo think rate-limiter --finalize
+
+# Hand off the refined plan
+duo start rate-limiter --from-thinking
+```
+
+Each `--ask` call is atomic: append user turn → get Claude response →
+append assistant turn → exit.  No interactive terminal needed.  The CEO
+chains these calls in its own orchestration loop.
+
+### `duo think <name>` (Secondary Mode — Human REPL)
+
+Opens an interactive REPL for humans who want to brainstorm directly:
 
 ```
 [duo:think:my-app] What's on your mind?
 > I want a CLI tool that…
-[duo:think:my-app] (Claude responds)
+[duo:think:my-app] (Claude responds with streaming output)
 > Actually, let's also handle…
 [duo:think:my-app] (Claude responds)
 > /done
+Finalize now? [Y/n] y
+Plan written to ~/.duo/thinking/my-app/plan.md
 ```
 
 - First invocation: creates the session.
-- Subsequent invocations: resumes (no separate `--resume` flag — it's
-  the default behavior).  The full conversation history is shown before
-  the prompt.
+- Subsequent invocations: resumes (full conversation history shown).
 - Exit: `/done`, `/quit`, or Ctrl-D.
-
-### `duo think <name> --ask "..."`
-
-Appends a single user turn, gets one Claude response, and exits.
-Useful in scripts or when you just want to add one thought.
+- On `/done`: prompt "Finalize now? [Y/n]" — if yes, immediately
+  generate `plan.md` (saves the extra `--finalize` step).
 
 ### `duo think <name> --finalize`
 
-Reads the full conversation and generates a structured prompt suitable
-for `duo start`.  The output file is:
+Reads the full conversation from `session.jsonl` and asks Claude to
+distill it into a structured `plan.md` (see Plan File Format below).
+
+Output: `~/.duo/thinking/{name}/plan.md`
+
+After writing, prints:
 
 ```
-~/.duo/thinking/{name}/plan.md
-```
-
-After writing the plan, prints a suggestion:
-
-```
-Plan written to ~/.duo/thinking/my-app/plan.md
+Plan written to ~/.duo/thinking/rate-limiter/plan.md
 Review it, then run:
-  duo start my-app --from-thinking
+  duo start rate-limiter --from-thinking
 ```
 
 ### `duo think list`
@@ -69,9 +91,9 @@ Review it, then run:
 Lists all thinking sessions with status (active / finalized / stale):
 
 ```
-NAME         TURNS  STATUS      LAST ACTIVITY
-my-app         12   finalized   2 hours ago
-refactor        3   active      5 minutes ago
+NAME            TURNS  STATUS      LAST ACTIVITY
+rate-limiter       6   finalized   2 hours ago
+refactor           3   active      5 minutes ago
 ```
 
 ### `duo think <name> --delete`
@@ -91,18 +113,18 @@ Removes `~/.duo/thinking/{name}/` after confirmation.
 
 **session.jsonl** — each line:
 ```json
-{"role": "user", "content": "...", "ts": "2025-01-15T10:30:00Z"}
-{"role": "assistant", "content": "...", "ts": "2025-01-15T10:30:05Z"}
+{"role": "user", "content": "...", "ts": "<ISO8601-UTC>"}
+{"role": "assistant", "content": "...", "ts": "<ISO8601-UTC>"}
 ```
 
 **meta.json:**
 ```json
 {
-  "name": "my-app",
-  "created_at": "2025-01-15T10:30:00Z",
+  "name": "rate-limiter",
+  "created_at": "<ISO8601-UTC>",
   "status": "active",
-  "model": "claude-sonnet-4-5-20250514",
-  "turn_count": 12
+  "model": "<from-config>",
+  "turn_count": 6
 }
 ```
 
@@ -122,17 +144,17 @@ file path handoff, not a data model link.
 
 ## How the Conversation Happens
 
-### Recommended: Option (c) — Local Claude API Call
+### Decision: Option (c) — Local Claude API Call
 
 `duo think` calls the Claude API directly from the CLI process.
 No tmux, no Copilot, no pane.
 
 **How it works:**
-1. User types a message in the terminal.
+1. `--ask` (or REPL input) provides a user message.
 2. `duo think` sends the full conversation history + new message to the
    Claude API (via `anthropic` Python SDK).
-3. Response is streamed to the terminal and appended to `session.jsonl`.
-4. Repeat until `/done`.
+3. Response is streamed to stdout and appended to `session.jsonl`.
+4. For `--ask`: exit.  For REPL: repeat until `/done`.
 
 **Alternatives considered:**
 
@@ -142,14 +164,12 @@ No tmux, no Copilot, no pane.
 | **(b)** Write prompts to file, existing session reads | No API key needed | Requires a running Copilot; still burns PR |
 | **(c)** Direct API call ✅ | Zero PR cost; fast; simple | Needs API key; no tool use |
 
-**Recommendation: (c)** because:
+**(c)** wins because:
 - Zero Copilot interaction = zero PR burned.
 - The thinking phase doesn't need tool use or file editing — it's pure
   conversation.
-- The `anthropic` SDK is lightweight and already available in most
-  environments.
-- If the user doesn't have an API key, fall back to a simple local-only
-  mode (user edits `session.jsonl` manually, `--finalize` still works).
+- The `anthropic` SDK is lightweight.
+- If the user doesn't have an API key, fall back to offline mode.
 
 ### API Key Configuration
 
@@ -160,11 +180,106 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 If no key is configured, `duo think` operates in **offline mode**:
-- User can still write to `session.jsonl` manually (or via `--ask`
-  which just appends the user turn without a response).
-- `--finalize` still works (it reads whatever is in the session).
-- A warning is printed: "No API key configured. Running in offline
-  mode — responses will not be generated."
+- `--ask` appends the user turn to `session.jsonl` but prints a
+  warning instead of a response: "No API key configured — user turn
+  recorded but no response generated."
+- `--finalize` still works (reads whatever is in the session).
+- REPL mode prints: "No API key configured. Running in offline mode —
+  responses will not be generated. Use /done to exit."
+
+## Model Selection
+
+- **Default:** `claude-haiku-4-5-latest` — fast and cheap, ideal for
+  the rapid back-and-forth of a thinking session.
+- **Config override:** `duo config set thinking_model <model-id>` —
+  persists across invocations.
+- **Per-invocation override:** `duo think my-app --model opus` —
+  convenience aliases: `haiku`, `sonnet`, `opus` expand to their
+  latest IDs.
+
+The thinking phase is high-frequency, low-stakes conversation.
+Defaulting to the cheapest capable model keeps costs proportional to
+the value (zero PR, minimal API cost).
+
+## Thinking Agent System Prompt
+
+The system prompt sent with every API call:
+
+```
+You are a software-engineering thinking partner. Your job is to help
+the user refine a software task idea from vague to actionable.
+
+Your conversational style:
+- Ask clarifying questions when scope is ambiguous
+- Propose 2-3 concrete approaches with trade-offs
+- Surface hidden assumptions and risks
+- Challenge over-engineering
+- Push for minimum viable scope
+
+Do NOT write code. Do NOT propose specific file names or line numbers.
+Your output is thinking, not implementation.
+
+When the user says /done or asks to finalize, you will be asked to
+produce a structured Plan document. Until then, stay in thinking mode.
+```
+
+This prompt is stored as a constant in the source code.  Future
+iteration may make it configurable via
+`duo config set thinking_system_prompt "..."`.
+
+## Plan File Format
+
+The `--finalize` command instructs Claude to distill the conversation
+into this exact markdown structure:
+
+```markdown
+# Plan: {name}
+
+## Goal
+
+(One sentence describing what we're building and why.)
+
+## Scope
+
+### In scope
+- Item 1
+- Item 2
+
+### Out of scope
+- Item 1
+- Item 2
+
+## Approach
+
+(Concrete technical plan in 3-5 paragraphs. Architecture, key design
+decisions, data flow, dependencies.)
+
+## Acceptance Criteria
+
+- [ ] Verifiable condition 1
+- [ ] Verifiable condition 2
+- [ ] Verifiable condition 3
+
+## Risks / Unknowns
+
+- Risk 1
+- Risk 2
+
+---
+Generated from thinking session with {turn_count} turns.
+```
+
+The finalize prompt to Claude is:
+
+```
+Distill our entire conversation into a Plan document using this exact
+structure: [structure above]. Be concrete and specific — this plan
+will be sent as the initial prompt to a code-generating agent. Do not
+include anything we didn't discuss.
+```
+
+`duo start --from-thinking` reads this `plan.md` and uses it as the
+initial bootstrap prompt, replacing the auto-generated one.
 
 ## From Thinking to Start
 
@@ -181,20 +296,58 @@ When `--from-thinking` is specified:
 The task name in `duo start` doesn't need to match the thinking session
 name, but by convention they should be the same.
 
-### Auto-detection (no flag needed)
+### Auto-detection (v2 nice-to-have)
 
-Alternative: `duo start <name>` automatically checks
-`~/.duo/thinking/{name}/plan.md`.  If it exists, prompt:
+`duo start <name>` could automatically check for
+`~/.duo/thinking/{name}/plan.md` and hint.  Deferred to v2.
+The existing `duo start` path must remain the default, zero-friction
+path with no behavioral change.
 
+## Error Handling
+
+### Network Errors
+
+- Retry up to 3 times with exponential backoff (1s, 2s, 4s).
+- On final failure: print the error and exit.
+- The user turn is **already** written to `session.jsonl` before the
+  API call, so the user's input is never lost.
+- The assistant turn is **never** half-written: we buffer the full
+  streamed response, then append it atomically.
+
+### Atomic Write Pattern
+
+All writes to `session.jsonl` follow this pattern:
+1. Build the complete JSON line in memory (or stream to a buffer).
+2. Write to a temp file (`session.jsonl.tmp`) with `fsync`.
+3. Append the temp file contents to `session.jsonl`.
+4. Delete the temp file.
+
+This ensures a crash at any point never corrupts the session log.
+
+### Rate Limit (HTTP 429)
+
+Print: "Rate limited by the API. Wait a moment and retry:"
 ```
-Found finalized thinking session 'my-app'.
-Use it as the initial prompt? [Y/n]
+  duo think {name} --ask "{last message}"
+```
+The user turn is already in `session.jsonl`, so `--ask` with the same
+message will skip the duplicate user turn and just retry the API call.
+
+### Invalid API Key (HTTP 401)
+
+Print: "Invalid or expired API key. Configure it with:"
+```
+  duo config set anthropic_api_key <your-key>
+  # or
+  export ANTHROPIC_API_KEY=<your-key>
 ```
 
-**Recommendation:** Use the explicit `--from-thinking` flag.
-Auto-detection is a nice-to-have for v2 but adds complexity and
-surprise behavior.  The existing `duo start` path (no thinking)
-must remain the default, zero-friction path.
+### General Principle
+
+Any error during the API call must:
+1. Never corrupt `session.jsonl`.
+2. Never lose user input that was already submitted.
+3. Print a clear error message with a concrete fix/retry command.
 
 ## PR Budget Guarantee
 
@@ -224,47 +377,56 @@ If a thinking session exists for the same name and the user runs plain
 - **Archive:** Not needed for v1. Sessions are tiny (< 100 KB).
   `duo think list` shows all sessions with last-activity timestamps
   so stale ones are visible.
-- **Crash recovery:** Since each turn is appended to `session.jsonl`
-  immediately after it's generated, a crash loses at most the
-  in-flight response (which can be re-requested on resume).
+- **Crash recovery:** Since each turn is appended atomically (see
+  Error Handling), a crash loses at most the in-flight response.
+  On resume, if the last entry in `session.jsonl` is a user turn with
+  no following assistant turn, `duo think` automatically retries the
+  API call.
 
 ## CEO Interaction Mode
 
-### Does `duo think` produce dialogs?
+### Primary Path: `--ask` Sequences
 
-No. `duo think` is a local CLI conversation — it doesn't use tmux,
-Copilot, or dialogs.  The CEO agent wouldn't interact with `duo think`
-through the dialog mechanism at all.
-
-### CEO + Thinking Flow
-
-If the CEO agent wants to use thinking:
+The CEO agent (Claude Code) is the **primary user** of `duo think`.
+The typical flow:
 
 ```bash
-# CEO brainstorms via --ask (one-shot, no interactive REPL)
-duo think my-feature --ask "I want to add rate limiting. What approaches exist?"
-duo think my-feature --ask "Let's go with token bucket. What edge cases?"
-duo think my-feature --ask "Good. What about distributed environments?"
-duo think my-feature --finalize
+# Step 1: CEO creates a thinking session with structured questions
+duo think rate-limiter --ask "I want to add rate limiting to the API gateway. Requirements: per-user limits, configurable thresholds, Redis-backed. What approaches exist?"
 
-# Now start with the refined plan
-duo start my-feature --from-thinking
+# Step 2: CEO reads the response (stdout), decides next question
+duo think rate-limiter --ask "Let's go with token bucket with sliding window. What edge cases should we handle for distributed deployments?"
+
+# Step 3: CEO continues refining
+duo think rate-limiter --ask "Good analysis. Let's scope down: single-node first, Redis in v2. Finalize the scope."
+
+# Step 4: Generate the plan
+duo think rate-limiter --finalize
+
+# Step 5: Launch executor with the refined plan
+duo start rate-limiter --from-thinking
 ```
 
-Each `--ask` call is atomic: append user turn → get response → exit.
-This works perfectly in a CEO script without interactive terminal.
+The CEO controls the conversation loop in its own context window.
+Each `--ask` is a synchronous subprocess call — the CEO reads stdout
+to get the response and decides the next question.
 
-### Alternative: CEO-native thinking (without `duo think`)
+### No Dialog Mechanism
 
-The CEO agent (Claude Code) already has its own reasoning ability.
-It could simply:
-1. Think internally (in its own context window).
-2. Write the refined plan to a file.
-3. Pass that file as the prompt to `duo start`.
+`duo think` is a local CLI conversation — it doesn't use tmux,
+Copilot, or dialogs.  The CEO interacts with it through simple
+subprocess calls (`--ask`), not through the dialog/transport layer.
 
-`duo think` is primarily for **human** users who want structured
-brainstorming.  The CEO can use it too (via `--ask`), but it's not
-the primary audience.
+### CEO-native Thinking (Alternative)
+
+The CEO can also think in its own context window and write a plan
+file directly.  `duo think` adds value by:
+- Providing a **persistent, reviewable** conversation trail
+  (`session.jsonl`) that the human can inspect.
+- Using a **dedicated system prompt** optimized for task refinement
+  (the CEO's own prompt is optimized for orchestration, not design).
+- Keeping a **separate API budget** — the thinking conversation uses
+  the Anthropic API directly, not the CEO's own context window.
 
 ## Compatibility
 
@@ -280,11 +442,14 @@ the primary audience.
 
 | In Scope (v1) | Out of Scope |
 |----------------|-------------|
-| `duo think <name>` interactive REPL | Tool use during thinking |
-| `duo think <name> --ask "..."` | Multi-model support |
-| `duo think <name> --finalize` | Auto-detect in `duo start` |
-| `duo think list` | Web UI for thinking |
-| `duo think <name> --delete` | Sharing sessions |
-| `duo start --from-thinking` | Thinking → task auto-link |
+| `duo think <name> --ask "..."` (CEO primary) | Tool use during thinking |
+| `duo think <name>` interactive REPL (human secondary) | Auto-detect in `duo start` |
+| `duo think <name> --finalize` | Web UI for thinking |
+| `duo think list` | Sharing sessions |
+| `duo think <name> --delete` | Thinking → task auto-link |
+| `duo start --from-thinking` | |
 | Offline mode (no API key) | |
 | `session.jsonl` + `plan.md` output | |
+| Atomic writes + retry on error | |
+| Haiku default + `--model` override | |
+| `/done` → finalize prompt in REPL | |
