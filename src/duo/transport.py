@@ -329,6 +329,27 @@ def safe_enter(label: str) -> None:
     send_keys(label, "Enter")
 
 
+def is_permission_dialog(label: str) -> bool:
+    """True if dialog is a permission/approval prompt (safe to auto-approve).
+
+    Permission dialogs contain phrases like 'Do you want to run',
+    'Do you want to edit', 'Allow directory', 'approve'.
+    These are SAFE to auto-approve with option 2.
+
+    ask_user dialogs (feature choices, continuation prompts) are NOT
+    permission dialogs and MUST be reviewed by the commander before selecting.
+    """
+    content = read_pane(label, 20)
+    perm_indicators = [
+        "Do you want to run",
+        "Do you want to edit",
+        "Allow directory",
+        "approve",
+        "Do you want to allow",
+    ]
+    return any(ind in content for ind in perm_indicators)
+
+
 def select_dialog_option(label: str, option: str) -> None:
     """Select dialog option with triple safety."""
     if not is_in_dialog_stable(label):

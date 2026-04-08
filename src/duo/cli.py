@@ -1726,7 +1726,11 @@ def diff_cmd(name: str) -> None:
         sys.exit(1)
 
     if not Path(task.worktree).exists():
-        click.echo(f"Error: worktree '{task.worktree}' not found.", err=True)
+        click.echo(
+            f"Error: worktree '{task.worktree}' not found. "
+            "It may have been cleaned up. Run 'duo cleanup' to remove stale tasks.",
+            err=True,
+        )
         sys.exit(1)
 
     result = _run_git(["diff", task.base_commit], cwd=task.worktree, check=False)
