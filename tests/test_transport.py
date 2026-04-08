@@ -21,6 +21,7 @@ from duo.transport import (
     get_pane_id,
     is_in_dialog,
     is_in_dialog_stable,
+    is_permission_dialog,
     is_process_alive,
     list_panes,
     name_pane,
@@ -775,3 +776,32 @@ class TestIsAtMainPromptEdgeCases:
         """❯ prompt preceded by separator lines IS at prompt."""
         content = "─────\nRemaining reqs: 10\n❯ Type @ to mention files"
         assert _is_at_main_prompt(content) is True
+
+
+# ── is_permission_dialog ──────────────────────────────────────────────
+
+
+class TestIsPermissionDialog:
+    @patch("duo.transport.read_pane")
+    def test_detects_run_permission(self, mock_read):
+        """Detects 'Do you want to run' as permission dialog."""
+        mock_read.return_value = "╭──\n  Do you want to run this command?\n  1. Yes\n╰──"
+        assert is_permission_dialog("test") is True
+
+    @patch("duo.transport.read_pane")
+    def test_detects_allow_directory(self, mock_read):
+        """Detects 'Allow directory' as permission dialog."""
+        mock_read.return_value = "Allow directory access\n  1. Allow\n  2. Deny"
+        assert is_permission_dialog("test") is True
+
+    @patch("duo.transport.read_pane")
+    def test_not_permission_for_regular_dialog(self, mock_read):
+        """Regular dialog without permission keywords returns False."""
+        mock_read.return_value = "What would you like to do?\n  1. Option A\n  2. Option B"
+        assert is_permission_dialog("test") is False
+
+    @patch("duo.transport.read_pane")
+    def test_empty_content_not_permission(self, mock_read):
+        """Empty pane content returns False."""
+        mock_read.return_value = ""
+        assert is_permission_dialog("test") is False
