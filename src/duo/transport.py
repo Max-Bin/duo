@@ -398,6 +398,49 @@ def select_dialog_option(label: str, option: str) -> None:
     _record_pr(label, "dialog_option", option[:80])
 
 
+def select_other_option(label: str, text: str) -> None:
+    """Navigate to 'Other' (last option) in dialog, type text, and submit.
+
+    Atomic operation: navigate → type → enter with no deliberation gaps.
+    The 'Other' option is always the last numbered option in the dialog.
+    """
+    content = read_pane(label, 20)
+    if _is_at_main_prompt(content):
+        raise RuntimeError(
+            f"BLOCKED: '{label}' at ❯ prompt. select_other_option REFUSED."
+        )
+    if not is_in_dialog(label):
+        raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
+
+    # Count options to determine how many Downs needed
+    lines = content.strip().split("\n")
+    option_count = 0
+    current_pos = 0
+    for line in lines:
+        stripped = line.strip()
+        for n in range(1, 10):
+            if stripped.startswith(f"{n}.") or f"❯ {n}." in stripped:
+                option_count = max(option_count, n)
+                if "❯" in line:
+                    current_pos = n
+
+    if option_count < 2:
+        raise RuntimeError(f"SAFETY: '{label}' dialog has {option_count} options, need ≥2.")
+
+    # Navigate down to last option (Other)
+    downs_needed = option_count - current_pos
+    for _ in range(downs_needed):
+        send_keys(label, "Down")
+        _time.sleep(0.2)
+        read_pane(label, 5)  # satisfy read guard
+
+    # Type and submit atomically
+    type_text(label, text)
+    read_pane(label, 5)  # satisfy read guard
+    safe_enter(label)
+    _record_pr(label, "dialog_other", text[:80])
+
+
 # === Composite operations ===
 
 

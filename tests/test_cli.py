@@ -2358,6 +2358,64 @@ class TestMonitorCommand:
 
 
 # ---------------------------------------------------------------------------
+# watch command
+# ---------------------------------------------------------------------------
+
+
+class TestWatchCommand:
+    def test_watch_invocation(self, runner: CliRunner):
+        """watch calls watch_tasks and handles KeyboardInterrupt."""
+        with patch("duo.commander.watch_tasks", side_effect=KeyboardInterrupt):
+            result = runner.invoke(main, ["watch"])
+            assert result.exit_code == 0
+            assert "Watch stopped" in result.output
+
+    def test_watch_with_names(self, runner: CliRunner):
+        """watch passes task IDs to watch_tasks."""
+        with patch("duo.commander.watch_tasks") as mock_w:
+            mock_w.return_value = 0
+            result = runner.invoke(main, ["watch", "task-a", "task-b"])
+            assert result.exit_code == 0
+            mock_w.assert_called_once_with(
+                ["task-a", "task-b"], timeout=300, interval=5.0, once=False
+            )
+
+    def test_watch_no_names(self, runner: CliRunner):
+        """watch with no names passes None."""
+        with patch("duo.commander.watch_tasks") as mock_w:
+            mock_w.return_value = 0
+            result = runner.invoke(main, ["watch"])
+            assert result.exit_code == 0
+            mock_w.assert_called_once_with(
+                None, timeout=300, interval=5.0, once=False
+            )
+
+    def test_watch_options(self, runner: CliRunner):
+        """watch passes --timeout, --interval, --once correctly."""
+        with patch("duo.commander.watch_tasks") as mock_w:
+            mock_w.return_value = 1
+            result = runner.invoke(
+                main, ["watch", "--timeout", "60", "--interval", "2.0", "--once"]
+            )
+            assert result.exit_code == 0
+            mock_w.assert_called_once_with(
+                None, timeout=60.0, interval=2.0, once=True
+            )
+
+    def test_watch_negative_timeout(self, runner: CliRunner):
+        """--timeout <= 0 rejected."""
+        result = runner.invoke(main, ["watch", "--timeout", "0"])
+        assert result.exit_code != 0
+        assert "--timeout must be > 0" in result.output
+
+    def test_watch_negative_interval(self, runner: CliRunner):
+        """--interval <= 0 rejected."""
+        result = runner.invoke(main, ["watch", "--interval", "0"])
+        assert result.exit_code != 0
+        assert "--interval must be > 0" in result.output
+
+
+# ---------------------------------------------------------------------------
 # dashboard command
 # ---------------------------------------------------------------------------
 

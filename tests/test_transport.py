@@ -30,6 +30,7 @@ from duo.transport import (
     resolve_label,
     safe_enter,
     select_dialog_option,
+    select_other_option,
     send_bootstrap,
     send_eof,
     send_keys,
@@ -911,3 +912,85 @@ class TestApprovePermission:
         )
         approve_permission("test")
         mock_select.assert_called_once_with("test", "1")
+
+
+# ---------------------------------------------------------------------------
+# select_other_option
+# ---------------------------------------------------------------------------
+
+
+class TestSelectOtherOption:
+    """Tests for select_other_option — navigate to 'Other', type, submit."""
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.safe_enter")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_basic_navigation(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
+    ):
+        """Navigates to last option, types text, and submits."""
+        mock_read.return_value = (
+            "Choose an action:\n"
+            "  ❯ 1. Run command\n"
+            "  2. Edit file\n"
+            "  3. Other\n"
+            "╰─\n"
+        )
+        select_other_option("test", "custom action")
+        # Should navigate down 2 times (from pos 1 to pos 3)
+        assert mock_keys.call_count == 2
+        mock_type.assert_called_once_with("test", "custom action")
+        mock_enter.assert_called_once_with("test")
+        mock_pr.assert_called_once()
+
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport._is_at_main_prompt", return_value=True)
+    def test_blocked_at_prompt(self, mock_prompt, mock_read):
+        """Refuses when at main ❯ prompt."""
+        mock_read.return_value = "❯ "
+        with pytest.raises(RuntimeError, match="BLOCKED"):
+            select_other_option("test", "text")
+
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog", return_value=False)
+    def test_not_in_dialog(self, mock_dialog, mock_read):
+        """Refuses when not in a dialog."""
+        mock_read.return_value = "some output\n"
+        with pytest.raises(RuntimeError, match="SAFETY"):
+            select_other_option("test", "text")
+
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_too_few_options(self, mock_dialog, mock_read):
+        """Refuses when dialog has fewer than 2 options."""
+        mock_read.return_value = (
+            "Choose:\n"
+            "  ❯ 1. Only option\n"
+            "╰─\n"
+        )
+        with pytest.raises(RuntimeError, match="need ≥2"):
+            select_other_option("test", "text")
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.safe_enter")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_cursor_already_at_last(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
+    ):
+        """No navigation needed when cursor is already at last option."""
+        mock_read.return_value = (
+            "Choose:\n"
+            "  1. Run\n"
+            "  ❯ 2. Other\n"
+            "╰─\n"
+        )
+        select_other_option("test", "custom")
+        # Should not navigate at all (already at position 2 of 2)
+        mock_keys.assert_not_called()
+        mock_type.assert_called_once_with("test", "custom")

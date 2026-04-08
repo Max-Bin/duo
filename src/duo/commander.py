@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 import time
 
 import click
@@ -22,6 +23,7 @@ from duo.protocol import (
     TaskStatus,
     append_event,
     list_tasks,
+    load_task,
     new_incarnation,
     now_iso,
     prompt_hash,
@@ -32,6 +34,7 @@ from duo.protocol import (
     transition,
 )
 from duo.transport import (
+    approve_permission,
     clear_bootstrap_done,
     diagnose_pane,
     is_process_alive,
@@ -721,3 +724,102 @@ def monitor(task_ids: list[str] | None = None) -> None:
         )
         interval = max(1.0, min_interval)
         time.sleep(interval)
+
+
+# ---------------------------------------------------------------------------
+# Event-driven watch
+# ---------------------------------------------------------------------------
+
+_TERMINAL_STATUSES = frozenset(
+    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+)
+
+
+def _watch_loop(
+    task: Task,
+    stop: threading.Event,
+    *,
+    timeout: float,
+    interval: float,
+    once: bool,
+) -> None:
+    """Per-task watch loop: block on dialog, handle it, repeat."""
+    label = task.pane_label
+    while not stop.is_set():
+        try:
+            found = wait_for_dialog(label, timeout=timeout, interval=interval)
+        except Exception:
+            _log_monitor("✗", task.id, "pane unavailable, stopping watch")
+            break
+        if stop.is_set():
+            break
+        if not found:
+            # Timeout — check if task is still active
+            refreshed = load_task(task.id)
+            if refreshed is None or refreshed.status in _TERMINAL_STATUSES:
+                _log_monitor("·", task.id, "task finished, stopping watch")
+                break
+            continue
+        # Dialog detected
+        _log_monitor("⚡", task.id, "dialog detected")
+        try:
+            approve_permission(label)
+            _log_monitor("✓", task.id, "dialog handled")
+            append_event(task, "watch_dialog_handled", {})
+        except Exception as exc:
+            _log_monitor("✗", task.id, f"dialog error: {exc}")
+        if once:
+            stop.set()
+            break
+
+
+def watch_tasks(
+    task_ids: list[str] | None = None,
+    *,
+    timeout: float = 300,
+    interval: float = 5.0,
+    once: bool = False,
+) -> int:
+    """Event-driven pane watcher with auto dialog handling.
+
+    Returns the number of dialogs handled.
+
+    Note: Callers should handle ``KeyboardInterrupt`` to allow graceful
+    shutdown when the user presses Ctrl-C (see ``cli.py``).
+    """
+    tasks = list_tasks()
+    active = [
+        t
+        for t in tasks
+        if t.status not in _TERMINAL_STATUSES
+        and (task_ids is None or t.id in task_ids)
+    ]
+    if not active:
+        click.echo("[duo] No active tasks to watch.")
+        return 0
+
+    stop = threading.Event()
+    threads: list[threading.Thread] = []
+
+    for task in active:
+        t = threading.Thread(
+            target=_watch_loop,
+            args=(task, stop),
+            kwargs={"timeout": timeout, "interval": interval, "once": once},
+            daemon=True,
+        )
+        t.start()
+        threads.append(t)
+
+    labels = ", ".join(t.id for t in active)
+    click.echo(f"[duo] Watching {len(active)} task(s): {labels}")
+
+    # Block until stop event or all threads finish
+    while not stop.is_set() and any(t.is_alive() for t in threads):
+        stop.wait(timeout=1.0)
+
+    stop.set()
+    for t in threads:
+        t.join(timeout=5.0)
+
+    return len(active)

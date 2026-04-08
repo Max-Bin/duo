@@ -31,7 +31,7 @@ from duo.protocol import (
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
-    "Monitoring": ["list", "monitor", "dashboard", "logs", "inspect", "stats"],
+    "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cleanup"],
@@ -417,6 +417,44 @@ def monitor(names: tuple[str, ...], max_time: int) -> None:
         run_monitor(task_ids)
     except KeyboardInterrupt:
         click.echo("\n[duo] Monitor stopped.")
+
+
+@main.command()
+@click.argument("names", nargs=-1)
+@click.option(
+    "--timeout",
+    type=float,
+    default=300,
+    help="Seconds to wait for each dialog (default: 300).",
+)
+@click.option(
+    "--interval",
+    type=float,
+    default=5.0,
+    help="Poll interval in seconds (default: 5).",
+)
+@click.option("--once", is_flag=True, help="Exit after handling one dialog.")
+def watch(names: tuple[str, ...], timeout: float, interval: float, once: bool) -> None:
+    """Event-driven pane watcher with auto dialog handling.
+
+    Blocks on each task pane waiting for dialogs (permission prompts,
+    confirmations) and automatically approves them.  Unlike ``monitor``,
+    which polls for heartbeat/result files, ``watch`` is purely
+    event-driven and focuses on dialog detection.
+    """
+    if timeout <= 0:
+        click.echo("Error: --timeout must be > 0", err=True)
+        sys.exit(1)
+    if interval <= 0:
+        click.echo("Error: --interval must be > 0", err=True)
+        sys.exit(1)
+    from duo.commander import watch_tasks
+
+    task_ids = list(names) if names else None
+    try:
+        watch_tasks(task_ids, timeout=timeout, interval=interval, once=once)
+    except KeyboardInterrupt:
+        click.echo("\n[duo] Watch stopped.")
 
 
 @main.command()
