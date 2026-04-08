@@ -792,3 +792,119 @@ class TestTaskListing:
         assert loaded.status == TaskStatus.PROMPT_SENT
         assert loaded.current_step == 2
         assert loaded.current_attempt == 3
+
+
+# ---------------------------------------------------------------------------
+# CEO command family — E2E scenarios
+# ---------------------------------------------------------------------------
+
+
+class TestCeoE2EScenarios:
+    """E2E tests for the ceo-* CLI commands using CliRunner."""
+
+    def _make_task(self) -> protocol.Task:
+        return _task(task_id="ceo-e2e")
+
+    def test_ceo_wait_then_approve_flow(self) -> None:
+        """Simulate: wait → dialog detected → approve → task continues."""
+        from unittest.mock import patch as _patch
+
+        from click.testing import CliRunner
+
+        from duo.cli import main
+
+        task = self._make_task()
+        runner = CliRunner()
+
+        # Step 1: ceo-wait finds dialog
+        with _patch("duo.transport.is_process_alive", return_value=True), \
+             _patch("duo.transport.wait_for_dialog", return_value=True), \
+             _patch("duo.transport.read_pane", return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─"), \
+             _patch("duo.commander._write_watch_event"):
+            result = runner.invoke(main, ["ceo-wait", task.id])
+        assert result.exit_code == 0
+        assert "Permission" in result.output
+
+        # Step 2: ceo-status reports dialog
+        with _patch("duo.transport.is_process_alive", return_value=True), \
+             _patch("duo.transport.read_pane", return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─"), \
+             _patch("duo.transport.is_in_dialog", return_value=True):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        import json
+        data = json.loads(result.output)
+        assert data["state"] == "dialog"
+
+        # Step 3: ceo-approve
+        with _patch("duo.transport.is_permission_dialog", return_value=True), \
+             _patch("duo.transport.approve_permission"):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code == 0
+        assert "Approved" in result.output
+
+    def test_ceo_select_other_flow(self) -> None:
+        """Simulate: dialog → select --other custom text."""
+        from unittest.mock import patch as _patch
+
+        from click.testing import CliRunner
+
+        from duo.cli import main
+
+        task = self._make_task()
+        runner = CliRunner()
+
+        with _patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             _patch("duo.transport.select_other_option"):
+            result = runner.invoke(main, ["ceo-select", task.id, "--other", "custom answer"])
+        assert result.exit_code == 0
+        assert "Other" in result.output
+
+    def test_ceo_status_dead_then_cleanup(self) -> None:
+        """Simulate: pane dead → status reports dead."""
+        from unittest.mock import patch as _patch
+
+        from click.testing import CliRunner
+
+        from duo.cli import main
+
+        task = self._make_task()
+        runner = CliRunner()
+
+        with _patch("duo.transport.is_process_alive", return_value=False):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        import json
+        assert json.loads(result.output)["state"] == "dead"
+
+    def test_ceo_approve_rejects_ask_user_dialog(self) -> None:
+        """ceo-approve refuses non-permission dialogs."""
+        from unittest.mock import patch as _patch
+
+        from click.testing import CliRunner
+
+        from duo.cli import main
+
+        task = self._make_task()
+        runner = CliRunner()
+
+        with _patch("duo.transport.is_permission_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code != 0
+        assert "not showing a permission dialog" in result.output
+
+    def test_ceo_wait_timeout(self) -> None:
+        """ceo-wait exits 1 on timeout."""
+        from unittest.mock import patch as _patch
+
+        from click.testing import CliRunner
+
+        from duo.cli import main
+
+        task = self._make_task()
+        runner = CliRunner()
+
+        with _patch("duo.transport.is_process_alive", return_value=True), \
+             _patch("duo.transport.wait_for_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-wait", task.id, "--timeout", "1"])
+        assert result.exit_code != 0
+        assert "Timeout" in result.output
