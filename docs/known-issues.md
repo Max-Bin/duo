@@ -337,10 +337,8 @@ to miss them and `ceo-loop` to spin without handling them.
   Fix would require a `Task.version` field + compare-and-swap. Deferred
   as too invasive — would touch every test that creates/saves tasks.
 
-- **`TRANSITIONS` dict is mutable** (LOW): Callers could accidentally
-  mutate the FSM transition table. A `MappingProxyType` wrapper or frozen
-  dict would prevent this. Deferred — adds complexity for minimal gain;
-  no caller currently mutates it.
+- **`TRANSITIONS` dict is mutable** — **RESOLVED** (Round CE, commit `998ed0c`):
+  Now uses `MappingProxyType` with `frozenset` values. Immutability test added.
 
 - **Journal rotation crash window** (LOW): During rotation, old journal
   is replaced atomically via `atomic_write_text`. If the process crashes
