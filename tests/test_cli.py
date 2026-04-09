@@ -3987,7 +3987,7 @@ class TestResume:
     def test_resume_pane_alive_restarts(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """When pane is alive, restart_session is called instead of start_session."""
+        """When pane is alive, old pane is killed before restart_session."""
         task = _make_task("alive-task")
         task.status = TaskStatus.RUNNING
         save_task(task)
@@ -3999,11 +3999,42 @@ class TestResume:
         monkeypatch.setattr("duo.commander.start_session", mock_start)
         mock_send = MagicMock()
         monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
+        mock_cleanup = MagicMock()
+        monkeypatch.setattr("duo.transport.cleanup_pane_state", mock_cleanup)
+        mock_sub = MagicMock(return_value=MagicMock(returncode=0))
+        monkeypatch.setattr("duo.cli.subprocess.run", mock_sub)
         result = runner.invoke(main, ["resume", "alive-task"])
         assert result.exit_code == 0
         assert "restarted session" in result.output
         mock_restart.assert_called_once()
         mock_send.assert_called_once()
+        # Verify old pane was killed before restart
+        kill_calls = [
+            c for c in mock_sub.call_args_list if "kill-pane" in str(c)
+        ]
+        assert len(kill_calls) == 1
+        mock_cleanup.assert_called_once_with(task.pane_label)
+
+    def test_resume_alive_kill_pane_error(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When kill-pane fails, resume continues and calls restart anyway."""
+        task = _make_task("kill-fail")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: True)
+        mock_restart = MagicMock()
+        monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run", MagicMock(side_effect=OSError("tmux gone"))
+        )
+        result = runner.invoke(main, ["resume", "kill-fail"])
+        assert result.exit_code == 0
+        assert "restarted session" in result.output
+        mock_restart.assert_called_once()
 
     def test_resume_is_process_alive_exception(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

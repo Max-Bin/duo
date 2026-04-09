@@ -2125,7 +2125,7 @@ def doctor(json_output: bool, strict: bool) -> None:
 def resume(name: str | None) -> None:
     """Resume interrupted task sessions."""
     from duo.commander import restart_session, start_session
-    from duo.transport import is_process_alive
+    from duo.transport import cleanup_pane_state, is_process_alive
 
     TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
 
@@ -2154,6 +2154,17 @@ def resume(name: str | None) -> None:
             )
 
         if pane_alive:
+            # Kill old pane first to prevent duplicate executors
+            try:
+                subprocess.run(
+                    ["tmux", "kill-pane", "-t", task.pane_label],
+                    capture_output=True,
+                    check=False,
+                    timeout=10,
+                )
+                cleanup_pane_state(task.pane_label)
+            except (OSError, subprocess.TimeoutExpired):
+                pass  # Best effort — restart will create a fresh pane
             restart_session(task)
             click.echo(f"Resumed task '{task.id}' — restarted session")
         else:
