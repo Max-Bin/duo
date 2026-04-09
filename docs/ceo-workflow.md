@@ -446,3 +446,107 @@ bash scripts/test-ceo-restart.sh my-task
 
 Plan for orderly restart as a first-class operation, not an emergency
 recovery.
+
+## Self-Care Walkthrough
+
+This section shows a typical health monitoring and maintenance workflow
+using the CEO commands. All output below is from a real session.
+
+### Step 1: Check overall health with `duo doctor`
+
+```bash
+$ duo doctor --json
+```
+
+```json
+{
+  "checks": [
+    {"name": "python", "status": "ok", "detail": "Python 3.12.8"},
+    {"name": "uv", "status": "ok", "detail": "uv 0.7.12"},
+    {"name": "tmux", "status": "ok", "detail": "tmux 3.5a"},
+    {"name": "tmux-bridge", "status": "ok", "detail": "tmux-bridge found"},
+    {"name": "copilot", "status": "ok", "detail": "GitHub Copilot CLI"}
+  ],
+  "copilot_health": {
+    "pid": 42195,
+    "fd_count": 127,
+    "kqueue_count": 3,
+    "child_count": 2,
+    "status": "healthy"
+  }
+}
+```
+
+**What to look for:**
+- `fd_count` < 500 = healthy; 500–2000 = degraded; >2000 = critical
+- `kqueue_count` < 50 = normal; >50 = Copilot CLI upstream bug accumulating
+- `child_count` < 10 = normal; >10 = idle bash processes need cleanup
+
+### Step 2: Dashboard overview with `duo ceo-now`
+
+```bash
+$ duo ceo-now
+```
+
+```
+════════════════════════════════════════════════════
+ Duo CEO Dashboard
+════════════════════════════════════════════════════
+Focus:     my-task (running)
+Pane:      duo:my-task (alive)
+  Recent output:
+    Working on implementing auth module...
+    Created src/auth/handler.py
+Budget:    3 PRs used (limit: 10, 3/hr)
+Health:    healthy (age 1.2h, fds=127, kqueue=3, children=2, ~14.8h remaining)
+Git:       fd95932 (clean @ 2025-01-15T10:30:00)
+```
+
+**Key metrics:**
+- **Budget burn rate** — 3/hr means you're consuming PRs fast; slow down or restart
+- **Remaining capacity** — estimated hours before fd exhaustion; restart when < 2h
+- **Session age** — restart preventively after 4 hours of heavy use
+
+### Step 3: Clean up idle children with `duo ceo-cleanup`
+
+```bash
+# Dry run first to see what would be cleaned
+$ duo ceo-cleanup my-task --dry-run
+Found 5 idle child processes
+  PID 12345 (bash, idle 45m)
+  PID 12346 (bash, idle 30m)
+  PID 12347 (bash, idle 22m)
+  PID 12348 (bash, idle 15m)
+  PID 12349 (bash, idle 8m)
+Dry run — no processes terminated.
+
+# Actually clean up
+$ duo ceo-cleanup my-task
+Terminated 5 idle child processes.
+Recovered ~5 file descriptors.
+```
+
+### Step 4: Restart when degraded
+
+When health degrades below acceptable thresholds:
+
+```bash
+$ duo ceo-restart my-task
+Pre-restart:  PID=42195, fds=1847, kqueue=2891
+  Cleaned 12 idle child process(es)
+  Copilot exited. Re-launching...
+  Waiting for Copilot to start...
+  Sent /allow-all
+Post-restart: PID=43001, fds=19, kqueue=3
+Restart complete ✓ (fds: 1847 → 19)
+```
+
+### Recommended monitoring cadence
+
+| Interval | Action | Command |
+|----------|--------|---------|
+| Every 30 min | Quick health check | `duo ceo-now` |
+| Every 1 hour | Full diagnostics | `duo doctor --json` |
+| When fds > 500 | Cleanup idle children | `duo ceo-cleanup <task>` |
+| When fds > 1500 | Restart session | `duo ceo-restart <task>` |
+| Every 4 hours | Preventive restart | `duo ceo-restart <task>` |
