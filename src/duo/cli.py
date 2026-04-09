@@ -1535,6 +1535,13 @@ def init(repo: str) -> None:
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
     created.append(str(TASKS_DIR))
 
+    # 3b. Worktree base directory (persistent, not /tmp)
+    from duo.config import get_config as _gc
+
+    worktree_base = Path(_gc("worktree_base_path"))
+    worktree_base.mkdir(parents=True, exist_ok=True)
+    created.append(str(worktree_base))
+
     # 4. .duo/ inside repo
     project_duo.mkdir(parents=True, exist_ok=True)
     created.append(str(project_duo))
