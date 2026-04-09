@@ -1315,3 +1315,63 @@ class TestAtomicWriteText:
         content = "🚀 日本語 中文 한국어"
         atomic_write_text(path, content)
         assert path.read_text() == content
+
+
+# ---------------------------------------------------------------------------
+# Task isolation
+# ---------------------------------------------------------------------------
+
+
+class TestTaskIsolation:
+    """Tests verifying tasks are isolated from each other at the protocol level."""
+
+    def test_two_tasks_have_separate_directories(self) -> None:
+        """Each task gets its own directory under TASKS_DIR."""
+        t1 = create_task("iso-alpha", "A", "/wa", "b1", "c1", [_make_subtask()])
+        t2 = create_task("iso-beta", "B", "/wb", "b2", "c2", [_make_subtask()])
+        assert t1.dir != t2.dir
+        assert t1.dir.is_dir()
+        assert t2.dir.is_dir()
+        assert (t1.dir / "task.json").exists()
+        assert (t2.dir / "task.json").exists()
+
+    def test_task_journal_isolation(self) -> None:
+        """Events appended to one task's journal do not appear in another's."""
+        t1 = create_task("jrnl-a", "A", "/wa", "b1", "c1", [_make_subtask()])
+        t2 = create_task("jrnl-b", "B", "/wb", "b2", "c2", [_make_subtask()])
+
+        append_event(t1, "ping", {"src": "a"})
+        append_event(t1, "pong", {"src": "a"})
+
+        events_a = [
+            e for e in read_jsonl(t1.journal_path) if e.get("event") in ("ping", "pong")
+        ]
+        events_b = [
+            e for e in read_jsonl(t2.journal_path) if e.get("event") in ("ping", "pong")
+        ]
+        assert len(events_a) == 2
+        assert len(events_b) == 0
+
+    def test_load_task_returns_correct_worktree(self) -> None:
+        """Loading a task preserves the worktree it was created with."""
+        create_task("wt-check", "W", "/path/a", "b", "c", [_make_subtask()])
+        loaded = load_task("wt-check")
+        assert loaded is not None
+        assert loaded.worktree == "/path/a"
+
+    def test_task_id_uniqueness(self) -> None:
+        """Creating a second task with the same ID overwrites the first."""
+        t1 = create_task("dup-id", "First", "/w1", "b1", "c1", [_make_subtask()])
+        inc1 = t1.incarnation_id
+        t2 = create_task("dup-id", "Second", "/w2", "b2", "c2", [_make_subtask()])
+        inc2 = t2.incarnation_id
+
+        # incarnation IDs should differ
+        assert inc1 != inc2
+
+        loaded = load_task("dup-id")
+        assert loaded is not None
+        # The second creation wins
+        assert loaded.description == "Second"
+        assert loaded.worktree == "/w2"
+        assert loaded.incarnation_id == inc2

@@ -53,7 +53,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-resume",
     ],
     "Recovery": ["recover", "resume", "retry"],
-    "Data & Audit": ["export", "audit", "cleanup", "events"],
+    "Data & Audit": ["export", "audit", "cost", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
     "Benchmarking": ["bench"],
     "Misc": ["version", "completion"],
@@ -287,8 +287,8 @@ def start(
     existing = load_task(name)
     if existing is not None:
         raise DuoUserError(
-            f"task '{name}' already exists (status: {existing.status.value})",
-            fix=f"Use 'duo kill {name}' first, then retry.",
+            f"task '{name}' already exists (status: {existing.status.value}, worktree: {existing.worktree})",
+            fix=f"Use 'duo kill {name}' first, or choose a different task name.",
         )
 
     # Acquire lockfile to prevent concurrent duplicate creation (TOCTOU)
@@ -311,8 +311,8 @@ def start(
         existing = load_task(name)
         if existing is not None:
             raise DuoUserError(
-                f"task '{name}' already exists (status: {existing.status.value})",
-                fix=f"Use 'duo kill {name}' first, then retry.",
+                f"task '{name}' already exists (status: {existing.status.value}, worktree: {existing.worktree})",
+                fix=f"Use 'duo kill {name}' first, or choose a different task name.",
             )
 
         worktree, base_commit = _create_worktree(name, repo)
@@ -1080,6 +1080,117 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
                 click.echo(
                     f"  {ts} {entry.get('action', '?')} [{entry.get('label', '?')}]"
                 )
+
+
+@main.command()
+@click.option("--task", "task_name", default=None, help="Filter to a specific task")
+@click.option(
+    "--since", "since_days", default=None, type=int, help="Only show last N days"
+)
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option("--budget", default=None, type=int, help="Exit non-zero if total PR > N")
+def cost(
+    task_name: str | None,
+    since_days: int | None,
+    *,
+    as_json: bool = False,
+    budget: int | None = None,
+) -> None:
+    """Show Premium Request consumption across tasks."""
+    from collections import Counter
+    from datetime import UTC, datetime, timedelta
+
+    cutoff: datetime | None = None
+    if since_days is not None:
+        cutoff = datetime.now(UTC) - timedelta(days=since_days)
+
+    def _parse_iso(ts: str) -> datetime | None:
+        try:
+            return datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return None
+
+    def _collect_events(task: Task) -> list[dict[str, Any]]:
+        events = read_jsonl(task.journal_path)
+        pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
+        if cutoff is not None:
+            pr_events = [
+                ev
+                for ev in pr_events
+                if (dt := _parse_iso(ev.get("ts", ""))) is not None and dt >= cutoff
+            ]
+        return pr_events
+
+    # Resolve tasks
+    if task_name is not None:
+        task = load_task(task_name)
+        if task is None:
+            raise DuoUserError(
+                f"task '{task_name}' not found",
+                fix="Run 'duo list' to see available tasks.",
+            )
+        tasks_to_scan = [task]
+    else:
+        tasks_to_scan = list_tasks()
+
+    if not tasks_to_scan:
+        if as_json:
+            click.echo(json.dumps({"tasks": [], "total_pr": 0}, indent=2))
+        else:
+            click.echo("No tasks.")
+        if budget is not None and 0 > budget:
+            sys.exit(1)
+        return
+
+    # Collect per-task data
+    rows: list[dict[str, Any]] = []
+    grand_total = 0
+    for t in tasks_to_scan:
+        pr_events = _collect_events(t)
+        count = len(pr_events)
+        grand_total += count
+        if count == 0:
+            rows.append(
+                {"task": t.id, "prs": 0, "first": "", "last": "", "top_action": ""}
+            )
+            continue
+
+        timestamps = [ev.get("ts", "") for ev in pr_events]
+        first_ts = min(timestamps)
+        last_ts = max(timestamps)
+
+        actions = Counter(
+            ev.get("data", {}).get("action", "unknown") for ev in pr_events
+        )
+        top_action, top_count = actions.most_common(1)[0]
+
+        rows.append(
+            {
+                "task": t.id,
+                "prs": count,
+                "first": first_ts[:16].replace("T", " "),
+                "last": last_ts[:16].replace("T", " "),
+                "top_action": f"{top_action} ({top_count})",
+            }
+        )
+
+    if as_json:
+        click.echo(json.dumps({"tasks": rows, "total_pr": grand_total}, indent=2))
+    else:
+        header = (
+            f"{'Task':<16}{'PRs':>5}   {'First Use':<21}{'Last Use':<21}{'Top Action'}"
+        )
+        click.echo(header)
+        for row in rows:
+            click.echo(
+                f"{row['task']:<16}{row['prs']:>5}   {row['first']:<21}"
+                f"{row['last']:<21}{row['top_action']}"
+            )
+        click.echo("\u2500" * len(header))
+        click.echo(f"{'Total':<16}{grand_total:>5}")
+
+    if budget is not None and grand_total > budget:
+        sys.exit(1)
 
 
 @main.command()

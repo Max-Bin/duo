@@ -883,6 +883,265 @@ class TestAudit:
 
 
 # ---------------------------------------------------------------------------
+# cost
+# ---------------------------------------------------------------------------
+
+
+class TestCost:
+    def test_cost_no_tasks(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["cost"])
+        assert result.exit_code == 0
+        assert "No tasks" in result.output
+
+    def test_cost_no_tasks_json(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["cost", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data == {"tasks": [], "total_pr": 0}
+
+    def test_cost_single_task_multiple_events(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        task = make_task("cost-task")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost"])
+        assert result.exit_code == 0
+        assert "cost-task" in result.output
+        assert "3" in result.output
+        assert "task_prompt (2)" in result.output
+        assert "Total" in result.output
+
+    def test_cost_multiple_tasks(self, runner: CliRunner, make_task) -> None:
+        t1 = make_task("task-x")
+        save_task(t1)
+        append_event(
+            t1, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        t2 = make_task("task-y")
+        save_task(t2)
+        append_event(
+            t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+        append_event(
+            t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 2}
+        )
+
+        result = runner.invoke(main, ["cost"])
+        assert result.exit_code == 0
+        assert "task-x" in result.output
+        assert "task-y" in result.output
+        assert "Total" in result.output
+        # Total should be 3
+        lines = result.output.strip().splitlines()
+        total_line = [l for l in lines if "Total" in l][0]
+        assert "3" in total_line
+
+    def test_cost_task_filter_existing(self, runner: CliRunner, make_task) -> None:
+        t1 = make_task("alpha")
+        save_task(t1)
+        append_event(
+            t1, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        t2 = make_task("beta")
+        save_task(t2)
+        append_event(
+            t2, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--task", "alpha"])
+        assert result.exit_code == 0
+        assert "alpha" in result.output
+        assert "beta" not in result.output
+
+    def test_cost_task_filter_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["cost", "--task", "nope"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_cost_since_filter(
+        self, runner: CliRunner, make_task, tmp_path: Path
+    ) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        task = make_task("since-task")
+        save_task(task)
+
+        # Write journal directly with controlled timestamps
+        now = datetime.now(UTC)
+        old_ts = (now - timedelta(days=10)).isoformat()
+        new_ts = (now - timedelta(hours=1)).isoformat()
+        journal = task.journal_path
+        journal.write_text(
+            json.dumps(
+                {
+                    "ts": old_ts,
+                    "event": "pr_consumed",
+                    "data": {"action": "bootstrap", "step": 1, "attempt": 1},
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {
+                    "ts": new_ts,
+                    "event": "pr_consumed",
+                    "data": {"action": "task_prompt", "step": 1, "attempt": 1},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        # --since 5 should only include the recent event
+        result = runner.invoke(main, ["cost", "--since", "5"])
+        assert result.exit_code == 0
+        assert "since-task" in result.output
+        lines = result.output.strip().splitlines()
+        total_line = [l for l in lines if "Total" in l][0]
+        assert "1" in total_line
+
+    def test_cost_since_filter_excludes_all(self, runner: CliRunner, make_task) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        task = make_task("old-task")
+        save_task(task)
+
+        old_ts = (datetime.now(UTC) - timedelta(days=30)).isoformat()
+        task.journal_path.write_text(
+            json.dumps(
+                {
+                    "ts": old_ts,
+                    "event": "pr_consumed",
+                    "data": {"action": "bootstrap", "step": 1, "attempt": 1},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(main, ["cost", "--since", "1"])
+        assert result.exit_code == 0
+        # Task appears but with 0 PRs
+        assert "old-task" in result.output
+        assert "Total" in result.output
+
+    def test_cost_since_malformed_timestamp(self, runner: CliRunner, make_task) -> None:
+        task = make_task("bad-ts")
+        save_task(task)
+        task.journal_path.write_text(
+            json.dumps(
+                {
+                    "ts": "NOT-A-DATE",
+                    "event": "pr_consumed",
+                    "data": {"action": "bootstrap", "step": 1, "attempt": 1},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = runner.invoke(main, ["cost", "--since", "1"])
+        assert result.exit_code == 0
+        # Malformed ts is filtered out
+        assert "bad-ts" in result.output
+        lines = result.output.strip().splitlines()
+        total_line = [l for l in lines if "Total" in l][0]
+        assert "0" in total_line
+
+    def test_cost_budget_no_tasks_negative(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["cost", "--budget", "-1"])
+        assert result.exit_code == 1
+
+    def test_cost_json_output(self, runner: CliRunner, make_task) -> None:
+        task = make_task("json-cost")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total_pr"] == 2
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["task"] == "json-cost"
+        assert data["tasks"][0]["prs"] == 2
+
+    def test_cost_budget_under(self, runner: CliRunner, make_task) -> None:
+        task = make_task("budget-ok")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--budget", "5"])
+        assert result.exit_code == 0
+
+    def test_cost_budget_over(self, runner: CliRunner, make_task) -> None:
+        task = make_task("budget-fail")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--budget", "2"])
+        assert result.exit_code == 1
+
+    def test_cost_budget_exact(self, runner: CliRunner, make_task) -> None:
+        task = make_task("budget-exact")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--budget", "1"])
+        assert result.exit_code == 0
+
+    def test_cost_empty_journal(self, runner: CliRunner, make_task) -> None:
+        task = make_task("empty-journal")
+        save_task(task)
+        # No pr_consumed events, just a different event
+        append_event(task, "status_change", {"from": "queued", "to": "running"})
+
+        result = runner.invoke(main, ["cost"])
+        assert result.exit_code == 0
+        assert "empty-journal" in result.output
+
+    def test_cost_task_filter_json(self, runner: CliRunner, make_task) -> None:
+        task = make_task("json-single")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--task", "json-single", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["task"] == "json-single"
+        assert data["total_pr"] == 1
+
+
+# ---------------------------------------------------------------------------
 # config set pr_budget
 # ---------------------------------------------------------------------------
 
@@ -6926,3 +7185,186 @@ class TestPrintResults:
             _print_results(results)
         output = "\n".join(lines)
         assert "events/s" in output
+
+
+# ---------------------------------------------------------------------------
+# Multi-project isolation
+# ---------------------------------------------------------------------------
+
+
+class TestMultiProjectIsolation:
+    """Tests documenting task-name collision behavior across projects."""
+
+    def test_start_same_name_different_repo_blocked(self, runner: CliRunner):
+        """Starting a task with the same name from a different repo is blocked.
+
+        The error message must mention the existing task's worktree so the
+        user can tell which project owns it.
+        """
+        # Create task "fix" owned by repo-a
+        create_task(
+            task_id="fix",
+            description="Fix for repo-a",
+            worktree="/projects/repo-a",
+            branch="duo/fix",
+            base_commit="aaa111",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="fix stuff",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        # Attempt to start "fix" from repo-b — should fail with worktree info
+        with patch("duo.cli._create_worktree") as mock_wt:
+            mock_wt.return_value = ("/projects/repo-b/worktrees/fix", "bbb222")
+            result = runner.invoke(
+                main,
+                ["start", "fix", "--repo", "/projects/repo-b", "--desc", "repo-b fix"],
+            )
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+        assert "/projects/repo-a" in result.output
+        assert "different task name" in result.output
+
+    def test_task_worktree_stored_correctly(self):
+        """Each task stores the correct worktree path."""
+        task_a = create_task(
+            task_id="task-a",
+            description="Task in repo-a",
+            worktree="/repos/alpha",
+            branch="duo/task-a",
+            base_commit="aaa",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        task_b = create_task(
+            task_id="task-b",
+            description="Task in repo-b",
+            worktree="/repos/beta",
+            branch="duo/task-b",
+            base_commit="bbb",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        assert task_a.worktree == "/repos/alpha"
+        assert task_b.worktree == "/repos/beta"
+        loaded_a = load_task("task-a")
+        loaded_b = load_task("task-b")
+        assert loaded_a is not None and loaded_a.worktree == "/repos/alpha"
+        assert loaded_b is not None and loaded_b.worktree == "/repos/beta"
+
+    def test_list_shows_worktree_in_json(self, runner: CliRunner):
+        """duo list --json-output includes worktree for multi-project visibility."""
+        create_task(
+            task_id="proj-x",
+            description="X",
+            worktree="/projects/x",
+            branch="duo/proj-x",
+            base_commit="xxx",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        create_task(
+            task_id="proj-y",
+            description="Y",
+            worktree="/projects/y",
+            branch="duo/proj-y",
+            base_commit="yyy",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        result = runner.invoke(main, ["list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        worktrees = {d["id"]: d["worktree"] for d in data}
+        assert worktrees["proj-x"] == "/projects/x"
+        assert worktrees["proj-y"] == "/projects/y"
+
+    def test_task_names_can_coexist_with_prefix(self):
+        """Prefixed names (e.g. 'repoA-fix', 'repoB-fix') coexist."""
+        t1 = create_task(
+            task_id="repoA-fix",
+            description="Fix for A",
+            worktree="/repos/a",
+            branch="duo/repoA-fix",
+            base_commit="aaa",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        t2 = create_task(
+            task_id="repoB-fix",
+            description="Fix for B",
+            worktree="/repos/b",
+            branch="duo/repoB-fix",
+            base_commit="bbb",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        assert t1.id != t2.id
+        assert load_task("repoA-fix") is not None
+        assert load_task("repoB-fix") is not None
+
+    def test_kill_does_not_affect_other_tasks(self, runner: CliRunner, tmp_path: Path):
+        """Killing one task leaves other similarly-named tasks intact."""
+        _make_task("alpha-fix")
+        task_beta = _make_task("beta-fix")
+        wt_dir = tmp_path / "alpha_wt"
+        wt_dir.mkdir()
+        alpha = load_task("alpha-fix")
+        assert alpha is not None
+        alpha.worktree = str(wt_dir)
+        save_task(alpha)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="worktree /main\n  branch refs/heads/main\n\n",
+                stderr="",
+            )
+            result = runner.invoke(main, ["kill", "alpha-fix"])
+            assert result.exit_code == 0
+
+        # beta-fix must still exist and be unchanged
+        beta_loaded = load_task("beta-fix")
+        assert beta_loaded is not None
+        assert beta_loaded.id == task_beta.id
+        assert beta_loaded.status == TaskStatus.CREATED
