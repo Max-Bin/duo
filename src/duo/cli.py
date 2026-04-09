@@ -20,6 +20,7 @@ from typing import Any
 import click
 
 from duo.config import get_config
+from duo.errors import DuoUserError
 from duo.protocol import (
     DUO_DIR,  # noqa: F401 — used by test monkeypatching
     TASKS_DIR,
@@ -131,10 +132,16 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
     try:
         result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=_GIT_TIMEOUT)
     except FileNotFoundError:
-        raise click.ClickException("git is not installed. Install: brew install git (macOS) or apt install git (Linux)") from None
+        raise DuoUserError(
+            "git is not installed",
+            fix="Install: brew install git (macOS) or apt install git (Linux)",
+        ) from None
     except subprocess.TimeoutExpired:
         cmd_str = " ".join(["git", *args])
-        raise click.ClickException(f"`{cmd_str}` timed out after {_GIT_TIMEOUT}s. Try `duo doctor` to check system state.") from None
+        raise DuoUserError(
+            f"`{cmd_str}` timed out after {_GIT_TIMEOUT}s",
+            fix="Try 'duo doctor' to check system state.",
+        ) from None
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
         raise click.ClickException(f"`{cmd_str}` failed: {result.stderr.strip()[:500]}")
@@ -156,8 +163,9 @@ def main(ctx: click.Context, verbose: bool) -> None:
     try:
         TASKS_DIR.mkdir(parents=True, exist_ok=True)
     except (OSError, PermissionError) as e:
-        raise click.ClickException(
-            f"cannot create tasks directory '{TASKS_DIR}': {e}\nHint: check write permissions or run `duo doctor`."
+        raise DuoUserError(
+            f"cannot create tasks directory '{TASKS_DIR}': {e}",
+            fix="Check write permissions or run 'duo doctor'.",
         ) from None
 
 
@@ -231,14 +239,15 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
 
         plan_path = thinking_dir(name) / "plan.md"
         if not plan_path.exists():
-            raise click.ClickException(
-                f"No plan.md found for thinking session '{name}'. "
-                f"Run 'duo think {name} --finalize' first."
+            raise DuoUserError(
+                f"No plan.md found for thinking session '{name}'",
+                fix=f"Run 'duo think {name} --finalize' first.",
             )
         plan_content = plan_path.read_text(encoding="utf-8").strip()
         if not plan_content:
-            raise click.ClickException(
-                f"plan.md for '{name}' is empty. Run 'duo think {name} --finalize' again."
+            raise DuoUserError(
+                f"plan.md for '{name}' is empty",
+                fix=f"Run 'duo think {name} --finalize' again.",
             )
         desc = plan_content
 
@@ -248,8 +257,9 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
     # Check for duplicate task
     existing = load_task(name)
     if existing is not None:
-        raise click.ClickException(
-            f"task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first."
+        raise DuoUserError(
+            f"task '{name}' already exists (status: {existing.status.value})",
+            fix=f"Use 'duo kill {name}' first, then retry.",
         )
 
     # Acquire lockfile to prevent concurrent duplicate creation (TOCTOU)
@@ -262,16 +272,18 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
     except (OSError, BlockingIOError):
         if lock_fd is not None:
             lock_fd.close()
-        raise click.ClickException(
-            f"task '{name}' is being created by another process. Wait and retry, or run `duo cleanup` if stuck."
+        raise DuoUserError(
+            f"task '{name}' is being created by another process",
+            fix="Wait and retry, or run 'duo cleanup' if stuck.",
         ) from None
 
     try:
         # Re-check after acquiring lock
         existing = load_task(name)
         if existing is not None:
-            raise click.ClickException(
-                f"task '{name}' already exists (status: {existing.status.value}). Use 'duo kill {name}' first."
+            raise DuoUserError(
+                f"task '{name}' already exists (status: {existing.status.value})",
+                fix=f"Use 'duo kill {name}' first, then retry.",
             )
 
         worktree, base_commit = _create_worktree(name, repo)
@@ -342,8 +354,9 @@ def send(name: str, prompt: str) -> None:
         raise click.UsageError("prompt cannot be empty. Usage: duo send TASK_NAME \"your instruction\"")
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     if task.status == TaskStatus.QUEUED:
@@ -366,8 +379,9 @@ def status(name: str | None = None, *, as_json: bool = False) -> None:
     if name:
         task = load_task(name)
         if task is None:
-            raise click.ClickException(
-                f"task '{name}' not found. Run 'duo list' to see available tasks."
+            raise DuoUserError(
+                f"task '{name}' not found",
+                fix="Run 'duo list' to see available tasks.",
             )
         if as_json:
             output = {
@@ -551,14 +565,15 @@ def merge(name: str, dry_run: bool) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     if task.status != TaskStatus.COMPLETED:
-        raise click.ClickException(
-            f"task '{name}' is '{task.status.value}', not 'completed'. "
-            f"Check progress with 'duo status {name}' or 'duo inspect {name}'."
+        raise DuoUserError(
+            f"task '{name}' is '{task.status.value}', not 'completed'",
+            fix=f"Check progress with 'duo status {name}' or 'duo inspect {name}'.",
         )
 
     worktree = task.worktree
@@ -572,8 +587,9 @@ def merge(name: str, dry_run: bool) -> None:
         return
 
     if not os.path.exists(worktree):
-        raise click.ClickException(
-            f"worktree '{worktree}' does not exist. Task may have been cleaned up."
+        raise DuoUserError(
+            f"worktree '{worktree}' does not exist",
+            fix="Task may have been cleaned up. Run 'duo cleanup' to remove stale references.",
         )
 
     # Fetch and rebase
@@ -589,7 +605,10 @@ def merge(name: str, dry_run: bool) -> None:
             click.echo(
                 f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True
             )
-        raise click.ClickException(f"Rebase conflict! Escalating to human.\n{r.stderr}")
+        raise DuoUserError(
+            f"Rebase conflict while merging '{name}'.\n{r.stderr}",
+            fix=f"Resolve conflicts manually in '{worktree}', then run 'duo merge {name}' again.",
+        )
 
     # Get parent repo from worktree
     main_worktree: str | None = None
@@ -604,15 +623,19 @@ def merge(name: str, dry_run: bool) -> None:
             break
 
     if main_worktree is None:
-        raise click.ClickException(
-            "cannot find main worktree. Ensure the task's worktree was created from a valid git repository."
+        raise DuoUserError(
+            "cannot find main worktree",
+            fix="Ensure the worktree was created from a valid git repository. Run 'duo doctor' to check system state.",
         )
 
     # ff-only merge
     click.echo(f"Merging {task.branch} into main...")
     r = _run_git(["merge", task.branch, "--ff-only"], cwd=main_worktree, check=False)
     if r.returncode != 0:
-        raise click.ClickException(f"Merge failed: {r.stderr}")
+        raise DuoUserError(
+            f"Merge failed: {r.stderr}",
+            fix=f"Try a manual merge: cd {main_worktree} && git merge {task.branch}",
+        )
 
     # Cleanup
     click.echo("Cleaning up worktree and branch...")
@@ -637,8 +660,9 @@ def stop(name: str) -> None:
 
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
@@ -675,8 +699,9 @@ def kill(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     # Try to kill the pane
@@ -938,7 +963,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         # Single task audit
         task = load_task(name)
         if task is None:
-            raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
+            raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
         events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
 
@@ -1017,7 +1042,10 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
     try:
         from duo.dashboard import run_dashboard
     except ImportError:
-        raise click.ClickException("'rich' library required. Run: uv add rich") from None
+        raise DuoUserError(
+            "'rich' library required for dashboard",
+            fix="Run: uv add rich",
+        ) from None
 
     task_ids = list(names) if names else None
     run_dashboard(task_ids, refresh_rate=refresh)
@@ -1035,8 +1063,9 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: boo
 
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     events = read_jsonl(task.journal_path)
@@ -1097,8 +1126,9 @@ def inspect(name: str, as_json: bool, include_files: bool) -> None:
 
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     if as_json:
@@ -1303,7 +1333,7 @@ def init(repo: str) -> None:
 
     # Must be a git repo
     if not (repo_path / ".git").exists():
-        raise click.ClickException("not a git repository. Run 'git init' first.")
+        raise DuoUserError("not a git repository", fix="Run 'git init' first.")
 
     created: list[str] = []
 
@@ -1725,7 +1755,7 @@ def resume(name: str | None) -> None:
     if name is not None:
         task = load_task(name)
         if task is None:
-            raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
+            raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
         if task.status in TERMINAL_STATES:
             click.echo(f"Task '{name}' is already completed.")
             return
@@ -1761,11 +1791,11 @@ def retry(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
+        raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
     if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
-        raise click.ClickException(
-            f"task '{name}' is '{task.status.value}', not retryable."
-            " Only FAILED or BLOCKED tasks can be retried."
+        raise DuoUserError(
+            f"task '{name}' is '{task.status.value}', not retryable",
+            fix=f"Only FAILED or BLOCKED tasks can be retried. Check with 'duo status {name}'.",
         )
     transition(task, TaskStatus.SESSION_STARTING)
     click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
@@ -1785,7 +1815,10 @@ def config_get(key: str) -> None:
 
     value = get_config(key)
     if value is None:
-        raise click.ClickException(f"Unknown key: {key}")
+        raise DuoUserError(
+            f"Unknown config key: {key}",
+            fix="Run 'duo config list' to see available keys.",
+        )
     click.echo(f"{key} = {value}")
 
 
@@ -1953,21 +1986,24 @@ def events_list(limit: int) -> None:
 def events_show(name: str) -> None:
     """Show a single event (by filename or 'latest')."""
     if not _WATCH_EVENTS_DIR.exists():
-        raise click.ClickException("No events directory.")
+        raise DuoUserError("No events directory", fix="Run a task with 'duo ceo-loop' to generate events.")
     if name == "latest":
         files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
         if not files:
-            raise click.ClickException("No events found.")
+            raise DuoUserError("No events found", fix="Run a task with 'duo ceo-loop' to generate events.")
         target = files[0]
     else:
         target = _WATCH_EVENTS_DIR / name
         if not target.exists():
             target = _WATCH_EVENTS_DIR / f"{name}.json"
     if not target.exists():
-        raise click.ClickException(f"Event file not found: {name}")
+        raise DuoUserError(
+            f"Event file not found: {name}",
+            fix="Run 'duo events list' to see available events.",
+        )
     data = read_json(target)
     if data is None:
-        raise click.ClickException(f"Invalid event file: {target.name}")
+        raise DuoUserError(f"Invalid event file: {target.name}")
     click.echo(json.dumps(data, indent=2, ensure_ascii=False))
 
 
@@ -2026,12 +2062,13 @@ def events_clear(force: bool) -> None:
 
 
 def _load_task_or_fail(name: str) -> Task:
-    """Validate task name, load it, or raise ClickException."""
+    """Validate task name, load it, or raise DuoUserError."""
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
     return task
 
@@ -2090,11 +2127,15 @@ def ceo_wait(task: str, timeout: float, interval: float) -> None:
 
     t = _load_task_or_fail(task)
     if not is_process_alive(t.pane_label):
-        raise click.ClickException(f"Pane '{t.pane_label}' is not alive.")
+        raise DuoUserError(
+            f"Pane '{t.pane_label}' is not alive",
+            fix=f"Run 'duo status {task}' to check task state, or 'duo resume {task}' to restart.",
+        )
     found = wait_for_dialog(t.pane_label, timeout=timeout, interval=interval)
     if not found:
-        raise click.ClickException(
-            f"Timeout after {timeout}s: no dialog detected in '{task}'."
+        raise DuoUserError(
+            f"Timeout after {timeout}s: no dialog detected in '{task}'",
+            fix=f"Check pane manually or increase --timeout. Run 'duo status {task}' for current state.",
         )
     content = read_pane(t.pane_label, 40)
     click.echo(content)
@@ -2149,16 +2190,17 @@ def ceo_select(
     t = _load_task_or_fail(task)
     _enforce_not_at_main_prompt(t.pane_label, force_new_session)
     if not is_in_dialog_stable(t.pane_label):
-        raise click.ClickException(
-            f"Pane '{t.pane_label}' is not in a stable dialog. Refusing to select."
+        raise DuoUserError(
+            f"Pane '{t.pane_label}' is not in a stable dialog",
+            fix=f"Wait for the dialog to appear, then retry. Run 'duo ceo-wait {task}' to wait.",
         )
     kind = get_dialog_kind(t.pane_label)
     if kind == DialogKind.TEXT:
         # Text-input dialog: no numbered options
         if option is not None:
-            raise click.ClickException(
-                "This is a text-input dialog with no numbered options. "
-                "Use --other TEXT to type a response."
+            raise DuoUserError(
+                "This is a text-input dialog with no numbered options",
+                fix="Use --other TEXT to type a response.",
             )
         if other_text is None:  # pragma: no cover — guarded by mutual-exclusion above
             raise click.ClickException("Internal error: expected --other TEXT for text dialog.")
@@ -2202,8 +2244,9 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
     t = _load_task_or_fail(task)
     _enforce_not_at_main_prompt(t.pane_label, force_new_session)
     if not is_permission_dialog(t.pane_label):
-        raise click.ClickException(
-            f"'{task}' is not showing a permission dialog. Use 'duo ceo-select' for other dialogs."
+        raise DuoUserError(
+            f"'{task}' is not showing a permission dialog",
+            fix="Use 'duo ceo-select' for other dialog types, or 'duo ceo-wait' to wait for a dialog.",
         )
     approve_permission(t.pane_label)
     click.echo(f"Approved dialog in '{task}'")
@@ -2299,13 +2342,22 @@ def _load_policy(policy_path: str | None) -> dict[str, object]:
 
     path = Path(policy_path)
     if not path.exists():
-        raise click.ClickException(f"Policy file not found: {policy_path}")
+        raise DuoUserError(
+            f"Policy file not found: {policy_path}",
+            fix="Check the path or remove --policy to use defaults.",
+        )
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except Exception as exc:
-        raise click.ClickException(f"Invalid policy file: {exc}") from exc
+        raise DuoUserError(
+            f"Invalid policy file: {exc}",
+            fix=f"Validate your YAML: python -c \"import yaml; yaml.safe_load(open('{policy_path}'))\"",
+        ) from exc
     if not isinstance(data, dict):
-        raise click.ClickException("Policy file must be a YAML mapping at top level.")
+        raise DuoUserError(
+            "Policy file must be a YAML mapping at top level",
+            fix="Ensure the file starts with key-value pairs, not a list or scalar.",
+        )
     # Merge with defaults for missing keys
     result = dict(_DEFAULT_POLICY)
     result.update(data)
@@ -2503,10 +2555,14 @@ def ceo_resume(task: str, instruction: str) -> None:
     """
     state = _read_loop_state(task)
     if state is None:
-        raise click.ClickException(f"No ceo-loop state found for '{task}'. Is ceo-loop running?")
+        raise DuoUserError(
+            f"No ceo-loop state found for '{task}'",
+            fix=f"Start a ceo-loop first: duo ceo-loop {task}",
+        )
     if state.get("status") != "paused":
-        raise click.ClickException(
-            f"ceo-loop for '{task}' is not paused (status: {state.get('status')}). Nothing to resume."
+        raise DuoUserError(
+            f"ceo-loop for '{task}' is not paused (status: {state.get('status')})",
+            fix="Only paused loops can be resumed. Check the ceo-loop terminal for current state.",
         )
     _write_loop_state(task, {"status": "resumed", "instruction": instruction})
     click.echo(f"Resumed ceo-loop for '{task}'.")
@@ -2532,8 +2588,9 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
     """Export task report (events, files changed, summary)."""
     task = load_task(name)
     if task is None:
-        raise click.ClickException(
-            f"task '{name}' not found. Run 'duo list' to see available tasks."
+        raise DuoUserError(
+            f"task '{name}' not found",
+            fix="Run 'duo list' to see available tasks.",
         )
 
     if fmt == "jsonl":
@@ -2686,12 +2743,12 @@ def diff_cmd(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise click.ClickException(f"task '{name}' not found. Run 'duo list' to see available tasks.")
+        raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
 
     if not Path(task.worktree).exists():
-        raise click.ClickException(
-            f"worktree '{task.worktree}' not found. "
-            "It may have been cleaned up. Run 'duo cleanup' to remove stale tasks."
+        raise DuoUserError(
+            f"worktree '{task.worktree}' not found",
+            fix="It may have been cleaned up. Run 'duo cleanup' to remove stale tasks.",
         )
 
     result = _run_git(["diff", task.base_commit], cwd=task.worktree, check=False)
@@ -2782,12 +2839,14 @@ def _think_ask(name: str, text: str) -> None:
     result = wait_for_response_stable(label)
 
     if result == "dialog":
-        raise click.ClickException(
-            f"Claude Code asked a question in the pane — switch to pane '{label}' to answer."
+        raise DuoUserError(
+            "Claude Code asked a question in the pane",
+            fix=f"Switch to pane '{label}' to answer, then retry.",
         )
     if result == "timeout":
-        raise click.ClickException(
-            f"Thinking pane not responding after timeout. Try: duo think {name} --close"
+        raise DuoUserError(
+            "Thinking pane not responding after timeout",
+            fix=f"Try: duo think {name} --close",
         )
 
     content_after = read_pane(label, 200)
@@ -2809,11 +2868,15 @@ def _think_finalize(name: str) -> None:
     # Ensure pane is idle before sending finalize
     result = wait_for_response_stable(label, timeout=30)
     if result == "dialog":
-        raise click.ClickException(
-            f"Pane is in a dialog. Switch to pane '{label}' to handle it first."
+        raise DuoUserError(
+            "Pane is in a dialog",
+            fix=f"Switch to pane '{label}' to handle it first.",
         )
     if result == "timeout":
-        raise click.ClickException("Pane unresponsive. Try: duo think {name} --close")
+        raise DuoUserError(
+            "Pane unresponsive",
+            fix=f"Try: duo think {name} --close",
+        )
 
     finalize_msg = (
         f"Please distill our entire conversation into a plan document using the "
@@ -2841,9 +2904,9 @@ def _think_finalize(name: str) -> None:
                 stable_since = _time.time()
         _time.sleep(1.0)
     else:
-        raise click.ClickException(
-            "Claude Code didn't produce plan.md within 60s. "
-            "Check the thinking pane manually, or run --finalize again."
+        raise DuoUserError(
+            "Claude Code didn't produce plan.md within 60s",
+            fix="Check the thinking pane manually, or run --finalize again.",
         )
 
     click.echo(f"Plan written to {plan_path}")
@@ -2857,7 +2920,10 @@ def _think_close(name: str) -> None:
 
     tdir = thinking_dir(name)
     if not tdir.exists():
-        raise click.ClickException(f"No thinking session '{name}' found.")
+        raise DuoUserError(
+            f"No thinking session '{name}' found",
+            fix="Run 'duo think --list' to see available sessions.",
+        )
     if close_pane(name):
         click.echo(f"Closed pane for '{name}'. Files preserved in {tdir}")
     else:
@@ -2872,7 +2938,10 @@ def _think_delete(name: str) -> None:
 
     tdir = thinking_dir(name)
     if not tdir.exists():
-        raise click.ClickException(f"No thinking session '{name}' found.")
+        raise DuoUserError(
+            f"No thinking session '{name}' found",
+            fix="Run 'duo think --list' to see available sessions.",
+        )
 
     if not click.confirm(f"Delete thinking session '{name}'? This cannot be undone."):
         click.echo("Aborted.")

@@ -2382,7 +2382,7 @@ class TestConfigSubcommands:
         monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
         result = runner.invoke(main, ["config", "get", "nonexistent_key_xyz"])
         assert result.exit_code != 0
-        assert "Unknown key" in result.output
+        assert "Unknown config key" in result.output
 
     def test_config_set_known(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         import duo.config as config_mod
