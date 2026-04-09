@@ -38,6 +38,7 @@ from duo.protocol import (
     append_event,
     atomic_write_text,
     list_tasks,
+    load_task,
     new_incarnation,
     now_iso,
     prompt_hash,
@@ -860,6 +861,16 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
 
     elif poll_result == PollResult.HEARTBEAT_TIMEOUT:
         if not is_process_alive(task.pane_label):
+            # Re-read task from disk — another process (e.g. duo stop) may
+            # have transitioned it to BLOCKED/FAILED while we were polling.
+            fresh = load_task(task.id)
+            if fresh and fresh.status in (
+                TaskStatus.BLOCKED,
+                TaskStatus.COMPLETED,
+                TaskStatus.FAILED,
+                TaskStatus.ESCALATED,
+            ):
+                return poll_result
             append_event(task, "session_crashed", {"incarnation": inc})
             restart_session(task)
             if task.status == TaskStatus.FAILED:

@@ -40,6 +40,7 @@ from duo.protocol import (
     now_iso,
     prompt_hash,
     read_jsonl,
+    save_task,
     transition,
     write_json,
 )
@@ -1610,6 +1611,26 @@ class TestPollTask:
             poll_task(task, poller)
 
         mock_send.assert_not_called()
+
+    @patch("duo.commander.restart_session")
+    @patch("duo.commander.is_process_alive", return_value=False)
+    def test_poll_heartbeat_skips_restart_when_task_stopped(
+        self, mock_alive, mock_restart
+    ):
+        """HEARTBEAT_TIMEOUT skips restart if task was stopped concurrently."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        # Simulate duo stop transitioning task to BLOCKED on disk
+        transition(task, TaskStatus.BLOCKED)
+        save_task(task)
+
+        result = poll_task(task, poller)
+
+        # Should NOT restart — task was stopped
+        mock_restart.assert_not_called()
+        assert result == PollResult.HEARTBEAT_TIMEOUT
 
     @patch("duo.commander.send_task_prompt")
     @patch("duo.commander.restart_session")
