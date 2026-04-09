@@ -9,14 +9,59 @@ The `duo ceo-*` commands replace ad-hoc inline Python with ergonomic CLI
 calls. Each command is an atomic operation with safety guards and JSON output
 for easy scripting.
 
-| Command | Purpose |
-|---------|---------|
-| `duo ceo-wait <task>` | Block until a dialog appears in the task's pane |
-| `duo ceo-select <task> <option>` | Pick a numbered dialog option |
-| `duo ceo-approve <task>` | Auto-approve a permission dialog |
-| `duo ceo-status <task>` | Print the pane state as a single JSON line |
+## Command Reference
 
-## Commands
+### Core Dialog Operations
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ceo-wait <task>` | Block until dialog appears | `duo ceo-wait e2e --timeout 300` |
+| `ceo-select <task> <opt>` | Pick a numbered option | `duo ceo-select e2e 2` |
+| `ceo-approve <task>` | Auto-approve permission dialog | `duo ceo-approve e2e` |
+| `ceo-smart <task>` | Auto-decide trivial, defer complex | `duo ceo-smart e2e` |
+| `ceo-dispatch <task>` | Single-shot policy-driven handler | `duo ceo-dispatch e2e` |
+
+### Automation
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ceo-loop <task>` | Automated dialog handling loop | `duo ceo-loop e2e --policy smart` |
+| `ceo-resume <task>` | Resume a paused ceo-loop | `duo ceo-resume e2e` |
+
+### Monitoring
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ceo-status <task>` | Pane state as JSON | `duo ceo-status e2e` |
+| `ceo-now` | One-screen CEO dashboard | `duo ceo-now` |
+
+### Focus Management
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ceo-focus <task>` | Set current focus task | `duo ceo-focus e2e` |
+| `ceo-focus-show` | Show current focus task | `duo ceo-focus-show` |
+| `ceo-focus-clear` | Clear focus | `duo ceo-focus-clear` |
+
+### Session Tracking
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ceo-session-start` | Start new session | `duo ceo-session-start` |
+| `ceo-session-list` | List all sessions | `duo ceo-session-list` |
+| `ceo-session-replay <id>` | Replay session events | `duo ceo-session-replay abc123` |
+| `ceo-session-stats <id>` | Show session stats | `duo ceo-session-stats abc123` |
+
+### Analytics & Configuration
+
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `ceo-metrics` | Aggregate analytics across sessions | `duo ceo-metrics --format json` |
+| `ceo-smart-config` | Show effective smart patterns | `duo ceo-smart-config` |
+
+---
+
+## Command Details
 
 ### `duo ceo-wait`
 
@@ -57,6 +102,56 @@ Reads the dialog options and picks the "most positive" yes response:
 duo ceo-approve my-task
 ```
 
+### `duo ceo-smart`
+
+Combines pattern matching with intelligent decision-making:
+- **Trivial dialogs** (permission grants, "Yes/No") → auto-approve
+- **Complex dialogs** (multi-option, custom text needed) → defer to Commander
+
+Uses configurable patterns from `~/.duo/smart-patterns.yaml` merged
+with built-in defaults. See `duo ceo-smart-config` for active patterns.
+
+```bash
+duo ceo-smart my-task
+```
+
+### `duo ceo-dispatch`
+
+Single-shot policy-driven dialog handler. Applies the configured policy
+(approve, smart, or custom) to whatever dialog is currently showing.
+
+```bash
+duo ceo-dispatch my-task --policy smart
+```
+
+**Error recovery:** If the dialog is dismissed between detection and
+action, exits gracefully with a warning.
+
+### `duo ceo-loop`
+
+Automated CEO workflow loop — combines `ceo-wait` + `ceo-dispatch` in a
+continuous loop with configurable policy and timing.
+
+```bash
+duo ceo-loop my-task --policy smart --timeout 3600 --interval 5
+```
+
+**Options:**
+- `--policy` (default `smart`): Dialog handling policy.
+- `--timeout` (default 3600): Max loop duration in seconds.
+- `--interval` (default 5): Poll interval.
+
+**Exit conditions:** Timeout reached, pane dead, or keyboard interrupt.
+
+### `duo ceo-resume`
+
+Resumes a paused `ceo-loop` for a task. Useful when the loop was
+interrupted (e.g., SSH disconnect) and needs to continue.
+
+```bash
+duo ceo-resume my-task
+```
+
 ### `duo ceo-status`
 
 Prints one JSON line describing the pane state:
@@ -73,6 +168,68 @@ duo ceo-status my-task
 | `processing` | Spinner visible (Copilot is thinking) |
 | `dialog` | Inside a `╭╰` dialog box with numbered options |
 | `dead` | Pane process is gone |
+
+**Flags:**
+- `--assert-in-dialog`: Exit 0 if in dialog, exit 1 otherwise.
+
+### `duo ceo-now`
+
+One-screen CEO dashboard showing all active tasks, their states,
+recent events, and resource usage.
+
+```bash
+duo ceo-now
+```
+
+### `duo ceo-focus` / `ceo-focus-show` / `ceo-focus-clear`
+
+Focus management for multi-task sessions. Tells the Commander which
+task is currently active.
+
+```bash
+duo ceo-focus my-task        # Set focus
+duo ceo-focus-show           # Show current → "my-task"
+duo ceo-focus-clear           # Clear focus
+```
+
+### `duo ceo-session-*`
+
+Session lifecycle management for audit and replay:
+
+```bash
+# Start a new session (prints export command for DUO_CEO_SESSION)
+eval $(duo ceo-session-start)
+
+# List all sessions
+duo ceo-session-list
+
+# Replay events from a session
+duo ceo-session-replay $DUO_CEO_SESSION
+
+# Show aggregate stats
+duo ceo-session-stats $DUO_CEO_SESSION
+```
+
+### `duo ceo-metrics`
+
+Aggregate analytics across all CEO sessions — dialog counts, approval
+rates, timing distributions, error frequencies.
+
+```bash
+duo ceo-metrics                  # Human-readable table
+duo ceo-metrics --format json    # Machine-readable JSON
+```
+
+### `duo ceo-smart-config`
+
+Shows the effective smart patterns (built-in defaults merged with
+user overrides from `~/.duo/smart-patterns.yaml`).
+
+```bash
+duo ceo-smart-config
+```
+
+---
 
 ## Typical CEO Loop
 
@@ -113,6 +270,11 @@ twice with a 1 s gap — both reads must confirm a dialog is present.
 
 Commands that modify pane state (`ceo-select`, `ceo-approve`) refuse to
 act if the pane is not in a stable dialog.
+
+**Pane locking:** All dialog operations acquire an advisory pane lock
+(`pane_lock()`) preventing concurrent dialog interleaving from separate
+CLI invocations. See `docs/send-keys-resilience-audit.md` for full
+defense analysis.
 
 ## PR Budget Protection
 
