@@ -3,10 +3,26 @@
 Observations that warrant future investigation.  Not necessarily bugs —
 sometimes just suspicious correlations we don't yet fully understand.
 
-## Tmux layout change correlates with input failures — MITIGATED
+## Tmux layout change correlates with input failures — ROOT CAUSE RESOLVED
 
-**Status: Mitigated** (three-layer defense in place; root cause narrowed
-to theories (a)/(b) — see below)
+**Status: Root cause fixed** (commit `9165a7a`, Round BF); three-layer
+defense retained as defense-in-depth.
+
+**Root cause (identified in Round BF):**
+`duo start` and `duo think` used bare `tmux split-window` without a `-t`
+target session. When multiple tmux sessions existed, tmux would create
+the pane in whichever session it considered "current" — not necessarily
+the one the user was working in. This caused:
+1. Pane created in the wrong session (user can't see it)
+2. The wrong session's layout gets rearranged (panes resize from 224×56
+   to 224×32)
+3. The resize triggers the downstream SIGWINCH/Ink chain described below
+
+**Fix:** All pane-creation calls now use `get_tmux_session_target()` to
+read `$TMUX` env var and pass `-t $<session_id>` to `tmux split-window`,
+guaranteeing panes are created in the caller's session. When `$TMUX` is
+not set, duo raises a clear error instead of silently picking a random
+session.
 
 **Observation:**
 During a long CEO session with Copilot (pane label `e2e-test`), `tmux
@@ -95,12 +111,13 @@ Theories to investigate:
   could cause false "same content" verdicts in `send_keys_verified`.
   Mitigated by Layer 3's resize.
 
-**Priority:** Low (mitigated).  Monitor for recurrence.  If the problem
-reappears despite all three layers, the remaining investigation path is
-to instrument Ink's stdin event loop directly.
+**Priority:** Low (root cause fixed). The three-layer defense remains as
+defense-in-depth against any future scenarios where panes are resized for
+other reasons (manual resize, terminal app resize, etc.).
 
 **First observed:** During the CEO session around the "big-dialog detection"
 and "parallel sub-agents" failures (see commit `dab818f` onwards).
+**Root cause fixed:** Commit `9165a7a` (Round BF) — `$TMUX` env var respect.
 
 ---
 
