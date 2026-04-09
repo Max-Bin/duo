@@ -608,7 +608,11 @@ def recover() -> None:
     tasks = list_tasks()
     recovered = 0
     for task in tasks:
-        if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+        if task.status in (
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.ESCALATED,
+        ):
             continue
         actual = replay_state(task)
         if actual != task.status:

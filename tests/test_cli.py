@@ -316,6 +316,15 @@ class TestRecover:
         assert result.exit_code == 0
         assert "All tasks consistent." in result.output
 
+    def test_recover_skips_escalated_task(self, runner: CliRunner):
+        """recover() skips tasks with ESCALATED status — human decision should be preserved."""
+        task = _make_task("esc-task")
+        task.status = TaskStatus.ESCALATED
+        save_task(task)
+        result = runner.invoke(main, ["recover"])
+        assert result.exit_code == 0
+        assert "All tasks consistent." in result.output
+
 
 # ---------------------------------------------------------------------------
 # send command (error case)
