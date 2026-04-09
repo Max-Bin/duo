@@ -3519,6 +3519,99 @@ def ceo_smart_config(*, json_output: bool) -> None:
         click.echo(f"  {p}{marker}")
 
 
+@main.command("ceo-cleanup")
+@click.argument("task")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be killed without acting."
+)
+@click.option("--json-output", is_flag=True, help="Output results as JSON.")
+def ceo_cleanup(task: str, *, dry_run: bool, json_output: bool) -> None:
+    """Kill idle child bash processes of a Copilot pane to reclaim fds.
+
+    Copilot CLI may leak idle bash subshells during long sessions.
+    This command safely kills them — Copilot spawns fresh shells as needed.
+    """
+    from duo.transport import get_pane_pid
+
+    t = _load_task_or_fail(task)
+    pid = get_pane_pid(t.pane_label)
+    if pid is None:
+        raise DuoUserError(
+            f"Cannot determine PID for pane '{t.pane_label}'. "
+            "Is the session alive? Run: duo status"
+        )
+
+    children = _find_idle_children(pid)
+    if not children:
+        if json_output:
+            click.echo(json.dumps({"killed": [], "total": 0}))
+        else:
+            click.echo("No idle child processes found.")
+        return
+
+    killed: list[int] = []
+    for child_pid in children:
+        if dry_run:
+            killed.append(child_pid)
+            continue
+        try:
+            os.kill(child_pid, 9)
+            killed.append(child_pid)
+        except OSError:
+            pass
+
+    if json_output:
+        click.echo(
+            json.dumps({"killed": killed, "total": len(killed), "dry_run": dry_run})
+        )
+    else:
+        verb = "Would kill" if dry_run else "Killed"
+        click.echo(f"{verb} {len(killed)} idle child process(es): {killed}")
+
+
+def _find_idle_children(parent_pid: int) -> list[int]:
+    """Return PIDs of idle bash children of *parent_pid*."""
+    try:
+        proc = subprocess.run(
+            ["pgrep", "-P", str(parent_pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            return []
+        child_pids = [
+            int(line.strip())
+            for line in proc.stdout.strip().splitlines()
+            if line.strip()
+        ]
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+
+    idle: list[int] = []
+    for cpid in child_pids:
+        try:
+            ps_proc = subprocess.run(
+                ["ps", "-o", "comm=,state=", "-p", str(cpid)],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if ps_proc.returncode != 0:
+                continue
+            out = ps_proc.stdout.strip()
+            # idle bash: command is bash/sh AND state starts with S (sleeping)
+            parts = out.split()
+            if len(parts) >= 2:
+                comm = parts[0].lower()
+                state = parts[1]
+                if ("bash" in comm or "sh" == comm) and state.startswith("S"):
+                    idle.append(cpid)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return idle
+
+
 @main.command("ceo-dispatch")
 @click.argument("task")
 @click.option(

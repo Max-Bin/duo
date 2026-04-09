@@ -39,6 +39,7 @@ from duo.cli import (
     _doctor_check_tmux,
     _doctor_check_tmux_bridge,
     _doctor_check_tmux_session,
+    _find_idle_children,
     _fmt_ts,
     _get_pid_child_count,
     _get_pid_fd_count,
@@ -5535,6 +5536,233 @@ class TestDoctorCheckCopilotHealth:
         result = runner.invoke(main, ["doctor"])
         assert "pane:test-pane" in result.output
         assert "fds=600" in result.output
+
+
+# ── CEO cleanup command ──────────────────────────────────────────────
+
+
+class TestFindIdleChildren:
+    """Tests for _find_idle_children()."""
+
+    def test_finds_idle_bash(self, monkeypatch: pytest.MonkeyPatch):
+        """Detects sleeping bash children."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda cmd, **kw: (
+                MagicMock(returncode=0, stdout="111\n222\n")
+                if cmd[0] == "pgrep"
+                else MagicMock(returncode=0, stdout="bash S")
+            ),
+        )
+        result = _find_idle_children(9999)
+        assert result == [111, 222]
+
+    def test_no_children(self, monkeypatch: pytest.MonkeyPatch):
+        """pgrep finds no children → empty list."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda cmd, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert _find_idle_children(9999) == []
+
+    def test_non_bash_excluded(self, monkeypatch: pytest.MonkeyPatch):
+        """Non-bash processes should not be included."""
+        calls = {"count": 0}
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return MagicMock(returncode=0, stdout="111\n")
+            calls["count"] += 1
+            return MagicMock(returncode=0, stdout="node R+")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        assert _find_idle_children(9999) == []
+
+    def test_running_bash_excluded(self, monkeypatch: pytest.MonkeyPatch):
+        """Running (R state) bash should not be included."""
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return MagicMock(returncode=0, stdout="111\n")
+            return MagicMock(returncode=0, stdout="bash R+")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        assert _find_idle_children(9999) == []
+
+    def test_pgrep_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """pgrep timeout → empty list."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired("pgrep", 5)
+            ),
+        )
+        assert _find_idle_children(9999) == []
+
+    def test_ps_failure_skips_child(self, monkeypatch: pytest.MonkeyPatch):
+        """ps fails for a child → skip it, don't crash."""
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return MagicMock(returncode=0, stdout="111\n")
+            return MagicMock(returncode=1, stdout="")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        assert _find_idle_children(9999) == []
+
+    def test_ps_timeout_skips_child(self, monkeypatch: pytest.MonkeyPatch):
+        """ps timeout for a child → skip it."""
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return MagicMock(returncode=0, stdout="111\n")
+            raise subprocess.TimeoutExpired("ps", 5)
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        assert _find_idle_children(9999) == []
+
+    def test_short_ps_output_skipped(self, monkeypatch: pytest.MonkeyPatch):
+        """ps output with fewer than 2 fields → skip."""
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return MagicMock(returncode=0, stdout="111\n")
+            return MagicMock(returncode=0, stdout="bash")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        assert _find_idle_children(9999) == []
+
+    def test_sh_also_matched(self, monkeypatch: pytest.MonkeyPatch):
+        """'sh' command should also match."""
+
+        def fake_run(cmd, **kw):
+            if cmd[0] == "pgrep":
+                return MagicMock(returncode=0, stdout="111\n")
+            return MagicMock(returncode=0, stdout="sh S")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        assert _find_idle_children(9999) == [111]
+
+
+class TestCeoCleanup:
+    """Tests for duo ceo-cleanup command."""
+
+    @pytest.fixture()
+    def _task_fixture(self) -> str:
+        """Create a task using the project's create_task helper."""
+        task = _make_task(task_id="my-task", description="cleanup test")
+        task.pane_label = "test-pane"
+        save_task(task)
+        return task.id
+
+    def test_no_idle_children(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """No idle children → informational message."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        result = runner.invoke(main, ["ceo-cleanup", "my-task"])
+        assert result.exit_code == 0
+        assert "No idle" in result.output
+
+    def test_kills_children(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Should kill idle children and report."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [111, 222])
+        killed: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            killed.append(pid)
+
+        monkeypatch.setattr("duo.cli.os.kill", fake_kill)
+        result = runner.invoke(main, ["ceo-cleanup", "my-task"])
+        assert result.exit_code == 0
+        assert "Killed 2" in result.output
+        assert killed == [111, 222]
+
+    def test_dry_run(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Dry run shows what would be killed without acting."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [111])
+        kill_called = []
+        monkeypatch.setattr("duo.cli.os.kill", lambda p, s: kill_called.append(p))
+        result = runner.invoke(main, ["ceo-cleanup", "my-task", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Would kill" in result.output
+        assert kill_called == []
+
+    def test_json_output(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """JSON output mode."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [111, 222])
+        monkeypatch.setattr("duo.cli.os.kill", lambda p, s: None)
+        result = runner.invoke(main, ["ceo-cleanup", "my-task", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total"] == 2
+        assert data["killed"] == [111, 222]
+
+    def test_json_no_children(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """JSON output with no children."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        result = runner.invoke(main, ["ceo-cleanup", "my-task", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total"] == 0
+
+    def test_pid_unavailable(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """PID not found → error."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
+        result = runner.invoke(main, ["ceo-cleanup", "my-task"])
+        assert result.exit_code != 0
+
+    def test_kill_oserror_ignored(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """os.kill OSError should be silently ignored."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [111, 222])
+
+        def fail_kill(pid: int, sig: int) -> None:
+            if pid == 111:
+                raise OSError("No such process")
+
+        monkeypatch.setattr("duo.cli.os.kill", fail_kill)
+        result = runner.invoke(main, ["ceo-cleanup", "my-task"])
+        assert result.exit_code == 0
+        assert "Killed 1" in result.output
 
 
 # ── Bare array batch file auto-wrapping ──────────────────────────────
