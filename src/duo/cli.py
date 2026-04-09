@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -1358,135 +1359,347 @@ def init(repo: str) -> None:
         click.echo(f"  ✓ {item}")
 
 
-@main.command()
-def doctor() -> None:
-    """Check environment dependencies and configuration."""
-    checks_passed = 0
-    checks_total = 0
-    critical_failed = False
+@dataclass
+class CheckResult:
+    """Result of a single doctor diagnostic check."""
 
-    def _check(
-        name: str,
-        ok: bool,
-        ok_msg: str,
-        fail_msg: str,
-        *,
-        critical: bool = False,
-    ) -> None:
-        nonlocal checks_passed, checks_total, critical_failed
-        checks_total += 1
-        if ok:
-            checks_passed += 1
-            click.echo(click.style(f"  ✓ {name}: {ok_msg}", fg="green"))
-        else:
-            click.echo(click.style(f"  ✗ {name}: {fail_msg}", fg="red"))
-            if critical:
-                critical_failed = True
+    name: str
+    status: str  # "pass", "warn", "fail"
+    message: str
+    fix: str  # suggested fix action
 
-    # 1. Python version
+
+def _doctor_check_python() -> CheckResult:
+    """Check Python version >= 3.12."""
     vi = sys.version_info
-    _check(
-        "Python",
-        vi >= (3, 12),
-        f"{vi.major}.{vi.minor}.{vi.micro}",
-        f"{vi.major}.{vi.minor}.{vi.micro} — Requires >= 3.12",
+    ver = f"{vi.major}.{vi.minor}.{vi.micro}"
+    if vi >= (3, 12):
+        return CheckResult("Python", "pass", ver, "")
+    return CheckResult(
+        "Python", "fail", ver, "Upgrade to Python >= 3.12"
     )
 
-    # 2. tmux
-    _check(
-        "tmux",
-        shutil.which("tmux") is not None,
-        "installed",
-        "not found — Install with: brew install tmux (macOS) or apt install tmux (Linux)",
-        critical=True,
-    )
 
-    # 3. tmux-bridge
-    bridge_found = shutil.which("tmux-bridge") is not None
-    if not bridge_found:
-        smux_path = Path.home() / ".smux" / "bin" / "tmux-bridge"
-        bridge_found = smux_path.exists()
-    _check(
+def _doctor_check_tmux() -> CheckResult:
+    """Check tmux installed and version >= 3.0."""
+    if shutil.which("tmux") is None:
+        return CheckResult(
+            "tmux",
+            "fail",
+            "not found",
+            "Install with: brew install tmux (macOS) or apt install tmux (Linux)",
+        )
+    try:
+        proc = subprocess.run(
+            ["tmux", "-V"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=_TMUX_TIMEOUT,
+        )
+        raw = proc.stdout.strip()
+        match = re.search(r"(\d+(?:\.\d+)?)", raw)
+        if match:
+            ver_str = match.group(1)
+            parts = ver_str.split(".")
+            major = int(parts[0])
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            if (major, minor) >= (3, 0):
+                return CheckResult("tmux", "pass", f"{ver_str} (>= 3.0)", "")
+            return CheckResult(
+                "tmux",
+                "warn",
+                f"{ver_str} (< 3.0)",
+                "Upgrade tmux to >= 3.0",
+            )
+        return CheckResult("tmux", "pass", "installed", "")
+    except (subprocess.TimeoutExpired, OSError):
+        return CheckResult("tmux", "pass", "installed", "")
+
+
+def _doctor_check_tmux_bridge() -> CheckResult:
+    """Check tmux-bridge binary exists and is executable."""
+    path_loc = shutil.which("tmux-bridge")
+    if path_loc is not None:
+        return CheckResult(
+            "tmux-bridge", "pass", f"found at {path_loc}", ""
+        )
+    smux_path = Path.home() / ".smux" / "bin" / "tmux-bridge"
+    if smux_path.exists() and os.access(str(smux_path), os.X_OK):
+        return CheckResult(
+            "tmux-bridge",
+            "pass",
+            f"found at {smux_path}",
+            "",
+        )
+    if smux_path.exists():
+        return CheckResult(
+            "tmux-bridge",
+            "fail",
+            f"found at {smux_path} but not executable",
+            f"Run: chmod +x {smux_path}",
+        )
+    return CheckResult(
         "tmux-bridge",
-        bridge_found,
-        "installed",
-        "not found — Install from: https://github.com/anthropic-ai/tmux-bridge",
-        critical=True,
+        "fail",
+        "not found",
+        "Install from: https://github.com/anthropic-ai/tmux-bridge",
     )
 
-    # 4. Copilot CLI
-    copilot_found = (
+
+def _doctor_check_claude_cli() -> CheckResult:
+    """Check claude CLI available."""
+    if shutil.which("claude") is not None:
+        return CheckResult("claude CLI", "pass", "installed", "")
+    return CheckResult(
+        "claude CLI",
+        "warn",
+        "not found",
+        "Install for 'duo think': npm i -g @anthropic-ai/claude-cli",
+    )
+
+
+def _doctor_check_copilot_cli() -> CheckResult:
+    """Check Copilot CLI available."""
+    if (
         shutil.which("github-copilot-cli") is not None
         or shutil.which("copilot") is not None
-    )
-    _check(
+    ):
+        return CheckResult("Copilot CLI", "pass", "installed", "")
+    return CheckResult(
         "Copilot CLI",
-        copilot_found,
-        "installed",
-        "not found — Install from: https://github.com/github/copilot-cli",
+        "warn",
+        "not found",
+        "Install from: https://github.com/github/copilot-cli",
     )
 
-    # 5. uv
-    _check(
-        "uv",
-        shutil.which("uv") is not None,
-        "installed",
-        "not found — Install with: curl -LsSf https://astral.sh/uv/install.sh | sh",
-    )
 
-    # 6. ~/.duo directory
-    _check(
-        "~/.duo directory",
-        DUO_DIR.exists(),
-        "exists",
-        "missing — Run: duo init",
-    )
+def _doctor_check_duo_dir() -> CheckResult:
+    """Check ~/.duo directory writable and disk space >= 100MB."""
+    if not DUO_DIR.exists():
+        return CheckResult(
+            "~/.duo",
+            "fail",
+            "missing",
+            "Run: duo init",
+        )
+    if not os.access(str(DUO_DIR), os.W_OK):
+        return CheckResult(
+            "~/.duo",
+            "fail",
+            "not writable",
+            f"Run: chmod u+w {DUO_DIR}",
+        )
+    try:
+        usage = shutil.disk_usage(str(DUO_DIR))
+        free_mb = usage.free / (1024 * 1024)
+        if free_mb < 100:
+            return CheckResult(
+                "~/.duo",
+                "warn",
+                f"writable ({free_mb:.0f} MB free)",
+                "Free up disk space (< 100 MB remaining)",
+            )
+        free_gb = free_mb / 1024
+        return CheckResult(
+            "~/.duo",
+            "pass",
+            f"writable ({free_gb:.1f} GB free)",
+            "",
+        )
+    except OSError:
+        return CheckResult("~/.duo", "pass", "writable", "")
 
-    # 7. Config file
-    config_ok = False
+
+def _doctor_check_config() -> CheckResult:
+    """Check config.json exists and is valid JSON."""
     config_path = DUO_DIR / "config.json"
-    if config_path.exists():
-        try:
-            json.loads(config_path.read_text())
-            config_ok = True
-        except (json.JSONDecodeError, OSError):
-            pass
-    _check(
-        "Config file",
-        config_ok,
-        "valid",
-        "missing or invalid — Run: duo config reset",
-    )
+    if not config_path.exists():
+        return CheckResult(
+            "config.json",
+            "warn",
+            "missing",
+            "Run: duo init",
+        )
+    try:
+        json.loads(config_path.read_text())
+        return CheckResult("config.json", "pass", "valid", "")
+    except (json.JSONDecodeError, OSError):
+        return CheckResult(
+            "config.json",
+            "warn",
+            "invalid JSON",
+            "Run: duo config reset",
+        )
 
-    # 8. Active tmux session
-    tmux_ok = False
-    if shutil.which("tmux"):
-        result = subprocess.run(
+
+def _doctor_check_tmux_session() -> CheckResult:
+    """Check for active tmux session."""
+    if shutil.which("tmux") is None:
+        return CheckResult(
+            "tmux session",
+            "warn",
+            "tmux not installed",
+            "Install tmux first",
+        )
+    try:
+        proc = subprocess.run(
             ["tmux", "list-sessions"],
             capture_output=True,
             text=True,
             encoding="utf-8",
             timeout=_TMUX_TIMEOUT,
         )
-        tmux_ok = result.returncode == 0
-    _check(
-        "tmux session",
-        tmux_ok,
-        "active",
-        "no active session — Start tmux first",
-    )
+        if proc.returncode == 0:
+            return CheckResult("tmux session", "pass", "active", "")
+        return CheckResult(
+            "tmux session",
+            "warn",
+            "no active session",
+            "Start: tmux new -s duo",
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return CheckResult(
+            "tmux session",
+            "warn",
+            "could not query tmux",
+            "Check tmux installation",
+        )
 
-    # 9. Task timeout config
+
+def _doctor_check_task_timeout() -> CheckResult:
+    """Check task_timeout config value."""
     timeout_val = get_config("task_timeout")
     if isinstance(timeout_val, int) and timeout_val >= 0:
         label = f"{timeout_val}s" if timeout_val > 0 else "disabled"
-        _check("task_timeout", True, f"configured ({label})", "")
-    else:
-        _check("task_timeout", False, "", "invalid value — must be 0 or positive integer")
+        return CheckResult(
+            "task_timeout", "pass", f"configured ({label})", ""
+        )
+    return CheckResult(
+        "task_timeout",
+        "warn",
+        "invalid value",
+        "Set to 0 or positive integer in config.json",
+    )
 
-    click.echo(f"\n{checks_passed}/{checks_total} checks passed")
-    if critical_failed:
-        raise click.ClickException("critical checks failed")
+
+def _doctor_check_corrupted() -> CheckResult:
+    """Count corrupted tasks in ~/.duo/corrupted/."""
+    from duo.protocol import list_corrupted
+
+    items = list_corrupted()
+    count = len(items)
+    if count == 0:
+        return CheckResult("corrupted tasks", "pass", "0", "")
+    return CheckResult(
+        "corrupted tasks",
+        "warn",
+        str(count),
+        "Run: duo cleanup --corrupted",
+    )
+
+
+def _doctor_check_git() -> CheckResult:
+    """Check git available."""
+    if shutil.which("git") is None:
+        return CheckResult(
+            "git",
+            "warn",
+            "not found",
+            "Install git: https://git-scm.com/downloads",
+        )
+    try:
+        proc = subprocess.run(
+            ["git", "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=_TMUX_TIMEOUT,
+        )
+        raw = proc.stdout.strip()
+        match = re.search(r"(\d+\.\d+[\.\d]*)", raw)
+        ver = match.group(1) if match else "installed"
+        return CheckResult("git", "pass", ver, "")
+    except (subprocess.TimeoutExpired, OSError):
+        return CheckResult("git", "pass", "installed", "")
+
+
+_DOCTOR_CHECKS: list[Any] = [
+    _doctor_check_python,
+    _doctor_check_tmux,
+    _doctor_check_tmux_bridge,
+    _doctor_check_claude_cli,
+    _doctor_check_copilot_cli,
+    _doctor_check_duo_dir,
+    _doctor_check_config,
+    _doctor_check_tmux_session,
+    _doctor_check_task_timeout,
+    _doctor_check_corrupted,
+    _doctor_check_git,
+]
+
+_STATUS_ICONS: dict[str, str] = {
+    "pass": "✓ PASS",
+    "warn": "⚠ WARN",
+    "fail": "✗ FAIL",
+}
+
+_STATUS_COLORS: dict[str, str] = {
+    "pass": "green",
+    "warn": "yellow",
+    "fail": "red",
+}
+
+
+@main.command()
+@click.option("--json-output", is_flag=True, help="Output diagnostics as JSON.")
+@click.option("--strict", is_flag=True, help="Exit non-zero on warnings too.")
+def doctor(json_output: bool, strict: bool) -> None:
+    """Check environment dependencies and configuration."""
+    results: list[CheckResult] = [fn() for fn in _DOCTOR_CHECKS]
+
+    counts = {"pass": 0, "warn": 0, "fail": 0}
+    for r in results:
+        counts[r.status] += 1
+    total = len(results)
+
+    if json_output:
+        payload: dict[str, Any] = {
+            "checks": [
+                {
+                    "name": r.name,
+                    "status": r.status,
+                    "message": r.message,
+                    "fix": r.fix,
+                }
+                for r in results
+            ],
+            "summary": {**counts, "total": total},
+        }
+        click.echo(json.dumps(payload, indent=2))
+    else:
+        click.echo("Duo Environment Diagnostics")
+        click.echo("\u2500" * 28)
+        for r in results:
+            icon = _STATUS_ICONS[r.status]
+            color = _STATUS_COLORS[r.status]
+            suffix = ""
+            if r.fix:
+                suffix = f" — {r.fix}"
+            line = f"  {icon}  {r.name:<16}{r.message}{suffix}"
+            click.echo(click.style(line, fg=color))
+        parts: list[str] = []
+        parts.append(f"{counts['pass']}/{total} checks passed")
+        if counts["warn"]:
+            parts.append(f"{counts['warn']} warning{'s' if counts['warn'] != 1 else ''}")
+        if counts["fail"]:
+            parts.append(f"{counts['fail']} failure{'s' if counts['fail'] != 1 else ''}")
+        click.echo(f"\n{', '.join(parts)}")
+
+    has_fail = counts["fail"] > 0
+    has_warn = counts["warn"] > 0
+    if has_fail or (strict and has_warn):
+        raise SystemExit(1)
 
 
 @main.command()

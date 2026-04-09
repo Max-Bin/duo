@@ -19,7 +19,19 @@ from hypothesis import strategies as st
 import duo.cli
 import duo.protocol
 from duo.cli import (
+    CheckResult,
     _create_worktree,
+    _doctor_check_claude_cli,
+    _doctor_check_config,
+    _doctor_check_copilot_cli,
+    _doctor_check_corrupted,
+    _doctor_check_duo_dir,
+    _doctor_check_git,
+    _doctor_check_python,
+    _doctor_check_task_timeout,
+    _doctor_check_tmux,
+    _doctor_check_tmux_bridge,
+    _doctor_check_tmux_session,
     _fmt_ts,
     _load_batch_file,
     _parse_age,
@@ -2793,34 +2805,372 @@ class TestInit:
 
 
 class TestDoctor:
-    def test_doctor_all_pass(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
-        """All checks pass when everything is available."""
-        # Write valid config
+    """Tests for the overhauled doctor command and individual check functions."""
+
+    # ── Individual check function tests ──────────────────────────────
+
+    def test_check_python_pass(self):
+        """Python check passes on current interpreter (>= 3.12)."""
+        r = _doctor_check_python()
+        assert r.status == "pass"
+        assert r.name == "Python"
+
+    def test_check_python_fail(self, monkeypatch: pytest.MonkeyPatch):
+        """Python check fails when version < 3.12."""
+        from collections import namedtuple
+
+        FakeVI = namedtuple("version_info", ["major", "minor", "micro", "releaselevel", "serial"])
+        fake_vi = FakeVI(3, 11, 0, "final", 0)
+        monkeypatch.setattr("duo.cli.sys.version_info", fake_vi)
+        r = _doctor_check_python()
+        assert r.status == "fail"
+        assert "3.11" in r.message
+
+    def test_check_tmux_pass(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux check passes with version >= 3.0."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(stdout="tmux 3.4\n", returncode=0),
+        )
+        r = _doctor_check_tmux()
+        assert r.status == "pass"
+        assert "3.4" in r.message
+
+    def test_check_tmux_warn_old_version(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux check warns when version < 3.0."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(stdout="tmux 2.9\n", returncode=0),
+        )
+        r = _doctor_check_tmux()
+        assert r.status == "warn"
+        assert "2.9" in r.message
+
+    def test_check_tmux_fail_missing(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux check fails when not installed."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        r = _doctor_check_tmux()
+        assert r.status == "fail"
+        assert "not found" in r.message
+
+    def test_check_tmux_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux check passes (graceful) on subprocess timeout."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+
+        def _timeout(*a: object, **kw: object) -> None:
+            raise subprocess.TimeoutExpired("tmux", 10)
+
+        monkeypatch.setattr("duo.cli.subprocess.run", _timeout)
+        r = _doctor_check_tmux()
+        assert r.status == "pass"
+        assert r.message == "installed"
+
+    def test_check_tmux_unparseable_version(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux check passes (graceful) when version string cannot be parsed."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(stdout="tmux next-server\n", returncode=0),
+        )
+        r = _doctor_check_tmux()
+        assert r.status == "pass"
+        assert r.message == "installed"
+
+    def test_check_tmux_bridge_in_path(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux-bridge found in PATH."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux-bridge" if n == "tmux-bridge" else None)
+        r = _doctor_check_tmux_bridge()
+        assert r.status == "pass"
+
+    def test_check_tmux_bridge_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """tmux-bridge found at ~/.smux/bin/tmux-bridge fallback."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        smux_bin = tmp_path / ".smux" / "bin"
+        smux_bin.mkdir(parents=True)
+        bridge = smux_bin / "tmux-bridge"
+        bridge.touch()
+        bridge.chmod(0o755)
+        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
+        r = _doctor_check_tmux_bridge()
+        assert r.status == "pass"
+        assert "found at" in r.message
+
+    def test_check_tmux_bridge_not_executable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """tmux-bridge found but not executable."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        smux_bin = tmp_path / ".smux" / "bin"
+        smux_bin.mkdir(parents=True)
+        bridge = smux_bin / "tmux-bridge"
+        bridge.touch()
+        bridge.chmod(0o644)
+        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: False)
+        r = _doctor_check_tmux_bridge()
+        assert r.status == "fail"
+        assert "not executable" in r.message
+
+    def test_check_tmux_bridge_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """tmux-bridge missing everywhere."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
+        r = _doctor_check_tmux_bridge()
+        assert r.status == "fail"
+        assert "not found" in r.message
+
+    def test_check_claude_cli_pass(self, monkeypatch: pytest.MonkeyPatch):
+        """claude CLI found."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+        r = _doctor_check_claude_cli()
+        assert r.status == "pass"
+
+    def test_check_claude_cli_warn(self, monkeypatch: pytest.MonkeyPatch):
+        """claude CLI not found → warn."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        r = _doctor_check_claude_cli()
+        assert r.status == "warn"
+
+    def test_check_copilot_cli_pass_copilot(self, monkeypatch: pytest.MonkeyPatch):
+        """Copilot CLI found via 'copilot'."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/copilot" if n == "copilot" else None)
+        r = _doctor_check_copilot_cli()
+        assert r.status == "pass"
+
+    def test_check_copilot_cli_pass_github(self, monkeypatch: pytest.MonkeyPatch):
+        """Copilot CLI found via 'github-copilot-cli'."""
+        monkeypatch.setattr(
+            "duo.cli.shutil.which",
+            lambda n: "/usr/bin/github-copilot-cli" if n == "github-copilot-cli" else None,
+        )
+        r = _doctor_check_copilot_cli()
+        assert r.status == "pass"
+
+    def test_check_copilot_cli_warn(self, monkeypatch: pytest.MonkeyPatch):
+        """Copilot CLI not found → warn."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        r = _doctor_check_copilot_cli()
+        assert r.status == "warn"
+
+    def test_check_duo_dir_pass(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """~/.duo directory exists, writable, with space."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=500 * 1024 * 1024)  # 500MB
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        r = _doctor_check_duo_dir()
+        assert r.status == "pass"
+        assert "writable" in r.message
+
+    def test_check_duo_dir_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """~/.duo directory missing → fail."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path / "nonexistent")
+        r = _doctor_check_duo_dir()
+        assert r.status == "fail"
+        assert "missing" in r.message
+
+    def test_check_duo_dir_not_writable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """~/.duo directory not writable → fail."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: False)
+        r = _doctor_check_duo_dir()
+        assert r.status == "fail"
+        assert "not writable" in r.message
+
+    def test_check_duo_dir_low_space(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """~/.duo directory low disk space → warn."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=50 * 1024 * 1024)  # 50MB
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        r = _doctor_check_duo_dir()
+        assert r.status == "warn"
+        assert "50 MB" in r.message
+
+    def test_check_duo_dir_disk_usage_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """~/.duo disk_usage raises OSError → pass gracefully."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+
+        def _raise(*a: object) -> None:
+            raise OSError("disk error")
+
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", _raise)
+        r = _doctor_check_duo_dir()
+        assert r.status == "pass"
+        assert r.message == "writable"
+
+    def test_check_config_pass(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Valid config.json → pass."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        (tmp_path / "config.json").write_text('{"key": "value"}')
+        r = _doctor_check_config()
+        assert r.status == "pass"
+        assert r.message == "valid"
+
+    def test_check_config_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Missing config.json → warn."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        r = _doctor_check_config()
+        assert r.status == "warn"
+        assert "missing" in r.message
+
+    def test_check_config_invalid(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Invalid JSON → warn."""
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        (tmp_path / "config.json").write_text("{{{invalid")
+        r = _doctor_check_config()
+        assert r.status == "warn"
+        assert "invalid" in r.message.lower()
+
+    def test_check_tmux_session_pass(self, monkeypatch: pytest.MonkeyPatch):
+        """Active tmux session → pass."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0),
+        )
+        r = _doctor_check_tmux_session()
+        assert r.status == "pass"
+
+    def test_check_tmux_session_warn_no_session(self, monkeypatch: pytest.MonkeyPatch):
+        """No active tmux session → warn."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1),
+        )
+        r = _doctor_check_tmux_session()
+        assert r.status == "warn"
+        assert "no active" in r.message
+
+    def test_check_tmux_session_warn_not_installed(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux not installed → warn for session check."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        r = _doctor_check_tmux_session()
+        assert r.status == "warn"
+        assert "not installed" in r.message
+
+    def test_check_tmux_session_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """tmux list-sessions times out → warn."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+
+        def _timeout(*a: object, **kw: object) -> None:
+            raise subprocess.TimeoutExpired("tmux", 10)
+
+        monkeypatch.setattr("duo.cli.subprocess.run", _timeout)
+        r = _doctor_check_tmux_session()
+        assert r.status == "warn"
+
+    def test_check_task_timeout_pass(self, monkeypatch: pytest.MonkeyPatch):
+        """Valid task_timeout → pass."""
+        monkeypatch.setattr("duo.cli.get_config", lambda k: 300)
+        r = _doctor_check_task_timeout()
+        assert r.status == "pass"
+        assert "300s" in r.message
+
+    def test_check_task_timeout_pass_disabled(self, monkeypatch: pytest.MonkeyPatch):
+        """task_timeout = 0 → pass (disabled)."""
+        monkeypatch.setattr("duo.cli.get_config", lambda k: 0)
+        r = _doctor_check_task_timeout()
+        assert r.status == "pass"
+        assert "disabled" in r.message
+
+    def test_check_task_timeout_warn_invalid(self, monkeypatch: pytest.MonkeyPatch):
+        """Invalid task_timeout → warn."""
+        monkeypatch.setattr("duo.cli.get_config", lambda k: -1)
+        r = _doctor_check_task_timeout()
+        assert r.status == "warn"
+        assert "invalid" in r.message
+
+    def test_check_task_timeout_warn_none(self, monkeypatch: pytest.MonkeyPatch):
+        """task_timeout is None → warn."""
+        monkeypatch.setattr("duo.cli.get_config", lambda k: None)
+        r = _doctor_check_task_timeout()
+        assert r.status == "warn"
+
+    def test_check_corrupted_pass(self, monkeypatch: pytest.MonkeyPatch):
+        """No corrupted tasks → pass."""
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        r = _doctor_check_corrupted()
+        assert r.status == "pass"
+        assert r.message == "0"
+
+    def test_check_corrupted_warn(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Corrupted tasks present → warn."""
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [tmp_path / "a", tmp_path / "b"])
+        r = _doctor_check_corrupted()
+        assert r.status == "warn"
+        assert r.message == "2"
+
+    def test_check_git_pass(self, monkeypatch: pytest.MonkeyPatch):
+        """git found with version → pass."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(stdout="git version 2.44.0\n", returncode=0),
+        )
+        r = _doctor_check_git()
+        assert r.status == "pass"
+        assert "2.44.0" in r.message
+
+    def test_check_git_warn_missing(self, monkeypatch: pytest.MonkeyPatch):
+        """git not found → warn."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        r = _doctor_check_git()
+        assert r.status == "warn"
+        assert "not found" in r.message
+
+    def test_check_git_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """git --version times out → pass gracefully."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None)
+
+        def _timeout(*a: object, **kw: object) -> None:
+            raise subprocess.TimeoutExpired("git", 10)
+
+        monkeypatch.setattr("duo.cli.subprocess.run", _timeout)
+        r = _doctor_check_git()
+        assert r.status == "pass"
+        assert r.message == "installed"
+
+    # ── Integration tests: doctor command ──────────────────────────────
+
+    def _setup_all_pass(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Configure monkeypatches for all checks to pass."""
         config_path = tmp_path / "config.json"
         config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
 
         def fake_which(name: str) -> str | None:
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("shutil.which", fake_which)
         monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=5 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
+            lambda *a, **kw: MagicMock(
+                returncode=0,
+                stdout="tmux 3.4\n" if a and a[0] and a[0][0] == "tmux" else "git version 2.44.0\n",
+            ),
         )
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+
+    def test_doctor_all_pass(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """All checks pass when everything is available."""
+        self._setup_all_pass(monkeypatch, tmp_path)
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
-        assert "✓" in result.output
-        assert "9/9 checks passed" in result.output
+        assert "PASS" in result.output
+        assert "11/11 checks passed" in result.output
 
     def test_doctor_missing_tmux(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """Missing tmux shows fix suggestion and exits 1."""
-        config_path = tmp_path / "config.json"
-        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+        self._setup_all_pass(monkeypatch, tmp_path)
 
         def fake_which(name: str) -> str | None:
             if name == "tmux":
@@ -2828,58 +3178,23 @@ class TestDoctor:
             return f"/usr/bin/{name}"
 
         monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr(
-            "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=1),
-        )
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code != 0
         assert "brew install tmux" in result.output
-
-    def test_doctor_missing_uv(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
-        """Missing uv shows fix suggestion."""
-        config_path = tmp_path / "config.json"
-        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
-
-        def fake_which(name: str) -> str | None:
-            if name == "uv":
-                return None
-            return f"/usr/bin/{name}"
-
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr(
-            "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
-        )
-        result = runner.invoke(main, ["doctor"])
-        assert "astral.sh" in result.output
 
     def test_doctor_summary_count(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """Doctor output ends with X/Y checks passed."""
-        config_path = tmp_path / "config.json"
-        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
-
-        def fake_which(name: str) -> str | None:
-            return f"/usr/bin/{name}"
-
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr(
-            "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
-        )
+        self._setup_all_pass(monkeypatch, tmp_path)
         result = runner.invoke(main, ["doctor"])
-        assert "/9 checks passed" in result.output
+        assert "/11 checks passed" in result.output
 
     def test_doctor_tmux_bridge_fallback_path(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """tmux-bridge found via ~/.smux/bin/tmux-bridge when not in PATH."""
-        config_path = tmp_path / "config.json"
-        config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
+        self._setup_all_pass(monkeypatch, tmp_path)
 
         def fake_which(name: str) -> str | None:
             if name == "tmux-bridge":
@@ -2887,38 +3202,116 @@ class TestDoctor:
             return f"/usr/bin/{name}"
 
         monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr(
-            "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
-        )
-        # Create the fallback path
         smux_bin = tmp_path / "fakehome" / ".smux" / "bin"
         smux_bin.mkdir(parents=True)
-        (smux_bin / "tmux-bridge").touch()
+        bridge = smux_bin / "tmux-bridge"
+        bridge.touch()
+        bridge.chmod(0o755)
         monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path / "fakehome")
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
-        # tmux-bridge should show as installed via fallback
         assert "tmux-bridge" in result.output
         assert "not found" not in result.output
 
     def test_doctor_invalid_config_json(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """Invalid JSON in config.json shows 'missing or invalid' message."""
-        config_path = tmp_path / "config.json"
-        config_path.write_text("not valid json {{{")
+        """Invalid JSON in config.json shows warn."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+        (tmp_path / "config.json").write_text("not valid json {{{")
+        result = runner.invoke(main, ["doctor"])
+        assert "invalid" in result.output.lower()
+
+    def test_doctor_json_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--json-output produces valid JSON with checks and summary."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+        result = runner.invoke(main, ["doctor", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "checks" in data
+        assert "summary" in data
+        assert len(data["checks"]) == 11
+        assert data["summary"]["total"] == 11
+        for check in data["checks"]:
+            assert "name" in check
+            assert "status" in check
+            assert "message" in check
+            assert "fix" in check
+
+    def test_doctor_strict_with_warnings(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--strict exits non-zero when warnings exist."""
+        self._setup_all_pass(monkeypatch, tmp_path)
 
         def fake_which(name: str) -> str | None:
+            if name == "claude":
+                return None
             return f"/usr/bin/{name}"
 
         monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr(
-            "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
-        )
+        result = runner.invoke(main, ["doctor", "--strict"])
+        assert result.exit_code != 0
+
+    def test_doctor_strict_all_pass(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--strict exits 0 when all checks pass."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+        result = runner.invoke(main, ["doctor", "--strict"])
+        assert result.exit_code == 0
+
+    def test_doctor_exit_0_with_warnings_no_strict(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Warnings without --strict → exit 0."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+
+        def fake_which(name: str) -> str | None:
+            if name == "claude":
+                return None
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
         result = runner.invoke(main, ["doctor"])
-        assert "missing or invalid" in result.output
+        assert result.exit_code == 0
+        assert "warning" in result.output.lower()
+
+    def test_doctor_json_with_failure(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """JSON output with a failure includes fail count and exits non-zero."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+
+        def fake_which(name: str) -> str | None:
+            if name == "tmux":
+                return None
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        result = runner.invoke(main, ["doctor", "--json-output"])
+        assert result.exit_code != 0
+        data = json.loads(result.output)
+        assert data["summary"]["fail"] > 0
+
+    def test_doctor_header_present(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Default output includes header."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+        result = runner.invoke(main, ["doctor"])
+        assert "Duo Environment Diagnostics" in result.output
+
+    def test_check_result_dataclass(self):
+        """CheckResult dataclass fields are accessible."""
+        cr = CheckResult(name="test", status="pass", message="ok", fix="")
+        assert cr.name == "test"
+        assert cr.status == "pass"
+        assert cr.message == "ok"
+        assert cr.fix == ""
 
 
 # ---------------------------------------------------------------------------
@@ -4138,10 +4531,14 @@ class TestDoctorTaskTimeout:
             return f"/usr/bin/{name}"
 
         monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=5 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
+            lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
 
@@ -4150,10 +4547,14 @@ class TestDoctorTaskTimeout:
     ):
         """doctor reports invalid task_timeout value."""
         monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=5 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
-            lambda *a, **kw: MagicMock(returncode=0),
+            lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr("duo.cli.get_config", lambda k: -1 if k == "task_timeout" else 0)
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
