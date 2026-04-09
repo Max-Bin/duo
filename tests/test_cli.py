@@ -4103,6 +4103,44 @@ class TestResume:
         assert result.exit_code == 0
         assert "could not replay prompt" in result.output
 
+    def test_resume_restart_session_error_continues(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """If restart_session raises, resume logs error and continues."""
+        task = _make_task("restart-err")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: True)
+        monkeypatch.setattr(
+            "duo.commander.restart_session",
+            MagicMock(side_effect=RuntimeError("pane creation failed")),
+        )
+        monkeypatch.setattr("duo.transport.cleanup_pane_state", MagicMock())
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run", MagicMock(return_value=MagicMock(returncode=0))
+        )
+        result = runner.invoke(main, ["resume", "restart-err"])
+        assert result.exit_code == 0
+        assert "Failed to resume" in result.output
+
+    def test_resume_start_session_error_continues(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """If start_session raises, resume logs error and continues."""
+        task = _make_task("start-err")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        monkeypatch.setattr(
+            "duo.commander.start_session",
+            MagicMock(side_effect=OSError("tmux not running")),
+        )
+        result = runner.invoke(main, ["resume", "start-err"])
+        assert result.exit_code == 0
+        assert "Failed to resume" in result.output
+
 
 class TestHelpTexts:
     """Verify --help works for every registered command."""

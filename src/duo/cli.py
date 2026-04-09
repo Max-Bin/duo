@@ -2165,10 +2165,22 @@ def resume(name: str | None) -> None:
                 cleanup_pane_state(task.pane_label)
             except (OSError, subprocess.TimeoutExpired):
                 pass  # Best effort — restart will create a fresh pane
-            restart_session(task)
+            try:
+                restart_session(task)
+            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+                click.echo(
+                    f"  Failed to resume '{task.id}': {exc}", err=True
+                )
+                continue
             click.echo(f"Resumed task '{task.id}' — restarted session")
         else:
-            start_session(task)
+            try:
+                start_session(task)
+            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+                click.echo(
+                    f"  Failed to resume '{task.id}': {exc}", err=True
+                )
+                continue
             click.echo(f"Resumed task '{task.id}' — started new session")
 
         # Replay the last prompt so the executor has work to do
