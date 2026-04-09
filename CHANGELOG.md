@@ -3,7 +3,7 @@
 All notable changes to Duo are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.7.0] — Unreleased
+## [1.0.0] — Unreleased
 
 ### Added
 - `duo cost` command — Premium Request usage tracking and reporting
