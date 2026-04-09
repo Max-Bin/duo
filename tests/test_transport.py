@@ -1280,3 +1280,84 @@ class TestSendTextDialogMessage:
         mock_read.side_effect = ["no text", "no text", "my answer", "dismissed"]
         result = send_text_dialog_message("test", "my answer")
         assert result is True
+
+
+# === Edge-case tests: ANSI stripping, dialog detection robustness ===
+
+
+class TestStripAnsi:
+    """Tests for strip_ansi utility."""
+
+    def test_no_ansi(self) -> None:
+        from duo.transport import strip_ansi
+        assert strip_ansi("hello world") == "hello world"
+
+    def test_strips_color_codes(self) -> None:
+        from duo.transport import strip_ansi
+        assert strip_ansi("\x1b[31mred\x1b[0m") == "red"
+
+    def test_strips_bold_and_reset(self) -> None:
+        from duo.transport import strip_ansi
+        assert strip_ansi("\x1b[1m╭─ title ─╮\x1b[0m") == "╭─ title ─╮"
+
+    def test_strips_multi_param_sequences(self) -> None:
+        from duo.transport import strip_ansi
+        assert strip_ansi("\x1b[38;5;196mhello\x1b[0m") == "hello"
+
+    def test_preserves_unicode(self) -> None:
+        from duo.transport import strip_ansi
+        assert strip_ansi("❯ Type @") == "❯ Type @"
+
+    def test_empty_string(self) -> None:
+        from duo.transport import strip_ansi
+        assert strip_ansi("") == ""
+
+
+class TestAnsiInDialogDetection:
+    """Ensure dialog detection works with ANSI-colored pane output."""
+
+    def test_main_prompt_with_ansi_colored_prompt(self) -> None:
+        from duo.transport import _is_at_main_prompt
+        content = "\x1b[32m❯\x1b[0m \x1b[90mType @ to mention files\x1b[0m"
+        assert _is_at_main_prompt(content) is True
+
+    def test_main_prompt_with_ansi_spinner_detected(self) -> None:
+        from duo.transport import _is_at_main_prompt
+        content = "\x1b[33m◉ \x1b[0mProcessing...\n❯"
+        assert _is_at_main_prompt(content) is False
+
+    def test_main_prompt_with_ansi_box_chars(self) -> None:
+        from duo.transport import _is_at_main_prompt
+        content = "\x1b[1m╭─\x1b[0m question\n1. Yes\n\x1b[1m╰─\x1b[0m\n❯"
+        assert _is_at_main_prompt(content) is False
+
+    def test_detect_option_dialog_with_ansi(self) -> None:
+        from duo.transport import DialogKind, _detect_dialog_kind
+        content = (
+            "\x1b[1m╭─ Choose ─╮\x1b[0m\n"
+            "\x1b[32m❯ 1.\x1b[0m Accept\n"
+            "  2. Reject\n"
+            "\x1b[1m╰─────────╯\x1b[0m"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_detect_text_dialog_with_ansi(self) -> None:
+        from duo.transport import DialogKind, _detect_dialog_kind
+        content = (
+            "\x1b[1m╭─ Input ─╮\x1b[0m\n"
+            "\x1b[90mType your answer\x1b[0m\n"
+            "\x1b[1m╰─────────╯\x1b[0m"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.TEXT
+
+    def test_detect_no_dialog_with_ansi_noise(self) -> None:
+        from duo.transport import DialogKind, _detect_dialog_kind
+        content = "\x1b[32m❯\x1b[0m \x1b[90mType @ to mention files\x1b[0m"
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_read_pane_strips_ansi(self) -> None:
+        """read_pane() should return ANSI-free text."""
+        with patch("duo.transport.bridge", return_value="\x1b[31mhello\x1b[0m"):
+            result = read_pane("test", 10)
+        assert result == "hello"
+        assert "\x1b" not in result

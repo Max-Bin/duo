@@ -1161,3 +1161,108 @@ class TestListTasksAutoQuarantine:
         tasks = list_tasks()
         assert len(tasks) == 1
         assert tasks[0].id == "ok"
+
+
+# === Edge-case tests: robustness of file I/O ===
+
+
+class TestWriteJsonEdgeCases:
+    """Edge cases for atomic JSON writing."""
+
+    def test_unicode_emoji_roundtrip(self, tmp_path: Path) -> None:
+        """JSON with emoji and CJK characters survives write+read."""
+        data = {"msg": "🚀 部署完成 ✅", "emoji": "💻🔥🎉", "kanji": "漢字テスト"}
+        path = tmp_path / "unicode.json"
+        write_json(path, data)
+        result = read_json(path)
+        assert result == data
+
+    def test_rejects_parent_symlink(self, tmp_path: Path) -> None:
+        """write_json rejects paths where the file itself is a symlink."""
+        real = tmp_path / "real.json"
+        real.write_text("{}")
+        link = tmp_path / "link.json"
+        link.symlink_to(real)
+        with pytest.raises(ValueError, match="symlink"):
+            write_json(link, {"x": 1})
+
+    def test_concurrent_writes_atomic(self, tmp_path: Path) -> None:
+        """Concurrent writes to the same file don't produce corrupt JSON."""
+        import threading
+        path = tmp_path / "concurrent.json"
+        errors: list[str] = []
+
+        def writer(i: int) -> None:
+            try:
+                write_json(path, {"writer": i, "data": "x" * 100})
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors
+        # File should be valid JSON (one of the writers won)
+        result = read_json(path)
+        assert result is not None
+        assert "writer" in result
+
+    def test_non_serializable_data_raises(self, tmp_path: Path) -> None:
+        """Non-JSON-serializable data raises ValueError."""
+        path = tmp_path / "bad.json"
+        with pytest.raises(ValueError, match="not JSON-serializable"):
+            write_json(path, {"fn": lambda: None})  # type: ignore[dict-item]
+
+
+class TestReadJsonlEdgeCases:
+    """Edge cases for JSONL reading."""
+
+    def test_malformed_lines_skipped(self, tmp_path: Path) -> None:
+        """Malformed JSON lines are silently skipped."""
+        path = tmp_path / "journal.jsonl"
+        path.write_text(
+            '{"ok": 1}\n'
+            '{bad json\n'
+            '{"ok": 2}\n'
+            'not json at all\n'
+            '{"ok": 3}\n'
+        )
+        events = read_jsonl(path)
+        assert len(events) == 3
+        assert events[0]["ok"] == 1
+        assert events[2]["ok"] == 3
+
+    def test_empty_lines_skipped(self, tmp_path: Path) -> None:
+        """Empty lines and whitespace-only lines are skipped."""
+        path = tmp_path / "journal.jsonl"
+        path.write_text('{"a": 1}\n\n   \n{"b": 2}\n')
+        events = read_jsonl(path)
+        assert len(events) == 2
+
+    def test_tail_with_malformed_lines(self, tmp_path: Path) -> None:
+        """tail parameter works correctly even with malformed lines."""
+        path = tmp_path / "journal.jsonl"
+        lines = []
+        for i in range(10):
+            lines.append(f'{{"n": {i}}}')
+            if i % 3 == 0:
+                lines.append("{bad}")
+        path.write_text("\n".join(lines) + "\n")
+        events = read_jsonl(path, tail=3)
+        assert len(events) == 3
+        assert events[-1]["n"] == 9
+
+    def test_nonexistent_file_returns_empty(self, tmp_path: Path) -> None:
+        """Reading a nonexistent JSONL file returns empty list."""
+        events = read_jsonl(tmp_path / "nope.jsonl")
+        assert events == []
+
+    def test_unicode_in_jsonl(self, tmp_path: Path) -> None:
+        """JSONL with unicode content roundtrips correctly."""
+        path = tmp_path / "unicode.jsonl"
+        path.write_text('{"msg": "🚀 日本語"}\n{"msg": "中文测试"}\n')
+        events = read_jsonl(path)
+        assert events[0]["msg"] == "🚀 日本語"
+        assert events[1]["msg"] == "中文测试"

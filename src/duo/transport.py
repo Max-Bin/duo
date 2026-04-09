@@ -20,6 +20,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
 
 class DialogKind(enum.Enum):
     """Kind of dialog detected in a Copilot pane."""
@@ -175,8 +177,8 @@ def bridge(cmd: list[str], *, check: bool = True) -> str:
 
 
 def read_pane(label: str, lines: int = 50) -> str:
-    """Read pane output (also satisfies read guard)."""
-    return bridge(["read", label, str(lines)])
+    """Read pane output (also satisfies read guard). ANSI codes are stripped."""
+    return strip_ansi(bridge(["read", label, str(lines)]))
 
 
 def type_text(label: str, text: str) -> None:
@@ -307,6 +309,11 @@ def get_pr_log() -> list[dict[str, str]]:
         return list(_PR_LOG)
 
 
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return _ANSI_RE.sub("", text)
+
+
 def _is_at_main_prompt(content: str) -> bool:
     """True if pane is IDLE at Copilot ❯ prompt. ANY input here = PR consumed.
 
@@ -315,6 +322,7 @@ def _is_at_main_prompt(content: str) -> bool:
     We must also confirm no spinner (active processing) and no dialog box
     is visible in the pane.
     """
+    content = strip_ansi(content)
     # If a spinner is present, Copilot is actively processing — not idle.
     if any(marker in content for marker in ("◉ ", "◎ ", "○ ")):
         return False
@@ -334,6 +342,7 @@ def _is_at_main_prompt(content: str) -> bool:
 
 def _detect_dialog_kind(content: str) -> DialogKind:
     """Classify dialog kind from pane content (no I/O)."""
+    content = strip_ansi(content)
     if _is_at_main_prompt(content):
         return DialogKind.NONE
     has_box = any("╰─" in l or "╭─" in l for l in content.split("\n"))
