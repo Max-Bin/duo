@@ -227,9 +227,10 @@ pane lock for their entire duration.  Timeout defaults to 30s.
 
 ---
 
-## Dialog detection false positives when Copilot describes dialog boxes — LOW PRIORITY
+## Dialog detection false positives when Copilot describes dialog boxes — MITIGATED
 
-**Status: Open, low priority.**
+**Status: Mitigated.** Bottom-anchor and stronger marker checks landed
+(commit `eab16de`); residual false triggers are rare and harmless.
 
 **Observation:**
 `duo watch` and `wait_for_dialog` occasionally return "dialog detected"
@@ -254,7 +255,8 @@ box-drawing chars:
 - Box must have at least one interactive marker (`❯`, numbered option,
   or text input placeholder)
 
-**Priority:** Low.  CEO can visually distinguish false triggers.  Fix
+**Priority:** Low. Mitigated by bottom-anchor checks and stronger marker
+matching. CEO can visually distinguish residual false triggers. Fix
 when convenient, e.g. as part of a broader dialog detection refinement.
 
 **First observed:** During Round AV (ironically, while implementing
@@ -291,3 +293,108 @@ to miss them and `ceo-loop` to spin without handling them.
 - `ceo-loop` / `_handle_dialog` supports `bullet_dialogs` policy
 
 **Priority:** Resolved.
+
+---
+
+## Deferred findings from rubber-duck audits (Rounds BH-BJ) — LOW PRIORITY
+
+**Status: Open, low priority. All CRITICAL/HIGH findings resolved; these are MED/LOW residuals.**
+
+### Transport layer (Round BH, commit `2729e66`)
+
+- **`safe_enter()` TOCTOU window** (MED): Read-then-act over tmux is
+  architecturally inherent. We read pane content, decide it's safe, then
+  send keys — but content could change between read and send. Mitigated
+  with post-send detection logging (CRITICAL level). Full fix would
+  require tmux-side atomic "read-and-send-if-match" which doesn't exist.
+
+- **`_THREAD_LOCKS` unbounded growth** (MED): One `RLock` per unique pane
+  label, never cleaned up. `cleanup_pane_state()` added for manual cleanup
+  but no automatic eviction. In practice, labels are task IDs — bounded
+  by number of tasks in a session.
+
+- **`read_pane()` output not sanitized** (LOW): Raw tmux pane capture may
+  contain ANSI escape sequences. Consumers handle this ad-hoc. A central
+  sanitizer would be cleaner but risks breaking dialog detection regexes.
+
+### Verifier layer (Round BI, commit `2fe8653`)
+
+- **`fnmatch` case sensitivity** (MED): `fnmatch.fnmatch` is case-insensitive
+  on macOS (HFS+) but case-sensitive on Linux (ext4). `writable_paths`
+  patterns may behave differently across platforms. Fix: use
+  `fnmatch.fnmatchcase` for consistent behavior. Deferred because all
+  current users are on macOS.
+
+- **Regex-based secret detection** (LOW): Pattern matching can't catch
+  base64-encoded secrets or secrets split across lines. Would need a more
+  sophisticated scanner (e.g., trufflehog integration). Current patterns
+  cover common formats (AWS keys, GitHub tokens, etc.).
+
+### Protocol layer (Round BJ, commit `f5a77b9`)
+
+- **`save_task()` last-write-wins** (MED): No optimistic locking. If two
+  processes call `save_task()` concurrently, the last one wins silently.
+  Fix would require a `Task.version` field + compare-and-swap. Deferred
+  as too invasive — would touch every test that creates/saves tasks.
+
+- **`TRANSITIONS` dict is mutable** (LOW): Callers could accidentally
+  mutate the FSM transition table. A `MappingProxyType` wrapper or frozen
+  dict would prevent this. Deferred — adds complexity for minimal gain;
+  no caller currently mutates it.
+
+- **Journal rotation crash window** (LOW): During rotation, old journal
+  is replaced atomically via `atomic_write_text`. If the process crashes
+  after computing the new content but before calling `atomic_write_text`,
+  no data is lost (old file intact). If crash during `atomic_write_text`,
+  tmp file may be orphaned but old journal survives (rename is atomic).
+  Acceptable risk.
+
+**Priority:** Low. These are defense-in-depth improvements, not
+correctness bugs. Revisit when any becomes a real-world problem.
+
+---
+
+## FSM transition() return value ignored by callers — LOW PRIORITY
+
+**Status: Open, low priority.**
+
+**Observation:**
+Round BJ changed `transition()` from `-> None` to `-> bool` (returns
+`False` on illegal transition). However, all callers in `commander.py`,
+`scheduler.py`, and `cli.py` ignore the return value. This means illegal
+FSM transitions are logged to journal but control flow proceeds as if
+the transition succeeded (status is unchanged but caller doesn't branch).
+
+**Impact:** Low in practice — illegal transitions are rare and the FSM
+state remains correct (status is not mutated on failure). The risk is
+subtle: a caller might continue sending prompts to an executor whose
+task is not actually in PROMPT_SENT state.
+
+**Fix direction:** Audit each `transition()` call site. For critical
+paths (e.g., `commander.py` orchestration loop), check the return value
+and abort/retry. For non-critical paths (e.g., CLI cleanup), logging
+is sufficient.
+
+**Priority:** Low. The FSM is self-consistent — no state corruption
+occurs. The return value enables future callers to be more defensive.
+
+---
+
+## cleanup_pane_state() not wired into runtime — LOW PRIORITY
+
+**Status: Open, low priority.**
+
+**Observation:**
+`cleanup_pane_state(label)` was added in Round BH to prevent unbounded
+`_THREAD_LOCKS` / `_FLOCK_OWNERS` growth in long-lived processes. The
+function exists but is not called by any runtime code path (only tested).
+
+**Impact:** In long-running `ceo-loop` sessions that cycle through many
+task labels, stale `RLock` and flock-owner entries accumulate. Each entry
+is small (~100 bytes), so practical impact is negligible for typical use
+(< 100 tasks per session).
+
+**Fix direction:** Call `cleanup_pane_state()` from pane teardown paths
+(e.g., after `duo stop` or `duo kill` terminates a pane).
+
+**Priority:** Low. Memory impact is negligible for realistic workloads.
