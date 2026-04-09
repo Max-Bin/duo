@@ -1619,6 +1619,46 @@ class TestDialogBoundaryDetection:
         # Last box has text input, not options → TEXT
         assert _detect_dialog_kind(content) == DialogKind.TEXT
 
+    def test_tall_dialog_partial_box_option(self) -> None:
+        """Tall dialog where ╭─ scrolled off: only ╰─ visible → detect OPTION."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        body = "\n".join([f"  line {i}" for i in range(40)])
+        content = body + "\n  1. Yes\n  2. No\n╰────────────────────╯"
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_tall_dialog_partial_box_text(self) -> None:
+        """Tall dialog where ╭─ scrolled off: only ╰─ visible → detect TEXT."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        body = "\n".join([f"  line {i}" for i in range(40)])
+        content = body + "\nType your answer\n╰────────────────────╯"
+        assert _detect_dialog_kind(content) == DialogKind.TEXT
+
+    def test_tall_dialog_full_box_still_works(self) -> None:
+        """Normal dialog with both ╭─ and ╰─ visible still works."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = "╭─ Choose ─╮\n1. Yes\n2. No\n╰────────────╯"
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_partial_box_no_false_positive(self) -> None:
+        """╰─ without dialog indicators → NONE."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = "some old output\n╰────╯\n\n❯ mention files"
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_extract_partial_box_lines(self) -> None:
+        """_extract_last_box_lines returns lines above ╰─ when ╭─ is missing."""
+        from duo.transport import _extract_last_box_lines
+
+        content = "  1. Option A\n  2. Option B\n╰────────╯"
+        result = _extract_last_box_lines(content)
+        assert result is not None
+        assert len(result) == 2
+
+
 
 class TestTmuxServerDownError:
     """Tests for TmuxServerDownError detection."""

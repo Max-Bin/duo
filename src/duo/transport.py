@@ -380,7 +380,11 @@ def _is_at_main_prompt(content: str) -> bool:
 
 
 def _extract_last_box_lines(content: str) -> list[str] | None:
-    """Return lines inside the last ╭─…╰─ dialog box, or None if not found."""
+    """Return lines inside the last ╭─…╰─ dialog box, or None if not found.
+
+    For tall dialogs where ╭─ scrolled off-screen, if we see ╰─ without ╭─
+    we treat all lines above ╰─ as box content (partial box).
+    """
     lines = content.split("\n")
     box_start = -1
     box_end = -1
@@ -389,9 +393,16 @@ def _extract_last_box_lines(content: str) -> list[str] | None:
             box_start = i
         if "╰─" in line and box_start >= 0:
             box_end = i
-    if box_start < 0 or box_end < 0 or box_end <= box_start:
-        return None
-    return lines[box_start + 1 : box_end]
+    if box_start >= 0 and box_end > box_start:
+        return lines[box_start + 1 : box_end]
+    # Partial box: ╰─ visible but ╭─ scrolled off — treat everything above as box
+    for i, line in enumerate(lines):
+        if "╰─" in line:
+            box_end = i
+            break
+    if box_end > 0:
+        return lines[:box_end]
+    return None
 
 
 def _detect_dialog_kind(content: str) -> DialogKind:
@@ -425,7 +436,7 @@ def _detect_dialog_kind(content: str) -> DialogKind:
 
 def get_dialog_kind(label: str) -> DialogKind:
     """Read pane and classify the dialog kind."""
-    content = read_pane(label, 20)
+    content = read_pane(label, 100)
     return _detect_dialog_kind(content)
 
 
