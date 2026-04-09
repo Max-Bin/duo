@@ -2966,6 +2966,59 @@ def _gather_budget_info(task: Task) -> dict[str, Any]:
     return {"used": pr_count, "limit": budget_setting, "burn_rate_per_hour": burn_rate}
 
 
+def _gather_session_health(task: Task) -> dict[str, Any] | None:
+    """Collect session age, fd count, and estimated remaining capacity."""
+    from duo.transport import get_pane_pid
+
+    pid = get_pane_pid(task.pane_label)
+    if pid is None:
+        return None
+
+    fd_count = _get_pid_fd_count(pid)
+    kqueue_count = _get_pid_kqueue_count(pid)
+    child_count = _get_pid_child_count(pid)
+
+    # Session age from task created_at
+    age_seconds = 0.0
+    try:
+        from datetime import UTC, datetime
+
+        created = datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
+        age_seconds = (datetime.now(UTC) - created).total_seconds()
+    except (ValueError, TypeError, AttributeError):
+        pass
+
+    # Estimate remaining capacity based on fd growth rate
+    est_remaining_hours: float | None = None
+    if fd_count > 0 and age_seconds > 60:
+        fd_rate_per_hour = fd_count / (age_seconds / 3600)
+        remaining_fds = max(0, _COPILOT_FD_CRITICAL - fd_count)
+        if fd_rate_per_hour > 0:
+            est_remaining_hours = remaining_fds / fd_rate_per_hour
+
+    health_status = "healthy"
+    if fd_count >= _COPILOT_FD_CRITICAL:
+        health_status = "critical"
+    elif (
+        fd_count >= _COPILOT_FD_WARN
+        or kqueue_count >= _COPILOT_KQUEUE_WARN
+        or child_count >= _COPILOT_CHILD_WARN
+    ):
+        health_status = "degraded"
+
+    return {
+        "pid": pid,
+        "fd_count": fd_count,
+        "kqueue_count": kqueue_count,
+        "child_count": child_count,
+        "age_seconds": round(age_seconds),
+        "est_remaining_hours": (
+            round(est_remaining_hours, 1) if est_remaining_hours is not None else None
+        ),
+        "status": health_status,
+    }
+
+
 @main.command("ceo-now")
 @click.option("--json-output", is_flag=True, help="Output as JSON.")
 def ceo_now(json_output: bool) -> None:
@@ -2979,6 +3032,7 @@ def ceo_now(json_output: bool) -> None:
         "pane": None,
         "dialog": None,
         "budget": None,
+        "health": None,
         "git": None,
         "recent_decisions": [],
     }
@@ -2990,6 +3044,7 @@ def ceo_now(json_output: bool) -> None:
             data["focus"] = _gather_task_info(task, focus)
             data["pane"] = _gather_pane_info(task)
             data["budget"] = _gather_budget_info(task)
+            data["health"] = _gather_session_health(task)
         else:
             data["focus"] = {"task_id": task_id, "status": "not_found"}
 
@@ -3028,6 +3083,19 @@ def ceo_now(json_output: bool) -> None:
         burn = b.get("burn_rate_per_hour", 0)
         burn_str = f", {burn:.0f}/hr" if burn > 0 else ""
         click.echo(f"Budget:    {b['used']} PRs used ({limit_str}{burn_str})")
+
+    if data["health"]:
+        h = data["health"]
+        age_hrs = h["age_seconds"] / 3600
+        age_str = f"{age_hrs:.1f}h"
+        status_color = {"healthy": "green", "degraded": "yellow", "critical": "red"}
+        color = status_color.get(h["status"], "white")
+        parts = [f"fds={h['fd_count']}", f"kqueue={h['kqueue_count']}"]
+        parts.append(f"children={h['child_count']}")
+        cap = h.get("est_remaining_hours")
+        cap_str = f", ~{cap:.1f}h remaining" if cap is not None else ""
+        line = f"Health:    {h['status']} (age {age_str}, {', '.join(parts)}{cap_str})"
+        click.echo(click.style(line, fg=color))
 
     if data["git"]:
         g = data["git"]

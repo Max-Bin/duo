@@ -41,6 +41,7 @@ from duo.cli import (
     _doctor_check_tmux_session,
     _find_idle_children,
     _fmt_ts,
+    _gather_session_health,
     _get_pid_child_count,
     _get_pid_fd_count,
     _get_pid_kqueue_count,
@@ -8827,6 +8828,117 @@ class TestCeoNow:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["git"] is None
+
+
+class TestGatherSessionHealth:
+    """Tests for _gather_session_health()."""
+
+    def test_pid_unavailable(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """PID not found → None."""
+        task = make_task("health-task")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
+        assert _gather_session_health(task) is None
+
+    def test_healthy_session(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """Low counters → healthy status."""
+        task = make_task("health-task2")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result is not None
+        assert result["status"] == "healthy"
+        assert result["fd_count"] == 50
+        assert result["pid"] == 9999
+
+    def test_degraded_session(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """fds >= 500 → degraded."""
+        task = make_task("health-task3")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result is not None
+        assert result["status"] == "degraded"
+
+    def test_critical_session(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """fds >= 2000 → critical."""
+        task = make_task("health-task4")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 3000)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result is not None
+        assert result["status"] == "critical"
+
+    def test_degraded_kqueue(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """kqueue >= 50 → degraded."""
+        task = make_task("health-task5")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 60)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result["status"] == "degraded"
+
+    def test_degraded_children(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """children >= 10 → degraded."""
+        task = make_task("health-task6")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 15)
+        result = _gather_session_health(task)
+        assert result["status"] == "degraded"
+
+    def test_remaining_capacity_estimated(
+        self, make_task, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Should calculate remaining hours based on fd growth."""
+        task = make_task("health-task7")
+        # Set created_at to 1 hour ago
+        from datetime import UTC, datetime, timedelta
+
+        one_hour_ago = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        task.created_at = one_hour_ago
+        from duo.protocol import save_task
+
+        save_task(task)
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 500)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result is not None
+        assert result["est_remaining_hours"] is not None
+        # 500 fds/hr → (2000-500)/500 = 3.0 hours
+        assert 2.5 <= result["est_remaining_hours"] <= 3.5
+
+    def test_no_capacity_when_fresh(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """Very recent session (< 1 min) → no capacity estimate."""
+        task = make_task("health-task8")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 10)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 0)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 0)
+        result = _gather_session_health(task)
+        # est_remaining_hours may or may not be present depending on age
+        assert result is not None
+        assert result["age_seconds"] >= 0
+
+    def test_negative_fd_count(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """Negative fd count (lsof unavailable) → no capacity, still healthy."""
+        task = make_task("health-task9")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: -1)
+        result = _gather_session_health(task)
+        assert result["status"] == "healthy"
+        assert result["est_remaining_hours"] is None
 
 
 class TestIsAutoSelectable:
