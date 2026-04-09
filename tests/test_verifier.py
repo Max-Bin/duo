@@ -324,6 +324,43 @@ class TestCheckSecretLeak:
         task = _make_task()
         assert _check_secret_leak(task, "", ["API_KEY="]) is None
 
+    @pytest.mark.parametrize(
+        "pattern,sample",
+        [
+            ("github_pat_", "+GITHUB_TOKEN=github_pat_abc123xyz"),
+            ("ghp_", "+TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("gho_", "+OAUTH=gho_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("ghs_", "+SERVER_TOKEN=ghs_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("ghr_", "+REFRESH=ghr_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("sk-proj-", "+OPENAI_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("sk-ant-", "+ANTHROPIC_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("AKIA", "+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"),
+            ("ASIA", "+AWS_ACCESS_KEY_ID=ASIAIOSFODNN7EXAMPLE"),
+            ("sk_live_", "+STRIPE_KEY=sk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("sk_test_", "+STRIPE_TEST=sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            ("xoxb-", "+SLACK_BOT=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx"),
+            ("xoxp-", "+SLACK_USER=xoxp-xxxxxxxxxxxx-xxxxxxxxxxxx"),
+            (
+                "-----BEGIN RSA PRIVATE KEY",
+                "+-----BEGIN RSA PRIVATE KEY-----",
+            ),
+            (
+                "-----BEGIN EC PRIVATE KEY",
+                "+-----BEGIN EC PRIVATE KEY-----",
+            ),
+            (
+                "-----BEGIN OPENSSH PRIVATE KEY",
+                "+-----BEGIN OPENSSH PRIVATE KEY-----",
+            ),
+        ],
+    )
+    def test_modern_token_patterns(self, pattern, sample):
+        task = _make_task()
+        diff = sample + "\n"
+        result = _check_secret_leak(task, diff, [pattern])
+        assert isinstance(result, Correction)
+        assert pattern in result.reason
+
 
 # ---------------------------------------------------------------------------
 # _check_untracked

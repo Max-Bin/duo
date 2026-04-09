@@ -284,6 +284,7 @@ def _tmux_send_hex(target: str, hex_code: str) -> None:
         check=True,
         capture_output=True,
         text=True,
+        timeout=10,
     )
 
 
@@ -684,6 +685,7 @@ def ensure_minimum_pane_size(
             check=True,
             capture_output=True,
             text=True,
+            timeout=10,
         )
         resized = True
 
@@ -699,6 +701,7 @@ def ensure_minimum_pane_size(
             check=True,
             capture_output=True,
             text=True,
+            timeout=10,
         )
         resized = True
 

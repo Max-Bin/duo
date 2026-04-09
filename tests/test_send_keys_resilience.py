@@ -77,6 +77,7 @@ class TestLayer1HexBypass:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
 
     def test_key_name_would_fail_but_hex_succeeds(self) -> None:

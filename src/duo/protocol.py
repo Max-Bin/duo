@@ -170,6 +170,22 @@ class SecurityPolicy:
             "PRIVATE_KEY",
             "private_key",
             "Authorization: Bearer",
+            "github_pat_",
+            "ghp_",
+            "gho_",
+            "ghs_",
+            "ghr_",
+            "sk-proj-",
+            "sk-ant-",
+            "AKIA",
+            "ASIA",
+            "sk_live_",
+            "sk_test_",
+            "xoxb-",
+            "xoxp-",
+            "-----BEGIN RSA PRIVATE KEY",
+            "-----BEGIN EC PRIVATE KEY",
+            "-----BEGIN OPENSSH PRIVATE KEY",
         ]
     )
     forbidden_commands: list[str] = field(default_factory=list)
