@@ -50,6 +50,8 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-select",
         "ceo-approve",
         "ceo-smart",
+        "ceo-smart-config",
+        "ceo-dispatch",
         "ceo-status",
         "ceo-loop",
         "ceo-resume",
@@ -2470,22 +2472,84 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
 _AUTO_SELECT_KEYWORDS = [
     "continue",
     "继续",
+    "继续改进",
     "yes",
     "next",
+    "next step",
     "下一",
     "proceed",
     "confirm",
     "start",
     "begin",
     "ok",
+    "commit first",
+    "push",
+    "save",
+    "apply",
+    "accept",
+    "approve",
+    "allow",
+    "run",
+    "execute",
+    "install",
+    "deploy",
+    "merge",
+]
+
+_DEFER_KEYWORDS = [
+    "which",
+    "choose",
+    "select from",
+    "pick one",
+    "how should",
+    "what should",
 ]
 
 
-def _is_auto_selectable(pane_content: str) -> tuple[bool, str]:
+def _load_smart_config() -> tuple[list[str], list[str]]:
+    """Load user patterns from ~/.duo/ceo-smart.yaml.
+
+    Returns (extra_auto_patterns, extra_defer_patterns).
+    """
+    config_path = DUO_DIR / "ceo-smart.yaml"
+    if not config_path.exists():
+        return [], []
+    try:
+        import yaml
+
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return [], []
+        auto = data.get("auto_select_patterns", [])
+        defer = data.get("defer_patterns", [])
+        if not isinstance(auto, list):
+            auto = []
+        if not isinstance(defer, list):
+            defer = []
+        return [str(p) for p in auto], [str(p) for p in defer]
+    except Exception:
+        return [], []
+
+
+def _is_auto_selectable(
+    pane_content: str, *, verbose: bool = False,
+) -> tuple[bool, str]:
     """Check if the first option in a dialog is auto-selectable.
 
     Returns (should_auto_select, first_option_text).
+    Defer keywords take priority over auto-select.
     """
+    extra_auto, extra_defer = _load_smart_config()
+    all_defer = _DEFER_KEYWORDS + extra_defer
+    all_auto = list(_AUTO_SELECT_KEYWORDS) + extra_auto
+
+    content_lower = pane_content.lower()
+    for kw in all_defer:
+        if kw in content_lower:
+            if verbose:
+                click.echo(f"  [defer] matched: {kw!r}")
+            return False, ""
+
     lines = pane_content.splitlines()
     first_option = ""
     for line in lines:
@@ -2498,8 +2562,10 @@ def _is_auto_selectable(pane_content: str) -> tuple[bool, str]:
         return False, ""
 
     lower = first_option.lower()
-    for kw in _AUTO_SELECT_KEYWORDS:
+    for kw in all_auto:
         if kw in lower:
+            if verbose:
+                click.echo(f"  [auto-select] matched: {kw!r}")
             return True, first_option
 
     return False, first_option
@@ -2507,7 +2573,8 @@ def _is_auto_selectable(pane_content: str) -> tuple[bool, str]:
 
 @main.command("ceo-smart")
 @click.argument("task")
-def ceo_smart(task: str) -> None:
+@click.option("--verbose", is_flag=True, help="Print decision reasoning.")
+def ceo_smart(task: str, *, verbose: bool) -> None:
     """Auto-decide trivial dialogs, defer complex ones.
 
     Exits 0 if a decision was made automatically.
@@ -2533,12 +2600,17 @@ def ceo_smart(task: str) -> None:
     content = read_pane(t.pane_label)
     session_id = os.environ.get("DUO_CEO_SESSION")
 
+    if verbose:
+        click.echo(f"Dialog kind: {kind.value}")
+
     if session_id:
         from duo.ceo_log import log_dialog_detected
 
         log_dialog_detected(session_id, task, content, kind.value)
 
     if is_permission_dialog(t.pane_label):
+        if verbose:
+            click.echo("  [reason] permission → auto-approve")
         approve_permission(t.pane_label)
         click.echo(f"Auto-approved permission dialog for '{task}'.")
         if session_id:
@@ -2554,7 +2626,7 @@ def ceo_smart(task: str) -> None:
         return
 
     if kind == DialogKind.OPTION:
-        auto, first_opt = _is_auto_selectable(content)
+        auto, first_opt = _is_auto_selectable(content, verbose=verbose)
         if auto:
             select_dialog_option(t.pane_label, "1")
             click.echo(f"Auto-selected option 1 for '{task}': {first_opt[:60]}")
@@ -3192,6 +3264,191 @@ def ceo_session_stats_cmd(session_id: str, *, json_output: bool) -> None:
             click.echo("Types:")
             for dt, count in stats["decision_types"].items():
                 click.echo(f"  {dt}: {count}")
+
+
+@main.command("ceo-smart-config")
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+def ceo_smart_config(*, json_output: bool) -> None:
+    """Show effective ceo-smart patterns (built-in + user config)."""
+    extra_auto, extra_defer = _load_smart_config()
+    all_auto = list(_AUTO_SELECT_KEYWORDS) + extra_auto
+    all_defer = list(_DEFER_KEYWORDS) + extra_defer
+
+    data: dict[str, Any] = {
+        "auto_select_patterns": all_auto,
+        "defer_patterns": all_defer,
+        "user_auto_patterns": extra_auto,
+        "user_defer_patterns": extra_defer,
+    }
+
+    if json_output:
+        click.echo(json.dumps(data, indent=2))
+        return
+
+    click.echo("Auto-select patterns:")
+    for p in all_auto:
+        marker = " (user)" if p in extra_auto else ""
+        click.echo(f"  {p}{marker}")
+    click.echo()
+    click.echo("Defer patterns:")
+    for p in all_defer:
+        marker = " (user)" if p in extra_defer else ""
+        click.echo(f"  {p}{marker}")
+
+
+@main.command("ceo-dispatch")
+@click.argument("task")
+@click.option("--timeout", default=30, help="Seconds to wait for dialog (default 30).")
+@click.option(
+    "--policy", type=click.Path(exists=True), default=None, help="YAML policy file.",
+)
+@click.option("--dry-run", is_flag=True, help="Show decision without executing.")
+def ceo_dispatch(
+    task: str, timeout: int, policy: str | None, *, dry_run: bool,
+) -> None:
+    """Single-shot policy-driven dialog handler.
+
+    Wait for a dialog, classify, decide per policy, execute.
+    Exit 0 = success, 1 = deferred, 2 = timeout/no dialog.
+    """
+    from duo.transport import (
+        approve_permission,
+        get_dialog_kind,
+        is_in_dialog,
+        is_permission_dialog,
+        read_pane,
+        select_dialog_option,
+        send_text_dialog_message,
+    )
+
+    t = _load_task_or_fail(task)
+    session_id = os.environ.get("DUO_CEO_SESSION")
+
+    deadline = time.monotonic() + timeout
+    while not is_in_dialog(t.pane_label):
+        if time.monotonic() >= deadline:
+            click.echo("Timeout: no dialog detected.")
+            sys.exit(2)
+        time.sleep(0.5)
+
+    kind = get_dialog_kind(t.pane_label)
+    content = read_pane(t.pane_label)
+    is_perm = is_permission_dialog(t.pane_label)
+
+    if session_id:
+        from duo.ceo_log import log_dialog_detected
+
+        detected_kind = "permission" if is_perm else kind.value
+        log_dialog_detected(session_id, task, content, detected_kind)
+
+    if is_perm:
+        action, value = "approve", ""
+    else:
+        action, value = _resolve_dispatch_action(kind, content, policy)
+
+    if dry_run:
+        kind_label = "permission" if is_perm else kind.value
+        click.echo(f"[dry-run] kind={kind_label} action={action} value={value}")
+        if action == "defer":
+            sys.exit(1)
+        return
+
+    if action == "approve" and is_perm:
+        approve_permission(t.pane_label)
+        click.echo(f"Dispatched: approved permission for '{task}'.")
+    elif action == "select_last":
+        lines = content.splitlines()
+        last_num = "1"
+        for line in lines:
+            stripped = line.strip()
+            if stripped and stripped[0].isdigit() and "." in stripped[:4]:
+                last_num = stripped.split(".")[0]
+        select_dialog_option(t.pane_label, last_num)
+        click.echo(f"Dispatched: selected option {last_num} for '{task}'.")
+    elif action.startswith("select"):
+        num = value or "1"
+        select_dialog_option(t.pane_label, num)
+        click.echo(f"Dispatched: selected option {num} for '{task}'.")
+    elif action == "type":
+        send_text_dialog_message(t.pane_label, value)
+        click.echo(f"Dispatched: typed '{value[:40]}' for '{task}'.")
+    elif action == "defer":
+        click.echo(f"Deferred: {kind.value} dialog for '{task}'.")
+        if session_id:
+            from duo.ceo_log import log_decision
+
+            log_decision(
+                session_id, task, "dispatch-defer", "policy deferred", elapsed_ms=0,
+            )
+        sys.exit(1)
+    else:
+        click.echo(f"Deferred: unknown action '{action}'.")
+        sys.exit(1)
+
+    if session_id and action != "defer":
+        from duo.ceo_log import log_decision
+
+        log_decision(
+            session_id, task, f"dispatch-{action}", value or action, elapsed_ms=0,
+        )
+
+
+def _resolve_dispatch_action(
+    kind: Any, content: str, policy_path: str | None,
+) -> tuple[str, str]:
+    """Resolve action from policy or smart defaults."""
+    if policy_path:
+        action, value = _match_policy(kind, content, policy_path)
+        if action:
+            return action, value
+
+    from duo.transport import DialogKind as DK
+
+    if kind == DK.OPTION:
+        auto, _ = _is_auto_selectable(content)
+        if auto:
+            return "select", "1"
+        return "defer", ""
+    if kind == DK.TEXT:
+        return "defer", ""
+    return "defer", ""
+
+
+def _match_policy(
+    kind: Any, content: str, policy_path: str,
+) -> tuple[str, str]:
+    """Match dialog against YAML policy rules."""
+    try:
+        import yaml
+
+        data = yaml.safe_load(Path(policy_path).read_text(encoding="utf-8"))
+    except Exception:
+        click.echo(f"Warning: could not load policy {policy_path}")
+        return "", ""
+
+    if not isinstance(data, dict):
+        return "", ""
+
+    rules = data.get("rules", [])
+    if not isinstance(rules, list):
+        return "", ""
+
+    content_lower = content.lower()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        match_kind = rule.get("match", "").lower()
+        if match_kind and match_kind != kind.value.lower():
+            continue
+        contains = rule.get("contains", "")
+        if contains and contains.lower() not in content_lower:
+            continue
+        action = rule.get("action", "defer")
+        value = str(rule.get("value", ""))
+        return action, value
+
+    default = data.get("default", "defer")
+    return str(default), ""
 
 
 @main.command("ceo-metrics")

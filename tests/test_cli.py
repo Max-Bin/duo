@@ -41,8 +41,11 @@ from duo.cli import (
     _fmt_ts,
     _is_auto_selectable,
     _load_batch_file,
+    _load_smart_config,
+    _match_policy,
     _parse_age,
     _print_results,
+    _resolve_dispatch_action,
     _resolve_task_from_focus,
     _safe_join,
     _validate_task_name,
@@ -8834,6 +8837,7 @@ class TestCeoMetrics:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import json as _json
+
         import duo.ceo_log
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
@@ -8849,4 +8853,907 @@ class TestCeoMetrics:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["sessions"] == 1
+        assert data["avg_session_duration_s"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Round Y/Z/AA — ceo-dispatch, ceo-smart upgrade, ceo-metrics tests
+# ---------------------------------------------------------------------------
+
+
+class TestDeferKeywords:
+    """Tests for defer keyword priority in _is_auto_selectable."""
+
+    def test_defer_blocks_auto_select(self) -> None:
+        content = "Which option do you want?\n  1. Continue\n  2. Cancel"
+        auto, text = _is_auto_selectable(content)
+        assert auto is False
+
+    def test_defer_choose(self) -> None:
+        content = "Please choose one:\n  1. Yes proceed\n  2. No"
+        auto, text = _is_auto_selectable(content)
+        assert auto is False
+
+    def test_defer_select_from(self) -> None:
+        content = "Select from these:\n  1. Start deployment\n  2. Abort"
+        auto, _ = _is_auto_selectable(content)
+        assert auto is False
+
+    def test_defer_pick_one(self) -> None:
+        content = "Pick one:\n  1. Run tests\n  2. Skip"
+        auto, _ = _is_auto_selectable(content)
+        assert auto is False
+
+    def test_defer_how_should(self) -> None:
+        content = "How should I proceed?\n  1. Continue\n  2. Stop"
+        auto, _ = _is_auto_selectable(content)
+        assert auto is False
+
+    def test_defer_what_should(self) -> None:
+        content = "What should I do?\n  1. Accept\n  2. Reject"
+        auto, _ = _is_auto_selectable(content)
+        assert auto is False
+
+    def test_no_defer_allows_auto(self) -> None:
+        content = "Ready?\n  1. Continue with merge\n  2. Abort"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+
+
+class TestNewAutoSelectKeywords:
+    """Tests for expanded auto-select keywords."""
+
+    def test_deploy(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Deploy to production\n  2. Cancel")
+        assert auto is True
+
+    def test_merge(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Merge branch\n  2. Cancel")
+        assert auto is True
+
+    def test_install(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Install dependencies\n  2. Skip")
+        assert auto is True
+
+    def test_execute(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Execute command\n  2. Cancel")
+        assert auto is True
+
+    def test_accept(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Accept changes\n  2. Reject")
+        assert auto is True
+
+    def test_approve(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Approve request\n  2. Deny")
+        assert auto is True
+
+    def test_allow(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Allow access\n  2. Block")
+        assert auto is True
+
+    def test_push(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Push to remote\n  2. Cancel")
+        assert auto is True
+
+    def test_save(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Save file\n  2. Discard")
+        assert auto is True
+
+    def test_apply(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Apply patch\n  2. Skip")
+        assert auto is True
+
+    def test_run(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Run script\n  2. Cancel")
+        assert auto is True
+
+    def test_commit_first(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Commit first\n  2. Skip")
+        assert auto is True
+
+    def test_next_step(self) -> None:
+        auto, _ = _is_auto_selectable("  1. Next step\n  2. Back")
+        assert auto is True
+
+    def test_chinese_improve(self) -> None:
+        auto, _ = _is_auto_selectable("  1. 继续改进代码\n  2. 停止")
+        assert auto is True
+
+
+class TestVerboseAutoSelect:
+    """Tests for verbose mode in _is_auto_selectable."""
+
+    def test_verbose_auto_select(self, capsys) -> None:
+        _is_auto_selectable("  1. Continue\n  2. Cancel", verbose=True)
+        captured = capsys.readouterr()
+        assert "[auto-select]" in captured.out
+
+    def test_verbose_defer(self, capsys) -> None:
+        _is_auto_selectable("Which one?\n  1. Continue\n  2. Cancel", verbose=True)
+        captured = capsys.readouterr()
+        assert "[defer]" in captured.out
+
+    def test_no_verbose_silent(self, capsys) -> None:
+        _is_auto_selectable("  1. Continue\n  2. Cancel", verbose=False)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+
+class TestLoadSmartConfig:
+    """Tests for _load_smart_config."""
+
+    def test_no_config_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        auto, defer = _load_smart_config()
+        assert auto == []
+        assert defer == []
+
+    def test_valid_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_text(
+            "auto_select_patterns:\n  - custom-auto\ndefer_patterns:\n  - custom-defer\n"
+        )
+        auto, defer = _load_smart_config()
+        assert "custom-auto" in auto
+        assert "custom-defer" in defer
+
+    def test_invalid_yaml(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_bytes(b"\x80\x81\x82")  # truly invalid
+        auto, defer = _load_smart_config()
+        assert auto == []
+        assert defer == []
+
+    def test_not_dict(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_text("- just a list\n")
+        auto, defer = _load_smart_config()
+        assert auto == []
+        assert defer == []
+
+    def test_bad_field_types(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_text("auto_select_patterns: not_a_list\ndefer_patterns: 42\n")
+        auto, defer = _load_smart_config()
+        assert auto == []
+        assert defer == []
+
+    def test_config_merged_with_builtins(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_text("auto_select_patterns:\n  - extra-kw\n")
+        content = "  1. extra-kw action\n  2. Cancel"
+        auto, _ = _is_auto_selectable(content)
+        assert auto is True
+
+
+class TestCeoSmartVerbose:
+    """Tests for --verbose flag on ceo-smart."""
+
+    def test_verbose_flag_permission(self, runner: CliRunner, make_task) -> None:
+        task = make_task("smart-verb-perm")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value="permission pane"),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission"),
+        ):
+            result = runner.invoke(main, ["ceo-smart", "--verbose", task.id])
+        assert result.exit_code == 0
+        assert "[reason]" in result.output
+
+    def test_verbose_flag_option(self, runner: CliRunner, make_task) -> None:
+        task = make_task("smart-verb-opt")
+        pane = "╭─ Dialog ─╮\n  1. Continue\n  2. Cancel\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+        ):
+            result = runner.invoke(main, ["ceo-smart", "--verbose", task.id])
+        assert result.exit_code == 0
+        assert "Dialog kind:" in result.output
+
+
+class TestCeoSmartConfig:
+    """Tests for duo ceo-smart-config."""
+
+    def test_text_output(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        result = runner.invoke(main, ["ceo-smart-config"])
+        assert result.exit_code == 0
+        assert "Auto-select patterns:" in result.output
+        assert "Defer patterns:" in result.output
+        assert "continue" in result.output
+        assert "which" in result.output
+
+    def test_json_output(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        result = runner.invoke(main, ["ceo-smart-config", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "auto_select_patterns" in data
+        assert "defer_patterns" in data
+        assert "continue" in data["auto_select_patterns"]
+        assert "which" in data["defer_patterns"]
+
+    def test_with_user_config(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_text("auto_select_patterns:\n  - my-custom\n")
+        result = runner.invoke(main, ["ceo-smart-config"])
+        assert result.exit_code == 0
+        assert "my-custom" in result.output
+        assert "(user)" in result.output
+
+    def test_json_with_user_config(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        config = tmp_path / "ceo-smart.yaml"
+        config.write_text("defer_patterns:\n  - danger\n")
+        result = runner.invoke(main, ["ceo-smart-config", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "danger" in data["defer_patterns"]
+        assert "danger" in data["user_defer_patterns"]
+
+
+class TestResolveDispatchAction:
+    """Tests for _resolve_dispatch_action helper."""
+
+    def test_option_auto_selectable(self) -> None:
+        action, val = _resolve_dispatch_action(
+            DialogKind.OPTION, "  1. Continue\n  2. Cancel", None,
+        )
+        assert action == "select"
+        assert val == "1"
+
+    def test_option_not_auto(self) -> None:
+        action, _ = _resolve_dispatch_action(
+            DialogKind.OPTION, "  1. Create file\n  2. Delete", None,
+        )
+        assert action == "defer"
+
+    def test_text_defer(self) -> None:
+        action, _ = _resolve_dispatch_action(DialogKind.TEXT, "Type something", None)
+        assert action == "defer"
+
+    def test_none_kind_defer(self) -> None:
+        action, _ = _resolve_dispatch_action(DialogKind.NONE, "?", None)
+        assert action == "defer"
+
+    def test_policy_override(self, tmp_path: Path) -> None:
+        policy = tmp_path / "policy.yaml"
+        policy.write_text(
+            "rules:\n  - match: option\n    action: select_last\ndefault: defer\n"
+        )
+        action, _ = _resolve_dispatch_action(
+            DialogKind.OPTION, "  1. Foo\n  2. Bar", str(policy),
+        )
+        assert action == "select_last"
+
+
+class TestMatchPolicy:
+    """Tests for _match_policy helper."""
+
+    def test_basic_match(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text("rules:\n  - match: option\n    action: approve\n")
+        action, _ = _match_policy(DialogKind.OPTION, "content", str(policy))
+        assert action == "approve"
+
+    def test_contains_filter(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text(
+            "rules:\n  - match: option\n    contains: deploy\n    action: select_last\n"
+        )
+        action, _ = _match_policy(DialogKind.OPTION, "deploy to prod", str(policy))
+        assert action == "select_last"
+
+    def test_contains_no_match(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text(
+            "rules:\n  - match: option\n    contains: deploy\n    action: approve\n"
+        )
+        action, _ = _match_policy(DialogKind.OPTION, "compile code", str(policy))
+        assert action == "defer"  # falls through to default
+
+    def test_default_action(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text("rules: []\ndefault: type\n")
+        action, _ = _match_policy(DialogKind.OPTION, "any", str(policy))
+        assert action == "type"
+
+    def test_kind_mismatch(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text("rules:\n  - match: text\n    action: approve\ndefault: defer\n")
+        action, _ = _match_policy(DialogKind.OPTION, "content", str(policy))
+        assert action == "defer"
+
+    def test_invalid_policy_file(self, tmp_path: Path) -> None:
+        policy = tmp_path / "bad.yaml"
+        policy.write_bytes(b"\x80\x81\x82")  # truly invalid
+        action, _ = _match_policy(DialogKind.OPTION, "x", str(policy))
+        assert action == ""
+
+    def test_not_dict_policy(self, tmp_path: Path) -> None:
+        policy = tmp_path / "list.yaml"
+        policy.write_text("- just a list\n")
+        action, _ = _match_policy(DialogKind.OPTION, "x", str(policy))
+        assert action == ""
+
+    def test_rules_not_list(self, tmp_path: Path) -> None:
+        policy = tmp_path / "r.yaml"
+        policy.write_text("rules: not_a_list\n")
+        action, _ = _match_policy(DialogKind.OPTION, "x", str(policy))
+        assert action == ""
+
+    def test_rule_with_value(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text("rules:\n  - match: text\n    action: type\n    value: hello\n")
+        action, val = _match_policy(DialogKind.TEXT, "content", str(policy))
+        assert action == "type"
+        assert val == "hello"
+
+    def test_nonexistent_file(self) -> None:
+        action, _ = _match_policy(DialogKind.OPTION, "x", "/nonexistent/path.yaml")
+        assert action == ""
+
+    def test_non_dict_rule_skipped(self, tmp_path: Path) -> None:
+        policy = tmp_path / "p.yaml"
+        policy.write_text("rules:\n  - just a string\n  - match: option\n    action: approve\n")
+        action, _ = _match_policy(DialogKind.OPTION, "x", str(policy))
+        assert action == "approve"
+
+
+class TestCeoDispatch:
+    """Tests for duo ceo-dispatch."""
+
+    def test_dispatch_timeout(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-timeout")
+        with patch("duo.transport.is_in_dialog", return_value=False):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "0"])
+        assert result.exit_code == 2
+        assert "Timeout" in result.output
+
+    def test_dispatch_permission_approve(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-perm")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value="perm content"),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission") as mock_ap,
+        ):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "1"])
+        assert result.exit_code == 0
+        assert "approved" in result.output.lower()
+        mock_ap.assert_called_once()
+
+    def test_dispatch_option_auto_select(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-auto")
+        pane = "  1. Continue with changes\n  2. Cancel"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "1"])
+        assert result.exit_code == 0
+        assert "selected" in result.output.lower()
+        mock_sel.assert_called_once()
+
+    def test_dispatch_text_defer(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-text")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.read_pane", return_value="Type something"),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "1"])
+        assert result.exit_code == 1
+        assert "Deferred" in result.output
+
+    def test_dispatch_dry_run(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-dry")
+        pane = "  1. Continue\n  2. Cancel"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(
+                main, ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
+            )
+        assert result.exit_code == 0
+        assert "[dry-run]" in result.output
+        mock_sel.assert_not_called()
+
+    def test_dispatch_dry_run_defer(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-dry-def")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.read_pane", return_value="Type something"),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(
+                main, ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
+            )
+        assert result.exit_code == 1
+        assert "[dry-run]" in result.output
+
+    def test_dispatch_with_policy(
+        self, runner: CliRunner, make_task, tmp_path: Path,
+    ) -> None:
+        task = make_task("dispatch-pol")
+        policy = tmp_path / "policy.yaml"
+        policy.write_text(
+            "rules:\n  - match: option\n    action: select_last\ndefault: defer\n"
+        )
+        pane = "  1. First\n  2. Second\n  3. Third"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--policy", str(policy)],
+            )
+        assert result.exit_code == 0
+        mock_sel.assert_called_once_with(task.pane_label, "3")
+
+    def test_dispatch_policy_type_action(
+        self, runner: CliRunner, make_task, tmp_path: Path,
+    ) -> None:
+        task = make_task("dispatch-type")
+        policy = tmp_path / "policy.yaml"
+        policy.write_text(
+            "rules:\n  - match: text\n    action: type\n    value: yes please\n"
+        )
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.read_pane", return_value="Type answer"),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.send_text_dialog_message") as mock_send,
+        ):
+            result = runner.invoke(
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--policy", str(policy)],
+            )
+        assert result.exit_code == 0
+        mock_send.assert_called_once_with(task.pane_label, "yes please")
+
+    def test_dispatch_ceo_session_logging(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("dispatch-log")
+        pane = "  1. Continue\n  2. Cancel"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+        ):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "1"])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(e["event"] == "dialog_detected" for e in events)
+        assert any(e["event"] == "decision" for e in events)
+
+    def test_dispatch_nonexistent_task(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-dispatch", "no-such-task", "--timeout", "0"])
+        assert result.exit_code != 0
+
+    def test_dispatch_permission_dry_run(self, runner: CliRunner, make_task) -> None:
+        task = make_task("dispatch-perm-dry")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value="perm content"),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission") as mock_ap,
+        ):
+            result = runner.invoke(
+                main, ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
+            )
+        assert result.exit_code == 0
+        assert "[dry-run]" in result.output
+        assert "permission" in result.output
+        mock_ap.assert_not_called()
+
+    def test_dispatch_select_number(
+        self, runner: CliRunner, make_task, tmp_path: Path,
+    ) -> None:
+        task = make_task("dispatch-num")
+        policy = tmp_path / "policy.yaml"
+        policy.write_text(
+            "rules:\n  - match: option\n    action: select\n    value: '2'\n"
+        )
+        pane = "  1. First\n  2. Second"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--policy", str(policy)],
+            )
+        assert result.exit_code == 0
+        mock_sel.assert_called_once_with(task.pane_label, "2")
+
+
+class TestCeoMetrics:
+    """Tests for duo ceo-metrics."""
+
+    def test_no_sessions_text(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "empty")
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "No CEO sessions found" in result.output
+
+    def test_no_sessions_json(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "empty")
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "error" in data
+
+    def test_single_session_metrics(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "dialog text", "option")
+        duo.ceo_log.log_decision(sid, "t1", "approved", "auto", elapsed_ms=100)
+        result = runner.invoke(main, ["ceo-metrics", "--session", sid])
+        assert result.exit_code == 0
+        assert "Sessions:" in result.output
+        assert "Dialogs:" in result.output
+        assert "Decisions:" in result.output
+
+    def test_json_output(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "test", "option")
+        duo.ceo_log.log_decision(sid, "t1", "approved", "auto", elapsed_ms=50)
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid, "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 1
+        assert data["total_dialogs"] == 1
+        assert data["total_decisions"] == 1
+
+    def test_since_filter(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "test", "option")
+        result = runner.invoke(
+            main, ["ceo-metrics", "--since", "9999-01-01T00:00:00"],
+        )
+        assert result.exit_code == 0
+        assert "No CEO sessions found" in result.output
+
+    def test_multiple_sessions(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid1 = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid1, "t1", "d1", "option")
+        duo.ceo_log.log_decision(sid1, "t1", "approved", "ok", elapsed_ms=10)
+        sid2 = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid2, "t2", "d2", "text")
+        duo.ceo_log.log_decision(sid2, "t2", "smart-defer", "defer", elapsed_ms=20)
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 2
+        assert data["total_dialogs"] == 2
+        assert data["total_decisions"] == 2
+
+    def test_approval_rate(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_decision(sid, "t1", "approved", "ok", elapsed_ms=10)
+        duo.ceo_log.log_decision(sid, "t1", "approved", "ok", elapsed_ms=10)
+        duo.ceo_log.log_decision(sid, "t1", "deferred", "defer", elapsed_ms=10)
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid, "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert abs(data["approval_rate"] - 66.7) < 1.0
+
+    def test_dialog_kinds_distribution(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "d1", "option")
+        duo.ceo_log.log_dialog_detected(sid, "t1", "d2", "text")
+        duo.ceo_log.log_dialog_detected(sid, "t1", "d3", "option")
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid, "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["dialog_kinds"]["OPTION"] == 2
+        assert data["dialog_kinds"]["TEXT"] == 1
+
+    def test_top_patterns(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        for _ in range(3):
+            duo.ceo_log.log_dialog_detected(sid, "t1", "repeated content", "option")
+        duo.ceo_log.log_dialog_detected(sid, "t1", "unique content", "text")
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid, "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["top_dialog_patterns"]) > 0
+        assert data["top_dialog_patterns"][0]["count"] == 3
+
+    def test_text_format_with_dialog_kinds(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "d1", "option")
+        duo.ceo_log.log_decision(sid, "t1", "approved", "ok", elapsed_ms=10)
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "CEO Metrics" in result.output
+        assert "Approval rate:" in result.output
+        assert "Avg decisions/session:" in result.output
+
+    def test_session_duration_calc(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "d1", "option")
+        duo.ceo_log.log_decision(sid, "t1", "approved", "ok", elapsed_ms=10)
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid, "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "avg_session_duration_s" in data
+
+
+class TestDispatchEdgeCases:
+    """Edge case tests for ceo-dispatch coverage."""
+
+    def test_dispatch_waits_then_finds_dialog(self, runner: CliRunner, make_task) -> None:
+        """Cover the time.sleep branch by having is_in_dialog return False then True."""
+        task = make_task("dispatch-wait")
+        call_count = {"n": 0}
+
+        def fake_is_in_dialog(pane: str) -> bool:
+            call_count["n"] += 1
+            return call_count["n"] > 1
+
+        pane = "  1. Continue\n  2. Cancel"
+        with (
+            patch("duo.transport.is_in_dialog", side_effect=fake_is_in_dialog),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("time.sleep"),
+        ):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "5"])
+        assert result.exit_code == 0
+
+    def test_dispatch_defer_with_session(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cover defer + session logging path."""
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("dispatch-def-sess")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.read_pane", return_value="Type something"),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "1"])
+        assert result.exit_code == 1
+        events = duo.ceo_log.replay_session(sid)
+        assert any(e.get("decision_type") == "dispatch-defer" for e in events)
+
+    def test_dispatch_unknown_action(
+        self, runner: CliRunner, make_task, tmp_path: Path,
+    ) -> None:
+        """Cover unknown action branch."""
+        task = make_task("dispatch-unk")
+        policy = tmp_path / "policy.yaml"
+        policy.write_text("rules:\n  - match: option\n    action: explode\ndefault: explode\n")
+        pane = "  1. First\n  2. Second"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--policy", str(policy)],
+            )
+        assert result.exit_code == 1
+        assert "unknown action" in result.output.lower()
+
+
+class TestMetricsEdgeCases:
+    """Edge case tests for ceo-metrics coverage."""
+
+    def test_metrics_since_filters_all(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Cover session_count==0 after since filter + json path."""
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        duo.ceo_log.log_dialog_detected(sid, "t1", "d1", "option")
+        result = runner.invoke(
+            main, ["ceo-metrics", "--since", "9999-01-01T00:00:00", "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "error" in data
+
+    def test_metrics_bad_timestamps(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Cover ValueError in datetime parsing."""
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        events_path = sessions_dir / sid / "events.jsonl"
+        events_path.write_text(
+            '{"event":"session_started","ts":"not-a-date"}\n'
+            '{"event":"dialog_detected","ts":"also-bad","task":"t1","dialog_kind":"option","content":"x"}\n'
+        )
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid, "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
         assert data["avg_session_duration_s"] == 0.0
