@@ -225,9 +225,101 @@ def type_text(label: str, text: str) -> None:
     bridge(["type", label, text])
 
 
+_KEY_TO_HEX = {
+    "Enter": "0d",
+    "Return": "0d",
+    "C-m": "0d",
+    "Tab": "09",
+    "C-i": "09",
+    "Escape": "1b",
+    "Esc": "1b",
+    "Space": "20",
+    "BSpace": "7f",
+    "Backspace": "7f",
+    "C-c": "03",
+    "C-d": "04",
+    "C-u": "15",
+    "C-l": "0c",
+    # ANSI arrow key escape sequences
+    "Up": "1b 5b 41",
+    "Down": "1b 5b 42",
+    "Right": "1b 5b 43",
+    "Left": "1b 5b 44",
+    "Home": "1b 5b 48",
+    "End": "1b 5b 46",
+}
+
+
+def _tmux_send_hex(target: str, hex_code: str) -> None:
+    """Send raw hex bytes to a pane, bypassing tmux key-name translation."""
+    subprocess.run(
+        ["tmux", "send-keys", "-t", target, "-H", *hex_code.split()],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def send_keys(label: str, *keys: str) -> None:
-    """Send special keys. Requires prior read_pane."""
-    bridge(["keys", label, *keys])
+    """Send special keys. Requires prior read_pane.
+
+    For keys with a known raw byte representation (Enter, arrows, Tab, Esc,
+    Ctrl-*, etc.) we use ``tmux send-keys -H <hex>`` to write raw bytes
+    directly to the PTY, bypassing tmux's key-name translation layer.
+    This is critical for Copilot's Ink TUI, which reliably consumes raw
+    stdin bytes but can silently drop key-name events when its stdin
+    listener is in a reduced polling state (e.g. while background tasks
+    are running).
+
+    Unknown keys fall through to tmux-bridge ``keys`` (name-based) as a
+    best-effort fallback.
+    """
+    target = resolve_label(label)
+    for key in keys:
+        hex_code = _KEY_TO_HEX.get(key)
+        if hex_code is not None:
+            _tmux_send_hex(target, hex_code)
+        else:
+            bridge(["keys", label, key])
+
+
+def send_keys_verified(
+    label: str,
+    key: str,
+    *,
+    settle: float = 0.5,
+    retries: int = 3,
+) -> bool:
+    """Send a single key and verify the pane state changed.
+
+    Captures pane content before and after, with a brief settle period for
+    Ink TUIs to re-render.  Retries on no-change with small backoff.
+
+    Returns True if the pane content changed (key was consumed), False if
+    the key appears to have been silently buffered (Copilot Ink event loop
+    likely blocked on background tasks — physical keypress may be needed).
+    """
+    before = read_pane(label, 20)
+    for attempt in range(retries):
+        send_keys(label, key)
+        _time.sleep(settle)
+        after = read_pane(label, 20)
+        if after != before:
+            return True
+        # No change — try once more with longer settle
+        _time.sleep(settle * (attempt + 1))
+    return False
+
+
+def is_likely_stuck(label: str, *, poll_ms: int = 500) -> bool:
+    """Heuristic: True if the pane appears frozen (content unchanged across
+    two reads with a brief gap).  Useful for fail-fast error messages when
+    Copilot's Ink TUI event loop is blocked on hung background tasks.
+    """
+    first = read_pane(label, 20)
+    _time.sleep(poll_ms / 1000.0)
+    second = read_pane(label, 20)
+    return first == second
 
 
 def name_pane(target: str, label: str) -> None:
