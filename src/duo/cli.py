@@ -186,7 +186,11 @@ def _run_git(
         ) from None
     if check and result.returncode != 0:
         cmd_str = " ".join(["git", *args])
-        raise click.ClickException(f"`{cmd_str}` failed: {result.stderr.strip()[:500]}")
+        stderr = result.stderr.strip()[:500]
+        raise DuoUserError(
+            f"`{cmd_str}` failed: {stderr}",
+            fix="Check the repo path is valid and you're in a git repository. Run 'duo doctor' to verify.",
+        )
     return result
 
 
