@@ -1657,6 +1657,123 @@ class TestDialogBoundaryDetection:
         assert len(result) == 2
 
 
+class TestDialogFalsePositiveReduction:
+    """Regression tests for dialog detection false positives."""
+
+    def test_narration_with_box_chars_not_dialog(self) -> None:
+        """Copilot narrating about dialogs (with ╭─╰─ in text) → NONE."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "I found the dialog detection code. Here's how it works:\n"
+            "╭─ Example dialog ─╮\n"
+            "Some example content\n"
+            "╰───────────────────╯\n"
+            "\n"
+            "The function `_detect_dialog_kind` checks for numbered options\n"
+            "inside the box. Let me now implement the fix:\n"
+            "\n"
+            "First, I'll update the detection logic...\n"
+            "Then I'll add tests for edge cases...\n"
+            "Finally, I'll run the full test suite...\n"
+            "This should resolve the false positive issue.\n"
+            "Let me start with the transport.py changes.\n"
+            "Opening the file now...\n"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_stats_table_with_box_chars_not_dialog(self) -> None:
+        """Stats table using box-drawing chars → NONE."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "╭──────────────────────────╮\n"
+            "│  Tests: 1677 passed      │\n"
+            "│  Coverage: 100%          │\n"
+            "│  Duration: 68s           │\n"
+            "╰──────────────────────────╯\n"
+            "\n"
+            "All checks passed. Committing changes...\n"
+            "git add -A && git commit -m 'test: add coverage'\n"
+            "Pushing to origin...\n"
+            "Done! Moving to next task.\n"
+            "Reading the file structure...\n"
+            "Analyzing patterns...\n"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_real_option_dialog_at_bottom(self) -> None:
+        """Real option dialog at pane bottom (no trailing content) → OPTION."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "I've made the changes. Here are the results:\n"
+            "- test_foo: PASSED\n"
+            "- test_bar: PASSED\n"
+            "\n"
+            "╭─ Proceed? ─╮\n"
+            "❯ 1. Yes\n"
+            "  2. No\n"
+            "╰─────────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_real_bullet_dialog_at_bottom(self) -> None:
+        """Bullet dialog at pane bottom → BULLET."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "Which branch should I use?\n"
+            "╭─ Select branch ─╮\n"
+            "❯ main\n"
+            "  develop\n"
+            "  feature-x\n"
+            "  ↑↓ select · Enter accept\n"
+            "╰──────────────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.BULLET
+
+    def test_real_text_dialog_at_bottom(self) -> None:
+        """Text dialog at pane bottom → TEXT."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "Please provide the API key:\n╭─ Input ─╮\nType your answer\n╰──────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.TEXT
+
+    def test_dialog_with_few_trailing_lines_still_detected(self) -> None:
+        """Dialog with ≤5 trailing empty/prompt lines → still detected."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = "╭─ Run? ─╮\n❯ 1. Yes\n  2. No\n╰─────────╯\n\n\n\n"
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_permission_dialog_with_long_command(self) -> None:
+        """Permission dialog wrapping a long shell command → OPTION."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "╭─ Allow this? ─╮\n"
+            "❯ 1. Yes\n"
+            "  2. No\n"
+            '  python -c "print(hello)"  \n'
+            "╰────────────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_old_dialog_in_scrollback_with_new_output(self) -> None:
+        """Old dialog in scrollback + lots of new output → NONE."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        dialog_part = (
+            "╭─ Old question ─╮\n❯ 1. Approve\n  2. Deny\n╰─────────────────╯\n"
+        )
+        new_output = "\n".join([f"Processing step {i}..." for i in range(20)])
+        content = dialog_part + "\n" + new_output
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+
 class TestTmuxServerDownError:
     """Tests for TmuxServerDownError detection."""
 

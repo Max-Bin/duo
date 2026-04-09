@@ -842,10 +842,31 @@ def _detect_dialog_kind(content: str) -> DialogKind:
 
     Only examines content within the last dialog box (╭─ … ╰─).
     Numbered lists outside the box are ignored.
+
+    A box is considered an **active dialog** only if:
+    1. It contains an interactive marker (numbered options, ❯ cursor,
+       or a footer like "Enter accept", "↑↓ select", etc.), AND
+    2. The box is near the bottom of the pane (≤ 5 non-empty lines
+       after the closing ╰─ border).
+    This prevents false positives from Copilot narration text that
+    contains box-drawing characters.
     """
     content = strip_ansi(content)
     if _is_at_main_prompt(content):
         return DialogKind.NONE
+
+    # --- Bottom-anchor check ---
+    # Find the last ╰─ line and reject boxes with too much trailing content
+    all_lines = content.split("\n")
+    last_box_end_idx = -1
+    for i in range(len(all_lines) - 1, -1, -1):
+        if "╰─" in all_lines[i]:
+            last_box_end_idx = i
+            break
+    if last_box_end_idx >= 0:
+        trailing = [ln for ln in all_lines[last_box_end_idx + 1 :] if ln.strip()]
+        if len(trailing) > 5:
+            return DialogKind.NONE
 
     box_lines = _extract_last_box_lines(content)
     if box_lines is None:
