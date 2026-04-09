@@ -398,3 +398,35 @@ is small (~100 bytes), so practical impact is negligible for typical use
 (e.g., after `duo stop` or `duo kill` terminates a pane).
 
 **Priority:** Low. Memory impact is negligible for realistic workloads.
+
+---
+
+## Findings resolved in Rounds BT-BX — RESOLVED
+
+**Status: All resolved.**
+
+### auto_allow_all config dead (Round BT, commit `ae09987`)
+`auto_allow_all` was defined in DEFAULTS but never read by `start_session()`.
+`/allow-all` was always sent unconditionally. Fixed: now gated behind config.
+Users can set `auto_allow_all=false` to keep approval boundaries.
+
+### Unquoted worktree paths (Round BU, commit `59a0e0e`)
+`start_session()` and `start_claude_commander()` sent unquoted worktree
+paths to tmux via `send_shell_command()`. Paths with spaces would break
+startup; shell metacharacters could enable injection. Fixed: `shlex.quote()`.
+
+### BLOCKED tasks auto-restart + slot starvation (Round BV, commit `b5f159c`)
+BLOCKED and ESCALATED tasks were counted in ACTIVE_STATUSES (consuming
+execution slots) and polled by monitor (triggering auto-restart on heartbeat
+timeout). Fixed: removed from ACTIVE_STATUSES, excluded from monitor polling.
+
+### Queued send broken (Round BW, commit `60661c6`)
+`duo send` on a QUEUED task called `send_task_prompt()` with no live pane,
+causing timeout. On promotion, the user's prompt was overwritten by a
+synthesized one. Fixed: queued sends persist prompt file only; promotion
+prefers persisted prompt over synthesized.
+
+### Resume doesn't replay prompt (Round BX, commit `26330db`)
+`duo resume` started/restarted sessions but never sent a prompt, leaving
+the executor idle. Fixed: now replays the persisted prompt file (or builds
+a new one). Replay failure is non-fatal.
