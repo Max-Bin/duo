@@ -5697,14 +5697,33 @@ class TestCeoSelect:
             patch("duo.transport.is_in_dialog_stable", return_value=True),
             patch("duo.transport._is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
-            patch("duo.transport.select_other_option") as mock_other,
+            patch(
+                "duo.transport.send_option_other_message", return_value=True
+            ) as mock_send,
         ):
             result = runner.invoke(
                 main, ["ceo-select", task.id, "--other", "my custom text"]
             )
         assert result.exit_code == 0
         assert "Other" in result.output
-        mock_other.assert_called_once_with(task.pane_label, "my custom text")
+        mock_send.assert_called_once_with(task.pane_label, "my custom text")
+
+    def test_ceo_select_other_dialog_persists(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        """--other shows warning when dialog persists after retries."""
+        task = make_task("sel-other-fail")
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.send_option_other_message", return_value=False),
+        ):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "--other", "my custom text"]
+            )
+        assert result.exit_code == 0
+        assert "may still be active" in result.output
 
     def test_bad_task_name(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["ceo-select", "bad name!!", "1"])

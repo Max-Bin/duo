@@ -61,6 +61,7 @@ __all__ = [
     "select_dialog_option",
     "select_other_option",
     "send_bootstrap",
+    "send_option_other_message",
     "send_eof",
     "send_keys",
     "send_message",
@@ -378,23 +379,46 @@ def _is_at_main_prompt(content: str) -> bool:
     return False
 
 
+def _extract_last_box_lines(content: str) -> list[str] | None:
+    """Return lines inside the last ╭─…╰─ dialog box, or None if not found."""
+    lines = content.split("\n")
+    box_start = -1
+    box_end = -1
+    for i, line in enumerate(lines):
+        if "╭─" in line:
+            box_start = i
+        if "╰─" in line and box_start >= 0:
+            box_end = i
+    if box_start < 0 or box_end < 0 or box_end <= box_start:
+        return None
+    return lines[box_start + 1 : box_end]
+
+
 def _detect_dialog_kind(content: str) -> DialogKind:
-    """Classify dialog kind from pane content (no I/O)."""
+    """Classify dialog kind from pane content (no I/O).
+
+    Only examines content within the last dialog box (╭─ … ╰─).
+    Numbered lists outside the box are ignored.
+    """
     content = strip_ansi(content)
     if _is_at_main_prompt(content):
         return DialogKind.NONE
-    has_box = any("╰─" in l or "╭─" in l for l in content.split("\n"))
-    if not has_box:
+
+    box_lines = _extract_last_box_lines(content)
+    if box_lines is None:
         return DialogKind.NONE
+
+    box_content = "\n".join(box_lines)
+
     has_opt = any(
         any(l.strip().startswith(f"{n}.") or f"❯ {n}." in l for n in range(1, 7))
-        for l in content.split("\n")
+        for l in box_lines
     )
     if has_opt:
         return DialogKind.OPTION
-    # Text-input dialog: box present but no numbered options
+
     text_indicators = ("Type your answer", "Enter to submit", "type your response")
-    if any(ind in content for ind in text_indicators):
+    if any(ind in box_content for ind in text_indicators):
         return DialogKind.TEXT
     return DialogKind.NONE
 
@@ -550,21 +574,19 @@ def select_dialog_option(label: str, option: str) -> None:
     _record_pr(label, "dialog_option", option[:80])
 
 
-def select_other_option(label: str, text: str) -> None:
-    """Navigate to 'Other' (last option) in dialog, type text, and submit.
+def send_option_other_message(label: str, text: str) -> bool:
+    """Navigate to 'Other' option, type text, and submit with reliable Enter.
 
-    Atomic operation: navigate → type → enter with no deliberation gaps.
-    The 'Other' option is always the last numbered option in the dialog.
+    Like send_text_dialog_message but handles the OPTION dialog navigate-to-last step.
+    Returns True if dialog was dismissed, False if retries exhausted.
     """
     content = read_pane(label, 20)
     if _is_at_main_prompt(content):
-        raise RuntimeError(
-            f"BLOCKED: '{label}' at ❯ prompt. select_other_option REFUSED."
-        )
+        raise RuntimeError(f"BLOCKED: '{label}' at ❯ prompt. REFUSED.")
     if not is_in_dialog(label):
         raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
 
-    # Count options only within dialog box boundaries (╭─ … ╰─)
+    # Count options within dialog box boundaries
     lines = content.strip().split("\n")
     in_box = False
     option_count = 0
@@ -582,7 +604,7 @@ def select_other_option(label: str, text: str) -> None:
         if m:
             n = int(m.group(2))
             option_count = max(option_count, n)
-            if m.group(1) is not None:  # cursor present
+            if m.group(1) is not None:
                 current_pos = n
 
     if option_count < 2:
@@ -595,13 +617,41 @@ def select_other_option(label: str, text: str) -> None:
     for _ in range(downs_needed):
         send_keys(label, "Down")
         _time.sleep(0.2)
-        read_pane(label, 5)  # satisfy read guard
+        read_pane(label, 5)
 
-    # Type and submit atomically
+    # Type text
     type_text(label, text)
-    read_pane(label, 5)  # satisfy read guard
-    safe_enter(label)
-    _record_pr(label, "dialog_other", text[:80])
+    _time.sleep(0.3)
+
+    # Unconditional Enter (NOT safe_enter)
+    send_keys(label, "Enter")
+    _time.sleep(0.5)
+
+    # Verify dialog dismissed; retry Enter up to 2 times
+    for _retry in range(2):
+        content = read_pane(label, 20)
+        dialog_kind = _detect_dialog_kind(content)
+        if dialog_kind == DialogKind.NONE:
+            _record_pr(label, "dialog_other", text[:80])
+            return True
+        send_keys(label, "Enter")
+        _time.sleep(0.5)
+
+    # Final check
+    content = read_pane(label, 20)
+    if _detect_dialog_kind(content) == DialogKind.NONE:
+        _record_pr(label, "dialog_other", text[:80])
+        return True
+    return False
+
+
+def select_other_option(label: str, text: str) -> None:
+    """Navigate to 'Other' (last option) in dialog, type text, and submit."""
+    success = send_option_other_message(label, text)
+    if not success:
+        logger.warning(
+            "select_other_option: dialog may still be active for '%s'", label
+        )
 
 
 def send_text_dialog_message(label: str, text: str) -> bool:

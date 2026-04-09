@@ -37,6 +37,7 @@ from duo.transport import (
     send_eof,
     send_keys,
     send_message,
+    send_option_other_message,
     send_prompt,
     send_shell_command,
     send_text_dialog_message,
@@ -1137,19 +1138,19 @@ class TestApprovePermission:
 # ---------------------------------------------------------------------------
 
 
-class TestSelectOtherOption:
-    """Tests for select_other_option — navigate to 'Other', type, submit."""
+class TestSendOptionOtherMessage:
+    """Tests for send_option_other_message — reliable Enter for Other option."""
 
     @patch("duo.transport._record_pr")
-    @patch("duo.transport.safe_enter")
+    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
     @patch("duo.transport.is_in_dialog", return_value=True)
-    def test_basic_navigation(
-        self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
+    def test_send_option_other_message_success(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
     ):
-        """Navigates to last option, types text, and submits."""
+        """Navigate+type+enter, dialog dismissed on first try."""
         mock_read.return_value = (
             "╭─ Choose an action: ─╮\n"
             "  ❯ 1. Run command\n"
@@ -1157,75 +1158,149 @@ class TestSelectOtherOption:
             "  3. Other\n"
             "╰─\n"
         )
-        select_other_option("test", "custom action")
-        # Should navigate down 2 times (from pos 1 to pos 3)
-        assert mock_keys.call_count == 2
+        result = send_option_other_message("test", "custom action")
+        assert result is True
+        # 2 Down keys + 1 Enter (initial)
+        down_calls = [c for c in mock_keys.call_args_list if c == call("test", "Down")]
+        enter_calls = [
+            c for c in mock_keys.call_args_list if c == call("test", "Enter")
+        ]
+        assert len(down_calls) == 2
+        assert len(enter_calls) == 1
         mock_type.assert_called_once_with("test", "custom action")
-        mock_enter.assert_called_once_with("test")
         mock_pr.assert_called_once()
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_send_option_other_message_retry_enter(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
+    ):
+        """First Enter doesn't dismiss, second does → returns True."""
+        mock_read.return_value = "╭─ Choose: ─╮\n  ❯ 1. Run\n  2. Other\n╰─\n"
+        mock_detect.side_effect = [DialogKind.OPTION, DialogKind.NONE]
+        result = send_option_other_message("test", "custom")
+        assert result is True
+        enter_calls = [
+            c for c in mock_keys.call_args_list if c == call("test", "Enter")
+        ]
+        assert len(enter_calls) == 2
+
+    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.OPTION)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_send_option_other_message_all_retries_fail(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect
+    ):
+        """Dialog never dismisses → returns False."""
+        mock_read.return_value = "╭─ Choose: ─╮\n  ❯ 1. Run\n  2. Other\n╰─\n"
+        result = send_option_other_message("test", "stuck")
+        assert result is False
+        enter_calls = [
+            c for c in mock_keys.call_args_list if c == call("test", "Enter")
+        ]
+        # 1 initial + 2 retries = 3
+        assert len(enter_calls) == 3
 
     @patch("duo.transport.read_pane")
     @patch("duo.transport._is_at_main_prompt", return_value=True)
-    def test_blocked_at_prompt(self, mock_prompt, mock_read):
-        """Refuses when at main ❯ prompt."""
+    def test_send_option_other_message_at_prompt_blocked(self, mock_prompt, mock_read):
+        """Raises RuntimeError when at main ❯ prompt."""
         mock_read.return_value = "❯ "
         with pytest.raises(RuntimeError, match="BLOCKED"):
-            select_other_option("test", "text")
+            send_option_other_message("test", "text")
 
     @patch("duo.transport.read_pane")
     @patch("duo.transport.is_in_dialog", return_value=False)
-    def test_not_in_dialog(self, mock_dialog, mock_read):
-        """Refuses when not in a dialog."""
+    def test_send_option_other_message_not_in_dialog(self, mock_dialog, mock_read):
+        """Raises RuntimeError when not in a dialog."""
         mock_read.return_value = "some output\n"
         with pytest.raises(RuntimeError, match="SAFETY"):
-            select_other_option("test", "text")
+            send_option_other_message("test", "text")
 
     @patch("duo.transport.read_pane")
     @patch("duo.transport.is_in_dialog", return_value=True)
-    def test_too_few_options(self, mock_dialog, mock_read):
-        """Refuses when dialog has fewer than 2 options."""
+    def test_send_option_other_message_too_few_options(self, mock_dialog, mock_read):
+        """Raises RuntimeError when dialog has fewer than 2 options."""
         mock_read.return_value = "╭─ Choose: ─╮\n  ❯ 1. Only option\n╰─\n"
         with pytest.raises(RuntimeError, match="need ≥2"):
-            select_other_option("test", "text")
+            send_option_other_message("test", "text")
 
     @patch("duo.transport._record_pr")
-    @patch("duo.transport.safe_enter")
+    @patch("duo.transport._detect_dialog_kind")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
     @patch("duo.transport.is_in_dialog", return_value=True)
-    def test_cursor_already_at_last(
-        self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
+    def test_lines_before_box_ignored(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
     ):
-        """No navigation needed when cursor is already at last option."""
-        mock_read.return_value = "╭─ Choose: ─╮\n  1. Run\n  ❯ 2. Other\n╰─\n"
-        select_other_option("test", "custom")
-        # Should not navigate at all (already at position 2 of 2)
-        mock_keys.assert_not_called()
-        mock_type.assert_called_once_with("test", "custom")
-
-    @patch("duo.transport._record_pr")
-    @patch("duo.transport.safe_enter")
-    @patch("duo.transport.read_pane")
-    @patch("duo.transport.type_text")
-    @patch("duo.transport.send_keys")
-    @patch("duo.transport.is_in_dialog", return_value=True)
-    def test_ignores_options_above_box(
-        self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
-    ):
-        """Numbered lines in scrollback above the dialog box are ignored."""
+        """Lines before the dialog box (╭─) are skipped."""
         mock_read.return_value = (
-            "Steps:\n"
-            "  1. Install\n"
-            "  2. Build\n"
-            "╭─ Action ─╮\n"
-            "  ❯ 1. Run\n"
-            "  2. Other\n"
-            "╰─\n"
+            "Some preamble\nMore text\n╭─ Action ─╮\n  ❯ 1. Run\n  2. Other\n╰─\n"
         )
-        select_other_option("test", "my text")
-        # Only 2 options inside box; cursor at 1, navigate to 2
-        assert mock_keys.call_count == 1
+        mock_detect.return_value = DialogKind.NONE
+        result = send_option_other_message("test", "my text")
+        assert result is True
+        down_calls = [c for c in mock_keys.call_args_list if c == call("test", "Down")]
+        assert len(down_calls) == 1
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_final_check_succeeds(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
+    ):
+        """Dialog persists through retries but dismissed on final check."""
+        mock_read.return_value = "╭─ Choose: ─╮\n  ❯ 1. Run\n  2. Other\n╰─\n"
+        # 2 retries fail, then final check succeeds
+        mock_detect.side_effect = [
+            DialogKind.OPTION,
+            DialogKind.OPTION,
+            DialogKind.NONE,
+        ]
+        result = send_option_other_message("test", "text")
+        assert result is True
+        enter_calls = [
+            c for c in mock_keys.call_args_list if c == call("test", "Enter")
+        ]
+        assert len(enter_calls) == 3
+        mock_pr.assert_called_once()
+
+
+class TestSelectOtherOption:
+    """Tests for select_other_option — delegates to send_option_other_message."""
+
+    @patch("duo.transport.send_option_other_message", return_value=True)
+    def test_delegates_success(self, mock_send):
+        """Delegates to send_option_other_message and returns on success."""
+        select_other_option("test", "custom action")
+        mock_send.assert_called_once_with("test", "custom action")
+
+    @patch("duo.transport.send_option_other_message", return_value=False)
+    def test_delegates_failure_logs_warning(self, mock_send, caplog):
+        """Logs warning when send_option_other_message returns False."""
+        with caplog.at_level(logging.WARNING):
+            select_other_option("test", "stuck text")
+        mock_send.assert_called_once_with("test", "stuck text")
+        assert "dialog may still be active" in caplog.text
+
+    @patch(
+        "duo.transport.send_option_other_message",
+        side_effect=RuntimeError("BLOCKED"),
+    )
+    def test_propagates_errors(self, mock_send):
+        """RuntimeError from send_option_other_message propagates."""
+        with pytest.raises(RuntimeError, match="BLOCKED"):
+            select_other_option("test", "text")
 
 
 # ---------------------------------------------------------------------------
@@ -1437,6 +1512,112 @@ class TestAnsiInDialogDetection:
             result = read_pane("test", 10)
         assert result == "hello"
         assert "\x1b" not in result
+
+
+class TestDialogBoundaryDetection:
+    """Tests that _detect_dialog_kind only considers content within box boundaries."""
+
+    def test_numbered_list_outside_box_not_dialog(self) -> None:
+        """Numbered list in scrollback above a spinner → NONE, not OPTION."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "Here is my plan:\n"
+            "1. Fix this\n"
+            "2. Fix that\n"
+            "3. Deploy changes\n"
+            "\n"
+            "◉ Working on step 1..."
+        )
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_numbered_list_inside_box_is_dialog(self) -> None:
+        """Numbered list inside ╭─…╰─ box → OPTION."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "╭─ Choose an action ─╮\n1. Fix this\n2. Fix that\n╰────────────────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+
+    def test_mixed_content_only_box_counted(self) -> None:
+        """Numbered list outside box + text input inside box → TEXT (not OPTION)."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "Here is my plan:\n"
+            "1. Add tests\n"
+            "2. Fix bug\n"
+            "3. Deploy\n"
+            "\n"
+            "╭─ Provide details ─╮\n"
+            "Type your answer below\n"
+            "╰────────────────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.TEXT
+
+    def test_box_with_options_after_scrollback_plan(self) -> None:
+        """Copilot printed a plan, then shows a Yes/No dialog → OPTION with 2 opts."""
+        from duo.transport import (
+            DialogKind,
+            _detect_dialog_kind,
+            _extract_last_box_lines,
+        )
+
+        content = (
+            "I'll implement the following:\n"
+            "1. Add tests\n"
+            "2. Fix bug\n"
+            "3. Deploy\n"
+            "4. Celebrate\n"
+            "5. Write docs\n"
+            "\n"
+            "╭─ Proceed? ─╮\n"
+            "❯ 1. Yes\n"
+            "  2. No\n"
+            "╰─────────────╯"
+        )
+        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        box_lines = _extract_last_box_lines(content)
+        assert box_lines is not None
+        # Only 2 options inside the box, not the 5 from the plan
+        opt_count = sum(
+            1
+            for l in box_lines
+            if any(l.strip().startswith(f"{n}.") or f"❯ {n}." in l for n in range(1, 7))
+        )
+        assert opt_count == 2
+
+    def test_unclosed_box_returns_none(self) -> None:
+        """Only ╭─ with no ╰─ → NONE (dialog still rendering)."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = "╭─ Loading ─╮\nPlease wait...\n1. Option A"
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_empty_box_returns_none(self) -> None:
+        """╭─╰─ with nothing between → NONE."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = "╭─ Empty ─╮\n╰──────────╯"
+        assert _detect_dialog_kind(content) == DialogKind.NONE
+
+    def test_multiple_boxes_uses_last(self) -> None:
+        """Two dialog boxes in content → uses the last one."""
+        from duo.transport import DialogKind, _detect_dialog_kind
+
+        content = (
+            "╭─ Old dialog ─╮\n"
+            "1. Old option A\n"
+            "2. Old option B\n"
+            "╰───────────────╯\n"
+            "\n"
+            "╭─ New dialog ─╮\n"
+            "Type your answer\n"
+            "╰───────────────╯"
+        )
+        # Last box has text input, not options → TEXT
+        assert _detect_dialog_kind(content) == DialogKind.TEXT
 
 
 class TestTmuxServerDownError:

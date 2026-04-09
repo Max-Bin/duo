@@ -873,7 +873,7 @@ class TestCeoE2EScenarios:
             _patch("duo.transport.is_in_dialog_stable", return_value=True),
             _patch("duo.transport._is_at_main_prompt", return_value=False),
             _patch("duo.transport.read_pane", return_value=""),
-            _patch("duo.transport.select_other_option"),
+            _patch("duo.transport.send_option_other_message", return_value=True),
         ):
             result = runner.invoke(
                 main, ["ceo-select", task.id, "--other", "custom answer"]
