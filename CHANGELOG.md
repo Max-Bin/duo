@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.7.0] — Unreleased
 
 ### Added
+- `duo cost` command — Premium Request usage tracking and reporting
+  - `--task`, `--since`, `--budget`, `--json-output` flags for flexible consumption analysis
+  - Exit non-zero when `--budget` threshold exceeded (CI-friendly)
+- `duo bench` command — performance benchmarks for dialog-detection, file-protocol, journal-append
+  - `--baseline`, `--save`, `--json-output` flags for regression tracking
+- Multi-project isolation awareness — improved error messages showing worktree path
+- `DuoUserError` hierarchy — actionable error messages with `fix:` suggestions
+  - Extends `click.ClickException` for clean CLI output without tracebacks
 - `duo think` command for pre-start brainstorming with Claude Code in a tmux pane
   - `--ask` sends questions, `--finalize` generates plan.md, `--close`/`--delete` manage lifecycle
   - `duo think list` shows all thinking sessions with status

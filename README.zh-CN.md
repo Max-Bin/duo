@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1195%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1261%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI agent 编排器。**
@@ -100,9 +100,11 @@ Commander 不直接碰代码。它写 prompt、轮询结果、跑验证门禁、
 | `duo monitor` | 自适应轮询 + 自动纠错 |
 | `duo merge <task>` | Fast-forward 合并到主分支 |
 | `duo dashboard` | Rich 实时终端面板 |
+| `duo cost` | 查看各任务的 Premium Request 消耗 |
+| `duo bench` | 运行性能基准测试 |
 | `duo cleanup --force` | 清理已完成/失败的任务 |
 
-运行 `duo --help` 查看完整命令列表（9 组 35 个命令）。
+运行 `duo --help` 查看完整命令列表（10 组 37 个命令）。
 
 ## 更多资源
 

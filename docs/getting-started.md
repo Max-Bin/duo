@@ -359,9 +359,40 @@ duo cleanup --all --age 7d               # Only clean tasks older than 7 days
 
 ---
 
-## 8. Next Steps
+## 8. Tracking PR Usage
+
+The `duo cost` command shows Premium Request consumption across tasks:
+
+```bash
+duo cost                    # Show all PR consumption
+duo cost --task fix-auth    # Filter to one task
+duo cost --since 7          # Last 7 days only
+duo cost --budget 50        # Fail if over 50 PRs
+duo cost --json-output      # JSON format
+```
+
+Use `--budget` in CI to fail the pipeline when Premium Request spending exceeds a threshold.
+
+---
+
+## 9. Thinking Workflow
+
+Use `duo think` to brainstorm with Claude Code before writing any code:
+
+```bash
+duo think my-feature --ask "What's the best approach for adding OAuth support?"
+duo think my-feature                    # Continue the conversation
+duo think my-feature --finalize         # Generate plan.md
+duo start my-feature --from-thinking    # Start task using the plan
+duo think list                          # List all thinking sessions
+duo think my-feature --close            # Close pane, keep files
+```
+
+---
+
+## 10. Next Steps
 
 - **[`docs/ceo-workflow.md`](ceo-workflow.md)** — CEO command reference with bash loop examples and safety model documentation
 - **[`docs/architecture.md`](architecture.md)** — Deep dive into the FSM, file-based protocol, and security model
-- **`duo --help`** — Full CLI reference with all 32 commands
+- **`duo --help`** — Full CLI reference with all 37 commands
 - **`examples/tasks.json`** — Example batch file with multiple task definitions

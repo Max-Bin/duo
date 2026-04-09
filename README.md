@@ -2,7 +2,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1195%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1261%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **AI agent orchestrator that treats Premium Requests as a scarce resource.**
@@ -100,9 +100,11 @@ The Commander never touches code directly. It writes prompts, polls for results,
 | `duo monitor` | Adaptive polling with auto-correction |
 | `duo merge <task>` | Fast-forward merge to main branch |
 | `duo dashboard` | Live Rich terminal dashboard |
+| `duo cost` | Show Premium Request consumption across tasks |
+| `duo bench` | Run performance benchmarks |
 | `duo cleanup --force` | Remove completed/failed tasks |
 
-Run `duo --help` for the full command list (35 commands in 9 groups).
+Run `duo --help` for the full command list (37 commands in 10 groups).
 
 ## More Resources
 
