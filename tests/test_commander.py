@@ -1824,6 +1824,29 @@ class TestLogMonitor:
         assert "[duo]" in captured.out
 
 
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_skips_blocked_tasks(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        """Monitor does not poll BLOCKED tasks (prevents auto-restart)."""
+        task = _make_task()
+        task.status = TaskStatus.BLOCKED
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 0, "queued_count": 0, "max_parallel": 2},
+            ),
+        ):
+            monitor()  # exits because no active tasks
+
+        mock_poll.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # monitor poll result branch coverage (lines 634, 636)
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ from duo.protocol import (
     transition,
 )
 
-# Active statuses (consuming a slot)
+# Active statuses (consuming a slot — only states with a live executor)
 ACTIVE_STATUSES = {
     TaskStatus.SESSION_STARTING,
     TaskStatus.PROMPT_SENT,
@@ -28,8 +28,6 @@ ACTIVE_STATUSES = {
     TaskStatus.RESULT_REPORTED,
     TaskStatus.VERIFYING,
     TaskStatus.CORRECTING,
-    TaskStatus.BLOCKED,
-    TaskStatus.ESCALATED,
 }
 
 

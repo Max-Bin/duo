@@ -399,3 +399,6 @@ class TestSchedulerEdgeCases:
         assert TaskStatus.CORRECTING in ACTIVE_STATUSES
         assert TaskStatus.COMPLETED not in ACTIVE_STATUSES
         assert TaskStatus.FAILED not in ACTIVE_STATUSES
+        # BLOCKED/ESCALATED don't have live executors — shouldn't consume slots
+        assert TaskStatus.BLOCKED not in ACTIVE_STATUSES
+        assert TaskStatus.ESCALATED not in ACTIVE_STATUSES

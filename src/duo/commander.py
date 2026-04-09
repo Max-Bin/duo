@@ -904,6 +904,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 TaskStatus.COMPLETED,
                 TaskStatus.FAILED,
                 TaskStatus.ESCALATED,
+                TaskStatus.BLOCKED,
                 TaskStatus.QUEUED,
             )
             and (task_ids is None or t.id in task_ids)
