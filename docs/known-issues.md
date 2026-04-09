@@ -104,6 +104,88 @@ and "parallel sub-agents" failures (see commit `dab818f` onwards).
 
 ---
 
+## Copilot CLI file-descriptor / kqueue leak on long sessions — CRITICAL
+
+**Status: Upstream bug in Copilot CLI v1.0.12, mitigation on duo side.**
+
+**Observation:**
+After ~8 hours of heavy use (several hundred tool calls, multiple
+sub-agents), a single Copilot CLI process (v1.0.12, `claude-opus-4-6`
+model) accumulated:
+
+- **5,920 kqueue file descriptors** (a healthy Node.js process has < 20)
+- **44 persistent idle bash subshells** (children of the Copilot main
+  process, each consuming a TTY + fd)
+- **~6,000 total open fds** on the main process (vs. macOS default
+  soft limit of 256, raised by Node internally to thousands)
+
+**Symptoms:**
+- Copilot's Ink TUI becomes increasingly unresponsive
+- Dialog rendering lags behind actual state
+- `send_keys` silently buffered, not consumed (compounds the
+  layout-change bug above)
+- CPU time shows sporadic ticks without visible progress
+- Eventually: session becomes completely non-interactive, ❯ prompt
+  shows but no inputs register
+- Killing the bash subshells (`pkill -P <copilot_pid> bash`) releases
+  only ~44 fds; the kqueue leak in the main process remains
+
+**Likely root cause (Copilot upstream):**
+Copilot CLI's tool-call executor creates a fresh kqueue per background
+task / sub-agent / file watcher without cleaning them up on completion.
+Over hundreds of tool calls, this leaks into the thousands. Node.js
+libuv event loop still functions but becomes progressively slower, and
+at some point (likely related to internal poll() cost or kqueue cleanup
+scans) effective responsiveness drops to zero.
+
+**Duo-side mitigation (to implement in future rounds):**
+
+1. **`duo doctor` health check:** Add a "Copilot CLI health" section
+   that reports the fd / kqueue / child-process count for every labeled
+   Copilot pane. Warn when any exceeds conservative thresholds:
+   - fd count > 500 → warn
+   - fd count > 2000 → critical, recommend restart
+   - child process count > 10 → warn
+   - kqueue count > 50 → warn
+2. **Periodic cleanup:** Add a `duo ceo-cleanup <label>` command that
+   kills idle child bash subshells of the Copilot process (we verified
+   this is safe via `kill -9` — Copilot spawns fresh shells for new
+   tool calls, doesn't rely on the idle ones). Document that this
+   should be run periodically during long sessions.
+3. **Session lifetime limit:** Document in `docs/ceo-workflow.md` that
+   a single Copilot session should not exceed ~4 hours of heavy CEO
+   work. Beyond that, plan an orderly shutdown + bootstrap of a fresh
+   session (1 PR cost).
+4. **Burn rate metric:** `duo ceo-now` should show "session age" and
+   "est. remaining capacity" based on fd growth rate.
+5. **Auto-restart signal:** When `duo doctor` detects critical thresholds
+   during a CEO session, emit a clear signal file
+   (`~/.duo/ceo-sessions/{id}/restart-recommended`) that the CEO agent
+   can read and act on.
+
+**Lesson learned (internal):**
+Long-lived sub-processes are not free. Every persistent child + every
+leaked descriptor compounds over time. The longer a session runs, the
+higher the latent failure risk. **Plan for orderly restart as a
+first-class operation**, not an emergency recovery.
+
+Upstream bug report should include:
+- Copilot CLI version (currently v1.0.12)
+- macOS version + node version
+- Reproduction: run 300+ tool calls in one session, measure `lsof -p <pid> | grep -c KQUEUE`
+- Expected: kqueue count stays below ~50
+- Actual: grows linearly to thousands
+
+**Priority:** Critical. The mitigation actions (duo-side health checks +
+orderly restart) should land before the next extended session.
+
+**First observed:** After ~8 hours of continuous CEO-driven improvement
+work (Rounds Y through AQ, approximately 80+ tool calls per hour, 650+
+total). Around commit `5540dba`.
+
+
+---
+
 ## Concurrent dialog operations have no pane-level locking
 
 **Status: RESOLVED** (pane-level advisory locking implemented)
