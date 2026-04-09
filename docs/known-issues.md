@@ -104,9 +104,9 @@ and "parallel sub-agents" failures (see commit `dab818f` onwards).
 
 ---
 
-## Copilot CLI file-descriptor / kqueue leak on long sessions — CRITICAL
+## Copilot CLI file-descriptor / kqueue leak on long sessions — MITIGATED
 
-**Status: Upstream bug in Copilot CLI v1.0.12, mitigation on duo side.**
+**Status: Upstream bug in Copilot CLI v1.0.12; all 5 duo-side mitigations landed.**
 
 **Observation:**
 After ~8 hours of heavy use (several hundred tool calls, multiple
@@ -138,30 +138,32 @@ libuv event loop still functions but becomes progressively slower, and
 at some point (likely related to internal poll() cost or kqueue cleanup
 scans) effective responsiveness drops to zero.
 
-**Duo-side mitigation (to implement in future rounds):**
+**Duo-side mitigation (ALL IMPLEMENTED):**
 
-1. **`duo doctor` health check:** Add a "Copilot CLI health" section
-   that reports the fd / kqueue / child-process count for every labeled
-   Copilot pane. Warn when any exceeds conservative thresholds:
-   - fd count > 500 → warn
-   - fd count > 2000 → critical, recommend restart
-   - child process count > 10 → warn
-   - kqueue count > 50 → warn
-2. **Periodic cleanup:** Add a `duo ceo-cleanup <label>` command that
-   kills idle child bash subshells of the Copilot process (we verified
-   this is safe via `kill -9` — Copilot spawns fresh shells for new
-   tool calls, doesn't rely on the idle ones). Document that this
-   should be run periodically during long sessions.
-3. **Session lifetime limit:** Document in `docs/ceo-workflow.md` that
-   a single Copilot session should not exceed ~4 hours of heavy CEO
-   work. Beyond that, plan an orderly shutdown + bootstrap of a fresh
-   session (1 PR cost).
-4. **Burn rate metric:** `duo ceo-now` should show "session age" and
-   "est. remaining capacity" based on fd growth rate.
-5. **Auto-restart signal:** When `duo doctor` detects critical thresholds
-   during a CEO session, emit a clear signal file
-   (`~/.duo/ceo-sessions/{id}/restart-recommended`) that the CEO agent
-   can read and act on.
+1. **`duo doctor` health check** ✅ (commit `de0bb52`, Round AR):
+   Reports fd / kqueue / child-process count for every labeled Copilot
+   pane. Thresholds: fd ≥ 500 → warn, fd ≥ 2000 → fail (critical),
+   kqueue ≥ 50 → warn, children ≥ 10 → warn.
+
+2. **`duo ceo-cleanup <task>` command** ✅ (commit `b500169`, Round AS):
+   Finds and terminates idle child bash/sh subshells of the Copilot
+   process. Supports `--dry-run` and `--json-output`. Safe to run
+   periodically during long sessions.
+
+3. **Session lifetime guidance** ✅ (commit `db96316`, Round AU):
+   Comprehensive "Session Lifetime Management" section added to
+   `docs/ceo-workflow.md`. Recommends ≤4 hours heavy CEO work per
+   session, documents orderly restart procedure.
+
+4. **Session health in `duo ceo-now`** ✅ (commit `db073d4`, Round AT):
+   Shows session age, fd/kqueue/child counts, fd growth rate, and
+   estimated remaining capacity (hours). Health status: healthy /
+   degraded / critical with color-coded display.
+
+5. **Auto-restart signal** ✅ (commit `db96316`, Round AU):
+   `duo doctor` emits `restart-recommended` file to the task directory
+   when fd count exceeds critical threshold. CEO agent can check this
+   file and initiate orderly restart.
 
 **Lesson learned (internal):**
 Long-lived sub-processes are not free. Every persistent child + every
@@ -176,8 +178,8 @@ Upstream bug report should include:
 - Expected: kqueue count stays below ~50
 - Actual: grows linearly to thousands
 
-**Priority:** Critical. The mitigation actions (duo-side health checks +
-orderly restart) should land before the next extended session.
+**Priority:** Mitigated. All duo-side health checks + cleanup + restart
+signals are in place. Monitor for recurrence; consider upstream report.
 
 **First observed:** After ~8 hours of continuous CEO-driven improvement
 work (Rounds Y through AQ, approximately 80+ tool calls per hour, 650+
@@ -241,3 +243,34 @@ when convenient, e.g. as part of a broader dialog detection refinement.
 **First observed:** During Round AV (ironically, while implementing
 bullet dialog detection, Copilot's own narration triggered the detector
 multiple times per minute).
+
+---
+
+## Bullet-style ask_user dialogs misclassified as NONE — RESOLVED
+
+**Status: Fixed** (commit `7c35fa8`, Round AV)
+
+**Observation:**
+Copilot CLI sometimes presents `ask_user` dialogs as bullet-style lists
+(navigated with ↑↓ arrow keys, selected with Enter) instead of numbered
+options. These dialogs have no `N.` prefix — instead they show items
+with a `❯` cursor on the selected line and a footer like:
+
+```
+↑↓ select · Enter accept · ctrl+d decline · Esc cancel
+```
+
+Prior to the fix, `_detect_dialog_kind` only recognized OPTION (numbered)
+and TEXT dialogs. Bullet dialogs fell through to NONE, causing `duo watch`
+to miss them and `ceo-loop` to spin without handling them.
+
+**Fix:**
+- Added `DialogKind.BULLET` enum value
+- Detection priority: OPTION > BULLET > TEXT (footer markers + ❯ prefix)
+- `_count_bullet_items()` parses item count and cursor position
+- `select_bullet_option()` navigates with Up/Down keys + Enter
+- `ceo-status` reports `bullet_dialog` state with item/cursor info
+- `ceo-select` handles bullet via position-based navigation
+- `ceo-loop` / `_handle_dialog` supports `bullet_dialogs` policy
+
+**Priority:** Resolved.
