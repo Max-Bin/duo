@@ -21,6 +21,7 @@ from duo.transport import (
     approve_permission,
     bridge,
     cancel_current,
+    cleanup_pane_state,
     diagnose_pane,
     doctor,
     ensure_minimum_pane_size,
@@ -849,6 +850,7 @@ class TestWaitForIdle:
     @patch("duo.transport._time")
     def test_detects_idle(self, mock_time, mock_run):
         mock_time.sleep = MagicMock()
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.1, 0.2])
         # Return same content twice = idle
         mock_run.return_value = MagicMock(
             returncode=0, stdout="stable output", stderr=""
@@ -859,6 +861,8 @@ class TestWaitForIdle:
     @patch("duo.transport._time")
     def test_timeout(self, mock_time, mock_run):
         mock_time.sleep = MagicMock()
+        # monotonic: first call sets deadline, then exceed it after a few iterations
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.01, 0.02, 0.06])
         # Return different content each time
         call_count = [0]
 
@@ -912,6 +916,7 @@ class TestWaitForDialog:
     def test_wait_for_dialog_immediate(self, mock_stable, mock_time):
         """is_in_dialog_stable returns True on first call."""
         mock_time.sleep = MagicMock()
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.1])
         mock_stable.return_value = True
         assert wait_for_dialog("test-pane", timeout=10, interval=1) is True
         assert mock_stable.call_count == 1
@@ -921,6 +926,8 @@ class TestWaitForDialog:
     def test_wait_for_dialog_timeout(self, mock_stable, mock_time):
         """Always returns False → returns False after timeout."""
         mock_time.sleep = MagicMock()
+        # monotonic: first sets deadline, then exceeds it
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.005, 0.02])
         mock_stable.return_value = False
         assert wait_for_dialog("test-pane", timeout=0.01, interval=0.01) is False
 
@@ -1194,11 +1201,12 @@ class TestApprovePermission:
 
     @patch("duo.transport.select_dialog_option")
     @patch("duo.transport.read_pane")
-    def test_no_options_falls_back_to_1(self, mock_read, mock_select):
-        """Empty pane with no numbered options falls back to 1."""
+    def test_no_options_raises(self, mock_read, mock_select):
+        """Empty pane with no numbered options raises RuntimeError."""
         mock_read.return_value = "╭──\nsome random text\n╰──"
-        approve_permission("test")
-        mock_select.assert_called_once_with("test", "1")
+        with pytest.raises(RuntimeError, match="no recognizable"):
+            approve_permission("test")
+        mock_select.assert_not_called()
 
     @patch("duo.transport.select_dialog_option")
     @patch("duo.transport.read_pane")
@@ -2821,3 +2829,225 @@ class TestSelectBulletOption:
         select_bullet_option("test-pane", 1)
         # No enter sent because dialog is gone
         # safe_enter is NOT called (is_in_dialog returned False)
+
+
+# ── Round BH: Rubber-duck audit regression tests ─────────────────────
+
+
+class TestRetrySkipsTmuxServerDown:
+    """_retry must NOT retry TmuxServerDownError (dead server won't recover)."""
+
+    def test_tmux_down_not_retried(self):
+        from duo.transport import TmuxServerDownError
+
+        call_count = [0]
+
+        @_retry(max_attempts=3, delay=0.01)
+        def always_down():
+            call_count[0] += 1
+            raise TmuxServerDownError("server is down")
+
+        with pytest.raises(TmuxServerDownError):
+            always_down()
+        assert call_count[0] == 1  # no retries
+
+    def test_runtime_error_still_retried(self):
+        call_count = [0]
+
+        @_retry(max_attempts=3, delay=0.01)
+        def transient_fail():
+            call_count[0] += 1
+            if call_count[0] < 3:
+                raise RuntimeError("transient")
+            return "ok"
+
+        assert transient_fail() == "ok"
+        assert call_count[0] == 3
+
+
+class TestFlockOwnersThreadSafe:
+    """_FLOCK_OWNERS accesses must be guarded by _THREAD_LOCKS_GUARD."""
+
+    @patch("subprocess.run")
+    def test_flock_owners_guarded(self, mock_run):
+        """Verify _FLOCK_OWNERS uses _THREAD_LOCKS_GUARD (not bare dict access)."""
+        import inspect
+
+        from duo.transport import pane_lock
+
+        source = inspect.getsource(pane_lock)
+        # The implementation must use _THREAD_LOCKS_GUARD around _FLOCK_OWNERS
+        assert "_THREAD_LOCKS_GUARD" in source
+        assert "_FLOCK_OWNERS" in source
+
+
+class TestSetPrCallbackThreadSafe:
+    """set_pr_callback must use _LOCK."""
+
+    def test_set_pr_callback_uses_lock(self):
+        import inspect
+
+        from duo.transport import set_pr_callback
+
+        source = inspect.getsource(set_pr_callback)
+        assert "_LOCK" in source
+
+
+class TestSendBootstrapRollback:
+    """send_bootstrap must rollback _BOOTSTRAP_DONE on I/O failure."""
+
+    @patch("subprocess.run")
+    def test_rollback_on_io_failure(self, mock_run):
+        label = "rollback-test"
+        duo.transport._BOOTSTRAP_DONE.discard(label)
+
+        # First read_pane succeeds, type_text fails
+        call_count = [0]
+
+        def side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return _ok("content")
+            raise RuntimeError("bridge timeout")
+
+        mock_run.side_effect = side_effect
+
+        with pytest.raises(RuntimeError, match="bridge timeout"):
+            send_bootstrap(label, "test prompt")
+
+        # Label must NOT be in _BOOTSTRAP_DONE after failure
+        assert label not in duo.transport._BOOTSTRAP_DONE
+
+    @patch("subprocess.run")
+    def test_no_rollback_on_success(self, mock_run):
+        label = "no-rollback-test"
+        duo.transport._BOOTSTRAP_DONE.discard(label)
+        duo.transport._PR_LOG.clear()
+        mock_run.return_value = _ok()
+        send_bootstrap(label, "test prompt")
+        assert label in duo.transport._BOOTSTRAP_DONE
+        duo.transport._BOOTSTRAP_DONE.discard(label)
+
+
+class TestSafeEnterToctuDetection:
+    """safe_enter must detect TOCTOU races via post-send pane read."""
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport._time")
+    @patch("subprocess.run")
+    def test_toctou_detected_and_logged(self, mock_run, mock_time, mock_record, caplog):
+        mock_time.sleep = MagicMock()
+        # First read: non-prompt (passes check), second read: at prompt (TOCTOU)
+        mock_run.side_effect = [
+            _ok("normal output"),  # pre-check read
+            _ok("%42"),  # resolve_label
+            MagicMock(returncode=0),  # select-pane
+            MagicMock(returncode=0),  # send-keys -H Enter
+            _ok("❯ Type @ to mention files"),  # post-send read (TOCTOU!)
+        ]
+        with caplog.at_level(logging.CRITICAL, logger="duo.transport"):
+            safe_enter("test-pane")
+        assert "TOCTOU" in caplog.text
+        mock_record.assert_called_once_with(
+            "test-pane", "toctou_enter", "safe_enter race detected"
+        )
+
+    @patch("duo.transport._time")
+    @patch("subprocess.run")
+    def test_no_toctou_when_normal(self, mock_run, mock_time):
+        mock_time.sleep = MagicMock()
+        # Both reads: non-prompt content
+        mock_run.return_value = _ok("normal dialog content")
+        safe_enter("test-pane")  # should not log anything
+
+
+class TestApprovePermissionNoFallback:
+    """approve_permission must raise when no recognizable yes option."""
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_raises_on_unrecognized_options(self, mock_read, mock_select):
+        mock_read.return_value = "╭──\n  1. Foo\n  2. Bar\n╰──"
+        with pytest.raises(RuntimeError, match="no recognizable"):
+            approve_permission("test")
+        mock_select.assert_not_called()
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_recognizes_continue(self, mock_read, mock_select):
+        mock_read.return_value = "╭──\n  1. Continue\n  2. Cancel\n╰──"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_recognizes_ok(self, mock_read, mock_select):
+        mock_read.return_value = "╭──\n  1. Ok\n  2. No\n╰──"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_recognizes_proceed(self, mock_read, mock_select):
+        mock_read.return_value = "╭──\n  1. No\n  2. Proceed\n╰──"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "2")
+
+
+class TestCleanupPaneState:
+    """cleanup_pane_state must clear all per-label module state."""
+
+    def test_clears_bootstrap_and_thread_locks(self):
+        from duo.transport import cleanup_pane_state
+
+        label = "cleanup-test"
+        duo.transport._BOOTSTRAP_DONE.add(label)
+        with duo.transport._THREAD_LOCKS_GUARD:
+            duo.transport._THREAD_LOCKS[label] = MagicMock()
+
+        cleanup_pane_state(label)
+
+        assert label not in duo.transport._BOOTSTRAP_DONE
+        assert label not in duo.transport._THREAD_LOCKS
+
+    def test_idempotent_on_missing_label(self):
+        from duo.transport import cleanup_pane_state
+
+        # Should not raise even if label was never used
+        cleanup_pane_state("never-existed-label")
+
+
+class TestWaitForIdleMonotonic:
+    """wait_for_idle must use time.monotonic() for accurate timeout."""
+
+    @patch("subprocess.run")
+    @patch("duo.transport._time")
+    def test_uses_monotonic_not_accumulation(self, mock_time, mock_run):
+        mock_time.sleep = MagicMock()
+        # Simulate: monotonic returns increasing values, 3rd call past deadline
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.5, 1.5, 3.0])
+        call_count = [0]
+
+        def changing(*args, **kwargs):
+            call_count[0] += 1
+            return MagicMock(returncode=0, stdout=f"content-{call_count[0]}", stderr="")
+
+        mock_run.side_effect = changing
+        result = wait_for_idle("test", timeout=2.0, poll_interval=0.5)
+        assert result is False
+        # monotonic was called (not elapsed accumulation)
+        assert mock_time.monotonic.call_count >= 3
+
+
+class TestWaitForDialogMonotonic:
+    """wait_for_dialog must use time.monotonic() for accurate timeout."""
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_uses_monotonic(self, mock_stable, mock_time):
+        mock_time.sleep = MagicMock()
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 5.0, 11.0])
+        mock_stable.return_value = False
+        result = wait_for_dialog("test", timeout=10, interval=5)
+        assert result is False
+        assert mock_time.monotonic.call_count >= 2

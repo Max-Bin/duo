@@ -48,6 +48,7 @@ __all__ = [
     "bridge",
     "cancel_current",
     "clear_bootstrap_done",
+    "cleanup_pane_state",
     "diagnose_pane",
     "doctor",
     "ensure_minimum_pane_size",
@@ -169,6 +170,8 @@ def _retry(
             for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
+                except TmuxServerDownError:
+                    raise  # no point retrying a dead server
                 except (RuntimeError, OSError) as e:
                     last_error = e
                     if attempt < max_attempts - 1:
@@ -513,7 +516,8 @@ def pane_lock(label: str, *, timeout: float = 30.0) -> Generator[None, None, Non
         )
 
     tid = threading.get_ident()
-    already_owned = _FLOCK_OWNERS.get(label) == tid
+    with _THREAD_LOCKS_GUARD:
+        already_owned = _FLOCK_OWNERS.get(label) == tid
 
     try:
         if already_owned:
@@ -537,11 +541,13 @@ def pane_lock(label: str, *, timeout: float = 30.0) -> Generator[None, None, Non
                                 f"dialog operation may be in progress"
                             ) from None
                         _time.sleep(0.1)
-                _FLOCK_OWNERS[label] = tid
+                with _THREAD_LOCKS_GUARD:
+                    _FLOCK_OWNERS[label] = tid
                 try:
                     yield
                 finally:
-                    del _FLOCK_OWNERS[label]
+                    with _THREAD_LOCKS_GUARD:
+                        _FLOCK_OWNERS.pop(label, None)
                     fcntl.flock(fd, fcntl.LOCK_UN)
             finally:
                 os.close(fd)
@@ -816,7 +822,8 @@ def set_pr_callback(callback: Callable[[str, str, str], None] | None) -> None:
     Callback receives (label, action, context).
     """
     global _pr_callback
-    _pr_callback = callback
+    with _LOCK:
+        _pr_callback = callback
 
 
 def _record_pr(label: str, action: str, context: str = "") -> None:
@@ -991,14 +998,13 @@ def wait_for_idle(
     Returns *True* if output stabilised within *timeout* seconds, *False* otherwise.
     """
     previous = ""
-    elapsed = 0.0
-    while elapsed < timeout:
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
         current = read_pane(label, 20)
         if current == previous and current.strip():
             return True
         previous = current
         _time.sleep(poll_interval)
-        elapsed += poll_interval
     return False
 
 
@@ -1008,23 +1014,38 @@ def wait_for_dialog(label: str, timeout: float = 300, interval: float = 5) -> bo
         raise ValueError(f"interval must be positive, got {interval}")
     if timeout <= 0:
         raise ValueError(f"timeout must be positive, got {timeout}")
-    elapsed = 0.0
-    while elapsed < timeout:
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
         if is_in_dialog_stable(label):
             return True
         _time.sleep(interval)
-        elapsed += interval
     return False
 
 
 def safe_enter(label: str) -> None:
-    """Press Enter ONLY if NOT at ❯ prompt. Raises otherwise."""
+    """Press Enter ONLY if NOT at ❯ prompt. Raises otherwise.
+
+    After sending Enter, re-reads the pane to detect if a TOCTOU race
+    caused the key to land on the main prompt (PR consumed).  Logs a
+    critical warning if this is detected.
+    """
     content = read_pane(label, 20)
     if _is_at_main_prompt(content):
         raise RuntimeError(
             f"BLOCKED: '{label}' at ❯ prompt. Enter = PR consumed. REFUSED."
         )
     send_keys(label, "Enter")
+    # Post-send TOCTOU detection: if the pane is now at the main prompt
+    # AND no dialog appeared, a PR may have been consumed by the race.
+    _time.sleep(0.15)
+    post = read_pane(label, 20)
+    if _is_at_main_prompt(post):
+        logger.critical(
+            "TOCTOU: Enter sent to '%s' but pane is now at ❯ prompt — "
+            "a Premium Request may have been consumed by a race condition",
+            label,
+        )
+        _record_pr(label, "toctou_enter", "safe_enter race detected")
 
 
 def is_permission_dialog(label: str) -> bool:
@@ -1112,6 +1133,7 @@ def approve_permission(label: str) -> None:
 
         # Strategy: find the best "yes" option
         # Prefer "Yes + approve for session" over plain "Yes"
+        _AFFIRMATIVE = {"yes", "ok", "continue", "proceed", "allow", "accept", "confirm"}
         best = None
         for num, text in options.items():
             text_lower = text.lower()
@@ -1122,7 +1144,7 @@ def approve_permission(label: str) -> None:
                 or "differently" in text_lower
             ):
                 continue
-            if text_lower.startswith("no"):
+            if text_lower.startswith("no") or text_lower == "cancel":
                 continue
             # Prefer "approve for session" / "approve all" / "add to allowed"
             if "approve" in text_lower or (
@@ -1130,13 +1152,15 @@ def approve_permission(label: str) -> None:
             ):
                 best = num
                 break
-            # Otherwise plain "Yes"
-            if "yes" in text_lower and best is None:
+            # Otherwise any affirmative keyword
+            if any(kw in text_lower for kw in _AFFIRMATIVE) and best is None:
                 best = num
 
         if best is None:
-            # Fallback: pick option 1 (usually "Yes")
-            best = "1"
+            raise RuntimeError(
+                f"SAFETY: '{label}' permission dialog has no recognizable "
+                f"'yes' option. Options found: {options}. REFUSED."
+            )
 
         select_dialog_option(label, best)
 
@@ -1372,24 +1396,47 @@ def send_shell_command(label: str, command: str) -> None:
 
 
 def send_bootstrap(label: str, prompt: str) -> None:
-    """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use."""
+    """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use.
+
+    If the I/O to the pane fails (bridge timeout, pane dead, etc.),
+    the bootstrap lock is rolled back so the pane can retry.
+    """
     with _LOCK:
         if label in _BOOTSTRAP_DONE:
             raise RuntimeError(
                 f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK."
             )
         _BOOTSTRAP_DONE.add(label)
-    read_pane(label, 5)
-    type_text(label, prompt)
-    read_pane(label, 5)
-    send_keys(label, "Enter")
-    _record_pr(label, "bootstrap", prompt[:80])
+    try:
+        read_pane(label, 5)
+        type_text(label, prompt)
+        read_pane(label, 5)
+        send_keys(label, "Enter")
+        _record_pr(label, "bootstrap", prompt[:80])
+    except Exception:
+        # Rollback: allow retry on transient failures
+        with _LOCK:
+            _BOOTSTRAP_DONE.discard(label)
+        raise
 
 
 def clear_bootstrap_done(label: str) -> None:
     """Remove *label* from the bootstrap-done set (thread-safe)."""
     with _LOCK:
         _BOOTSTRAP_DONE.discard(label)
+
+
+def cleanup_pane_state(label: str) -> None:
+    """Clean up all module-level state associated with a pane label.
+
+    Call this when a pane is destroyed or recycled to prevent
+    unbounded growth of ``_THREAD_LOCKS`` and stale ``_BOOTSTRAP_DONE``
+    entries.
+    """
+    clear_bootstrap_done(label)
+    with _THREAD_LOCKS_GUARD:
+        _THREAD_LOCKS.pop(label, None)
+        _FLOCK_OWNERS.pop(label, None)
 
 
 def send_prompt(label: str, prompt: str) -> None:
