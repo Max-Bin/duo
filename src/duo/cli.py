@@ -2305,8 +2305,8 @@ def assert_not_at_main_prompt(label: str) -> None:
 
 @main.command("ceo-wait")
 @click.argument("task")
-@click.option("--timeout", default=300, type=float, help="Max seconds to wait")
-@click.option("--interval", default=5, type=float, help="Poll interval in seconds")
+@click.option("--timeout", default=300, type=float, help="Max seconds to wait (default: 300).")
+@click.option("--interval", default=5, type=float, help="Poll interval in seconds (default: 5).")
 def ceo_wait(task: str, timeout: float, interval: float) -> None:
     """Wait for a dialog to appear in a task's pane.
 
@@ -3102,10 +3102,11 @@ def _handle_dialog(
     "--policy",
     "policy_path",
     default=None,
-    help="YAML policy file for auto-handling dialogs",
+    help="YAML policy file for auto-handling dialogs.",
 )
-@click.option("--interval", default=5.0, type=float, help="Poll interval in seconds")
-def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
+@click.option("--interval", default=5.0, type=float, help="Poll interval in seconds (default: 5).")
+@click.option("--timeout", default=3600.0, type=float, help="Max loop duration in seconds (default: 3600).")
+def ceo_loop(task: str, policy_path: str | None, interval: float, timeout: float) -> None:
     """Automated CEO workflow loop.
 
     Polls for dialogs and handles them according to the policy file.
@@ -3127,9 +3128,15 @@ def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
     t = _load_task_or_fail(task)
     policy = _load_policy(policy_path)
     click.echo(f"CEO loop started for '{task}'. Press Ctrl+C to stop.")
+    deadline = _time.monotonic() + timeout
 
     try:
         while True:
+            if _time.monotonic() >= deadline:
+                click.echo(f"CEO loop timeout after {timeout}s. Exiting.")
+                _write_loop_state(task, {"status": "stopped", "reason": "timeout"})
+                break
+
             if not is_process_alive(t.pane_label):
                 click.echo(f"Pane '{t.pane_label}' died. Exiting loop.")
                 _write_loop_state(task, {"status": "stopped", "reason": "pane_died"})
@@ -3233,16 +3240,25 @@ def ceo_session_start() -> None:
 
 
 @main.command("ceo-session-list")
-def ceo_session_list() -> None:
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+def ceo_session_list(*, json_output: bool) -> None:
     """List all CEO sessions."""
+    import json
+
     from duo.ceo_log import list_sessions
 
     sessions = list_sessions()
     if not sessions:
-        click.echo("No CEO sessions found.")
+        if json_output:
+            click.echo("[]")
+        else:
+            click.echo("No CEO sessions found.")
         return
-    for s in sessions:
-        click.echo(s)
+    if json_output:
+        click.echo(json.dumps(sessions, indent=2))
+    else:
+        for s in sessions:
+            click.echo(s)
 
 
 @main.command("ceo-session-replay")
@@ -3320,7 +3336,7 @@ def ceo_smart_config(*, json_output: bool) -> None:
 
 @main.command("ceo-dispatch")
 @click.argument("task")
-@click.option("--timeout", default=30, help="Seconds to wait for dialog (default 30).")
+@click.option("--timeout", default=30, type=float, help="Seconds to wait for dialog (default: 30).")
 @click.option(
     "--policy",
     type=click.Path(exists=True),
@@ -3330,7 +3346,7 @@ def ceo_smart_config(*, json_output: bool) -> None:
 @click.option("--dry-run", is_flag=True, help="Show decision without executing.")
 def ceo_dispatch(
     task: str,
-    timeout: int,
+    timeout: float,
     policy: str | None,
     *,
     dry_run: bool,

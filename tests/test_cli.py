@@ -6668,6 +6668,31 @@ class TestCeoLoop:
         assert state is not None
         assert state["reason"] == "tmux_server_down"
 
+    def test_loop_timeout(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """ceo-loop exits after --timeout seconds."""
+        task = make_task("loop-timeout")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.get_dialog_kind") as mock_kind,
+            patch("time.monotonic") as mock_mono,
+        ):
+            from duo.transport import DialogKind
+
+            mock_kind.return_value = DialogKind.NONE
+            # First call: start time, second call: after timeout
+            mock_mono.side_effect = [0.0, 999.0]
+            result = runner.invoke(main, ["ceo-loop", task.id, "--timeout", "1"])
+        assert result.exit_code == 0
+        assert "timeout" in result.output.lower()
+
     def test_loop_session_logging(
         self,
         runner: CliRunner,
@@ -6809,6 +6834,39 @@ class TestCeoSessionList:
         assert result.exit_code == 0
         assert "20250102-120000-bbb222" in result.output
         assert "20250101-120000-aaa111" in result.output
+
+    def test_json_output_empty(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "nonexistent")
+        result = runner.invoke(main, ["ceo-session-list", "--json-output"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "[]"
+
+    def test_json_output_with_sessions(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import json
+
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        sessions_dir.mkdir()
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        (sessions_dir / "20250101-120000-aaa111").mkdir()
+        result = runner.invoke(main, ["ceo-session-list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) >= 1
 
 
 class TestCeoSessionReplay:
