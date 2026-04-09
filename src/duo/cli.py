@@ -2116,6 +2116,20 @@ def resume(name: str | None) -> None:
             start_session(task)
             click.echo(f"Resumed task '{task.id}' — started new session")
 
+        # Replay the last prompt so the executor has work to do
+        from duo.commander import build_task_prompt, send_task_prompt
+
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        if prompt_path.exists():
+            prompt = prompt_path.read_text()
+        else:
+            prompt = build_task_prompt(task)
+        try:
+            send_task_prompt(task, prompt)
+            click.echo(f"  Replayed prompt for step {task.current_step}")
+        except (RuntimeError, OSError) as exc:
+            click.echo(f"  Warning: could not replay prompt: {exc}", err=True)
+
 
 @main.command()
 @click.argument("name")

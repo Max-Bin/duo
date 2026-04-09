@@ -3820,7 +3820,7 @@ class TestResume:
     def test_resume_specific_task(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """Resume a named task calls restart or start session."""
+        """Resume a named task calls restart or start session + replays prompt."""
         task = _make_task("resume-me")
         # Set to a non-terminal state
         task.status = TaskStatus.RUNNING
@@ -3834,10 +3834,13 @@ class TestResume:
         monkeypatch.setattr("duo.commander.start_session", mock_start)
         mock_restart = MagicMock()
         monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
         result = runner.invoke(main, ["resume", "resume-me"])
         assert result.exit_code == 0
         assert "Resumed task 'resume-me'" in result.output
         mock_start.assert_called_once()
+        mock_send.assert_called_once()
 
     def test_resume_no_tasks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3879,12 +3882,15 @@ class TestResume:
         monkeypatch.setattr("duo.commander.start_session", mock_start)
         mock_restart = MagicMock()
         monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
         result = runner.invoke(main, ["resume"])
         assert result.exit_code == 0
         assert "task-a" in result.output
         assert "task-b" in result.output
         assert "task-c" not in result.output
         assert mock_start.call_count == 2
+        assert mock_send.call_count == 2
 
     def test_resume_task_not_found(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3907,10 +3913,13 @@ class TestResume:
         monkeypatch.setattr("duo.commander.restart_session", mock_restart)
         mock_start = MagicMock()
         monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
         result = runner.invoke(main, ["resume", "alive-task"])
         assert result.exit_code == 0
         assert "restarted session" in result.output
         mock_restart.assert_called_once()
+        mock_send.assert_called_once()
 
     def test_resume_is_process_alive_exception(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3928,16 +3937,56 @@ class TestResume:
         monkeypatch.setattr("duo.commander.start_session", mock_start)
         mock_restart = MagicMock()
         monkeypatch.setattr("duo.commander.restart_session", mock_restart)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
         result = runner.invoke(main, ["resume", "error-task"])
         assert result.exit_code == 0
         assert "started new session" in result.output
         mock_start.assert_called_once()
         mock_restart.assert_not_called()
+        mock_send.assert_called_once()
 
+    def test_resume_replays_persisted_prompt(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Resume uses persisted prompt file if available."""
+        task = _make_task("resume-persisted")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        # Persist a prompt
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text("saved user prompt")
 
-# ---------------------------------------------------------------------------
-# Help-text smoke tests
-# ---------------------------------------------------------------------------
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
+        result = runner.invoke(main, ["resume", "resume-persisted"])
+        assert result.exit_code == 0
+        # Should have sent the persisted prompt
+        sent_prompt = mock_send.call_args[0][1]
+        assert sent_prompt == "saved user prompt"
+
+    def test_resume_prompt_replay_failure_nonfatal(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """If prompt replay fails, resume still succeeds with a warning."""
+        task = _make_task("resume-fail-prompt")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        monkeypatch.setattr(
+            "duo.commander.send_task_prompt",
+            MagicMock(side_effect=RuntimeError("dialog timeout")),
+        )
+        result = runner.invoke(main, ["resume", "resume-fail-prompt"])
+        assert result.exit_code == 0
+        assert "could not replay prompt" in result.output
 
 
 class TestHelpTexts:
