@@ -16,8 +16,10 @@ from click.testing import CliRunner
 from hypothesis import given
 from hypothesis import strategies as st
 
+import duo.ceo_state
 import duo.cli
 import duo.protocol
+from duo.ceo_log import start_ceo_session
 from duo.cli import (
     CheckResult,
     _bench_dialog_detection,
@@ -40,10 +42,12 @@ from duo.cli import (
     _load_batch_file,
     _parse_age,
     _print_results,
+    _resolve_task_from_focus,
     _safe_join,
     _validate_task_name,
     main,
 )
+from duo.errors import DuoUserError
 from duo.protocol import (
     Subtask,
     TaskStatus,
@@ -70,6 +74,7 @@ def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
     monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
     monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+    monkeypatch.setattr(duo.ceo_state, "CEO_STATE_PATH", tmp_path / "ceo-state.json")
     return tasks_dir
 
 
@@ -5569,6 +5574,31 @@ class TestCeoWait:
             runner.invoke(main, ["ceo-wait", task.id, "--interval", "2"])
         mock_wait.assert_called_once_with(task.pane_label, timeout=300, interval=2.0)
 
+    def test_session_logging(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("wait-log")
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.wait_for_dialog", return_value=True),
+            patch("duo.transport.read_pane", return_value="dialog!"),
+            patch("duo.commander._write_watch_event"),
+        ):
+            result = runner.invoke(main, ["ceo-wait", task.id])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(e["event"] == "dialog_detected" for e in events)
+
 
 class TestPrBudgetSafety:
     """Tests for assert_not_at_main_prompt and _log_pr_budget_warning."""
@@ -5881,6 +5911,61 @@ class TestCeoSelect:
         log_path = DUO_DIR / "pr-budget.log"
         assert log_path.exists()
         assert "--force-new-session" in log_path.read_text()
+
+    def test_approve_session_logging(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("appr-log")
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.approve_permission"),
+        ):
+            result = runner.invoke(main, ["ceo-approve", task.id])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(
+            e["event"] == "decision" and e["decision_type"] == "approve" for e in events
+        )
+
+    def test_select_session_logging(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("sel-log")
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.select_dialog_option"),
+        ):
+            result = runner.invoke(main, ["ceo-select", task.id, "2"])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(
+            e["event"] == "decision" and e["decision_type"] == "select" for e in events
+        )
 
 
 class TestCeoStatus:
@@ -6559,6 +6644,49 @@ class TestCeoLoop:
         assert state is not None
         assert state["reason"] == "tmux_server_down"
 
+    def test_loop_session_logging(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """ceo-loop logs dialog + decision when DUO_CEO_SESSION is set."""
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("loop-log")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+
+        call_count = {"n": 0}
+
+        def fake_alive(label: str) -> bool:
+            call_count["n"] += 1
+            return call_count["n"] <= 3
+
+        with (
+            patch("duo.transport.is_process_alive", side_effect=fake_alive),
+            patch(
+                "duo.transport.get_dialog_kind",
+                side_effect=[DialogKind.OPTION, DialogKind.NONE, DialogKind.NONE],
+            ),
+            patch(
+                "duo.transport.read_pane",
+                return_value="╭── Allow? ──╮\n 1. Yes\n╰──",
+            ),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission"),
+            patch("time.sleep"),
+        ):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(e["event"] == "dialog_detected" for e in events)
+        assert any(e["event"] == "decision" for e in events)
+
 
 class TestCeoResume:
     """Tests for duo ceo-resume."""
@@ -6594,6 +6722,148 @@ class TestCeoResume:
         result = runner.invoke(main, ["ceo-resume", "nonexistent"])
         assert result.exit_code != 0
         assert "No ceo-loop state" in result.output
+
+
+# ---------------------------------------------------------------------------
+# duo ceo-session-* — CEO session replay commands
+# ---------------------------------------------------------------------------
+
+
+class TestCeoSessionStart:
+    """Tests for duo ceo-session-start."""
+
+    def test_start_creates_session(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        result = runner.invoke(main, ["ceo-session-start"])
+        assert result.exit_code == 0
+        assert "CEO session started:" in result.output
+        assert "export DUO_CEO_SESSION=" in result.output
+        # Session dir should exist
+        assert sessions_dir.exists()
+        dirs = [d for d in sessions_dir.iterdir() if d.is_dir()]
+        assert len(dirs) == 1
+
+
+class TestCeoSessionList:
+    """Tests for duo ceo-session-list."""
+
+    def test_no_sessions(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "nonexistent")
+        result = runner.invoke(main, ["ceo-session-list"])
+        assert result.exit_code == 0
+        assert "No CEO sessions found" in result.output
+
+    def test_lists_sessions(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        sessions_dir.mkdir()
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        (sessions_dir / "20250101-120000-aaa111").mkdir()
+        (sessions_dir / "20250102-120000-bbb222").mkdir()
+        result = runner.invoke(main, ["ceo-session-list"])
+        assert result.exit_code == 0
+        assert "20250102-120000-bbb222" in result.output
+        assert "20250101-120000-aaa111" in result.output
+
+
+class TestCeoSessionReplay:
+    """Tests for duo ceo-session-replay."""
+
+    def test_no_events_raises(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "ceo-sessions")
+        result = runner.invoke(main, ["ceo-session-replay", "nonexistent"])
+        assert result.exit_code != 0
+        assert "No events found" in result.output
+
+    def test_replay_shows_events(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+
+        log_dialog_detected(sid, "my-task", "content here", "option")
+        log_decision(sid, "my-task", "select", "option 1", elapsed_ms=10)
+        result = runner.invoke(main, ["ceo-session-replay", sid])
+        assert result.exit_code == 0
+        assert "session_started" in result.output
+        assert "dialog_detected" in result.output
+        assert "decision" in result.output
+
+
+class TestCeoSessionStats:
+    """Tests for duo ceo-session-stats."""
+
+    def test_text_output(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision
+
+        log_decision(sid, "t1", "approve", "yes", elapsed_ms=100)
+        result = runner.invoke(main, ["ceo-session-stats", sid])
+        assert result.exit_code == 0
+        assert "Session:" in result.output
+        assert "Events:" in result.output
+        assert "Decisions:" in result.output
+
+    def test_json_output(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        result = runner.invoke(main, ["ceo-session-stats", sid, "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["session_id"] == sid
+        assert data["total_events"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -7624,3 +7894,98 @@ class TestMultiProjectIsolation:
         assert beta_loaded is not None
         assert beta_loaded.id == task_beta.id
         assert beta_loaded.status == TaskStatus.CREATED
+
+
+# ---------------------------------------------------------------------------
+# CEO focus commands
+# ---------------------------------------------------------------------------
+
+
+class TestCeoFocus:
+    """Tests for duo ceo-focus, ceo-focus-show, ceo-focus-clear."""
+
+    def test_ceo_focus_set(self, runner: CliRunner, make_task) -> None:
+        task = make_task("focus-task")
+        result = runner.invoke(main, ["ceo-focus", task.id])
+        assert result.exit_code == 0
+        assert "CEO focus set to: focus-task" in result.output
+        assert f"status: {task.status.value}" in result.output
+
+    def test_ceo_focus_set_nonexistent_task(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-focus", "no-such-task"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_ceo_focus_show(self, runner: CliRunner, make_task) -> None:
+        task = make_task("show-task")
+        runner.invoke(
+            main, ["ceo-focus", task.id, "--session", "sess-1", "--notes", "doing work"]
+        )
+        result = runner.invoke(main, ["ceo-focus-show"])
+        assert result.exit_code == 0
+        assert "show-task" in result.output
+        assert "Session: sess-1" in result.output
+        assert "Notes:   doing work" in result.output
+        assert "Started:" in result.output
+
+    def test_ceo_focus_show_no_focus(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-focus-show"])
+        assert result.exit_code == 0
+        assert "No CEO focus set" in result.output
+
+    def test_ceo_focus_show_json(self, runner: CliRunner, make_task) -> None:
+        import json as json_mod
+
+        task = make_task("json-task")
+        runner.invoke(main, ["ceo-focus", task.id, "--session", "s1", "--notes", "n1"])
+        result = runner.invoke(main, ["ceo-focus-show", "--json-output"])
+        assert result.exit_code == 0
+        data = json_mod.loads(result.output)
+        assert data["task_id"] == "json-task"
+        assert data["session_id"] == "s1"
+        assert data["notes"] == "n1"
+        assert "started_at" in data
+
+    def test_ceo_focus_show_task_deleted(
+        self, runner: CliRunner, make_task, tmp_path: Path
+    ) -> None:
+        task = make_task("gone-task")
+        runner.invoke(main, ["ceo-focus", task.id])
+        # Remove the task directory
+        import shutil
+
+        task_dir = tmp_path / "tasks" / task.id
+        if task_dir.exists():
+            shutil.rmtree(task_dir)
+        result = runner.invoke(main, ["ceo-focus-show"])
+        assert result.exit_code == 0
+        assert "gone-task" in result.output
+        assert "unknown" in result.output
+
+    def test_ceo_focus_clear(self, runner: CliRunner, make_task) -> None:
+        task = make_task("clear-task")
+        runner.invoke(main, ["ceo-focus", task.id])
+        result = runner.invoke(main, ["ceo-focus-clear"])
+        assert result.exit_code == 0
+        assert "CEO focus cleared" in result.output
+        # Verify it's cleared
+        result = runner.invoke(main, ["ceo-focus-show"])
+        assert "No CEO focus set" in result.output
+
+
+class TestResolveTaskFromFocus:
+    """Tests for _resolve_task_from_focus helper."""
+
+    def test_returns_explicit_task(self) -> None:
+        assert _resolve_task_from_focus("my-task") == "my-task"
+
+    def test_falls_back_to_focus(self, make_task) -> None:
+        from duo.ceo_state import save_ceo_focus
+
+        make_task("focused")
+        save_ceo_focus("focused")
+        assert _resolve_task_from_focus(None) == "focused"
+
+    def test_raises_when_no_task_no_focus(self) -> None:
+        with pytest.raises(DuoUserError, match="No task specified"):
+            _resolve_task_from_focus(None)

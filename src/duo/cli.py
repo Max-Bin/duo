@@ -52,6 +52,13 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-status",
         "ceo-loop",
         "ceo-resume",
+        "ceo-focus",
+        "ceo-focus-show",
+        "ceo-focus-clear",
+        "ceo-session-start",
+        "ceo-session-list",
+        "ceo-session-replay",
+        "ceo-session-stats",
     ],
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cost", "cleanup", "events"],
@@ -2238,6 +2245,21 @@ def _load_task_or_fail(name: str) -> Task:
     return task
 
 
+def _resolve_task_from_focus(task: str | None) -> str:
+    """Resolve task name from argument or CEO focus."""
+    if task:
+        return task
+    from duo.ceo_state import load_ceo_focus
+
+    focus = load_ceo_focus()
+    if focus is None:
+        raise DuoUserError(
+            "No task specified and no CEO focus set.",
+            fix="Pass a task name or run 'duo ceo-focus <task>' first.",
+        )
+    return str(focus["task_id"])
+
+
 def _log_pr_budget_warning(label: str, flag: str) -> None:
     """Append a warning line to ~/.duo/pr-budget.log when safety is bypassed."""
     from duo.protocol import DUO_DIR, now_iso
@@ -2305,6 +2327,11 @@ def ceo_wait(task: str, timeout: float, interval: float) -> None:
     content = read_pane(t.pane_label, 40)
     click.echo(content)
     _write_watch_event(t, content)
+    _session_id = os.environ.get("DUO_CEO_SESSION")
+    if _session_id:
+        from duo.ceo_log import log_dialog_detected
+
+        log_dialog_detected(_session_id, task, content, "dialog")
 
 
 @main.command("ceo-select")
@@ -2386,6 +2413,12 @@ def ceo_select(
             raise click.ClickException("Internal error: expected OPTION number.")
         select_dialog_option(t.pane_label, option)
         click.echo(f"Selected option {option}")
+    _session_id = os.environ.get("DUO_CEO_SESSION")
+    if _session_id:
+        from duo.ceo_log import log_decision
+
+        chosen = other_text if other_text is not None else (option or "?")
+        log_decision(_session_id, task, "select", f"selected {chosen}", elapsed_ms=0)
 
 
 @main.command("ceo-approve")
@@ -2419,6 +2452,62 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
         )
     approve_permission(t.pane_label)
     click.echo(f"Approved dialog in '{task}'")
+    _session_id = os.environ.get("DUO_CEO_SESSION")
+    if _session_id:
+        from duo.ceo_log import log_decision
+
+        log_decision(_session_id, task, "approve", "permission approved", elapsed_ms=0)
+
+
+@main.command("ceo-focus")
+@click.argument("task")
+@click.option("--session", default="", help="CEO session ID to associate.")
+@click.option("--notes", default="", help="Notes about current focus.")
+def ceo_focus_set(task: str, session: str, notes: str) -> None:
+    """Set the current CEO focus task."""
+    from duo.ceo_state import save_ceo_focus
+
+    _validate_task_name(task)
+    t = _load_task_or_fail(task)
+    save_ceo_focus(task, session_id=session, notes=notes)
+    click.echo(f"CEO focus set to: {task} (status: {t.status.value})")
+
+
+@main.command("ceo-focus-show")
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+def ceo_focus_show(json_output: bool) -> None:
+    """Show the current CEO focus task."""
+    from duo.ceo_state import load_ceo_focus
+
+    focus = load_ceo_focus()
+    if focus is None:
+        click.echo("No CEO focus set. Use 'duo ceo-focus <task>' to set one.")
+        return
+    if json_output:
+        click.echo(json.dumps(focus, indent=2))
+        return
+    task_id = focus.get("task_id", "?")
+    task = load_task(task_id)
+    status = task.status.value if task else "unknown"
+    session = focus.get("session_id", "")
+    started = focus.get("started_at", "?")[:19]
+    notes = focus.get("notes", "")
+    click.echo("Current CEO focus:")
+    click.echo(f"  Task:    {task_id} (status: {status})")
+    if session:
+        click.echo(f"  Session: {session}")
+    click.echo(f"  Started: {started}")
+    if notes:
+        click.echo(f"  Notes:   {notes}")
+
+
+@main.command("ceo-focus-clear")
+def ceo_focus_clear() -> None:
+    """Clear the current CEO focus."""
+    from duo.ceo_state import clear_ceo_focus
+
+    clear_ceo_focus()
+    click.echo("CEO focus cleared.")
 
 
 @main.command("ceo-status")
@@ -2688,8 +2777,19 @@ def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
             click.echo(f"Dialog detected ({kind_str}):")
             click.echo(content[:200])
 
+            _session_id = os.environ.get("DUO_CEO_SESSION")
+            if _session_id:
+                from duo.ceo_log import log_dialog_detected
+
+                log_dialog_detected(_session_id, task, content, kind_str)
+
             action = _handle_dialog(task, t.pane_label, policy, content, kind_str)
             click.echo(f"  → Action: {action}")
+
+            if _session_id:
+                from duo.ceo_log import log_decision as _log_d
+
+                _log_d(_session_id, task, action, f"loop:{action}", elapsed_ms=0)
 
             if action == "paused":
                 click.echo(
@@ -2747,6 +2847,77 @@ def ceo_resume(task: str, instruction: str) -> None:
         )
     _write_loop_state(task, {"status": "resumed", "instruction": instruction})
     click.echo(f"Resumed ceo-loop for '{task}'.")
+
+
+# ---------------------------------------------------------------------------
+# duo ceo-session-* — CEO session replay logging
+# ---------------------------------------------------------------------------
+
+
+@main.command("ceo-session-start")
+def ceo_session_start() -> None:
+    """Start a new CEO session and print export command."""
+    from duo.ceo_log import start_ceo_session
+
+    session_id = start_ceo_session()
+    click.echo(f"CEO session started: {session_id}")
+    click.echo(f"export DUO_CEO_SESSION={session_id}")
+
+
+@main.command("ceo-session-list")
+def ceo_session_list() -> None:
+    """List all CEO sessions."""
+    from duo.ceo_log import list_sessions
+
+    sessions = list_sessions()
+    if not sessions:
+        click.echo("No CEO sessions found.")
+        return
+    for s in sessions:
+        click.echo(s)
+
+
+@main.command("ceo-session-replay")
+@click.argument("session_id")
+def ceo_session_replay(session_id: str) -> None:
+    """Replay a CEO session's events."""
+    from duo.ceo_log import replay_session
+
+    events = replay_session(session_id)
+    if not events:
+        raise DuoUserError(
+            f"No events found for session '{session_id}'",
+            fix="Run 'duo ceo-session-list' to see available sessions.",
+        )
+    for ev in events:
+        ts = ev.get("ts", "?")[:19]
+        event_type = ev.get("event", "?")
+        task = ev.get("task", "")
+        content = ev.get("content", ev.get("outcome", ev.get("decision_type", "")))
+        line = f"  {ts}  {event_type:20s}  {task:15s}  {content}"
+        click.echo(line)
+
+
+@main.command("ceo-session-stats")
+@click.argument("session_id")
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+def ceo_session_stats_cmd(session_id: str, *, json_output: bool) -> None:
+    """Show stats for a CEO session."""
+    from duo.ceo_log import session_stats
+
+    stats = session_stats(session_id)
+    if json_output:
+        click.echo(json.dumps(stats, indent=2))
+    else:
+        click.echo(f"Session:    {stats['session_id']}")
+        click.echo(f"Events:     {stats['total_events']}")
+        click.echo(f"Dialogs:    {stats['dialogs_detected']}")
+        click.echo(f"Decisions:  {stats['decisions_made']}")
+        click.echo(f"Avg time:   {stats['avg_decision_ms']}ms")
+        if stats["decision_types"]:
+            click.echo("Types:")
+            for dt, count in stats["decision_types"].items():
+                click.echo(f"  {dt}: {count}")
 
 
 @main.command()
