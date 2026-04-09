@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import shlex
 import subprocess
 import threading
 import time
@@ -345,7 +346,7 @@ def start_claude_commander(task: Task) -> str | None:
 
     time.sleep(_SESSION_SPLIT_WAIT)
     try:
-        send_shell_command(commander_label, f"cd {task.worktree}")
+        send_shell_command(commander_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
         send_shell_command(commander_label, "claude")
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
@@ -496,7 +497,7 @@ def start_session(task: Task) -> None:
     time.sleep(_SESSION_SPLIT_WAIT)
     copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
     try:
-        send_shell_command(task.pane_label, f"cd {task.worktree}")
+        send_shell_command(task.pane_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
         send_shell_command(task.pane_label, copilot_cmd)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:

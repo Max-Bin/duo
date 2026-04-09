@@ -631,6 +631,43 @@ class TestStartSession:
             ]
             assert len(allow_calls) == 0
 
+    def test_start_session_worktree_path_quoted(self):
+        """Worktree paths with spaces/metacharacters are shell-quoted."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+        task.worktree = "/path/with spaces/and;semicolons"
+
+        config_values = {
+            "auto_allow_all": False,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            cd_call = mock_send.call_args_list[0]
+            cd_cmd = cd_call[0][1]
+            # Must be quoted — raw path would allow shell injection
+            assert "'" in cd_cmd or "\\" in cd_cmd
+            assert "cd " in cd_cmd
+
 
 # ---------------------------------------------------------------------------
 # write_commander_claude_md and start_claude_commander
@@ -909,6 +946,34 @@ class TestClaudeCommander:
             ):
                 result = start_claude_commander(task)
                 assert result is None
+
+    def test_start_claude_commander_worktree_quoted(self) -> None:
+        """Worktree path is shell-quoted in claude commander cd."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = f"{tmp}/path with spaces"
+            Path(task.worktree).mkdir(parents=True, exist_ok=True)
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch("duo.commander.send_shell_command") as mock_send,
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%50\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result]
+
+                start_claude_commander(task)
+
+                cd_call = mock_send.call_args_list[0]
+                cd_cmd = cd_call[0][1]
+                assert "'" in cd_cmd or "\\" in cd_cmd
+                assert "cd " in cd_cmd
 
     def test_start_session_with_claude_commander(self) -> None:
         """start_session also launches Claude commander when config enabled."""
