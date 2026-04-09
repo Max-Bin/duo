@@ -614,7 +614,8 @@ def get_tmux_session_target() -> str:
     if result.returncode == 0:
         sessions = [s.strip() for s in result.stdout.strip().splitlines() if s.strip()]
         if len(sessions) == 1:
-            return f"${sessions[0]}"
+            # tmux list-sessions -F '#{session_id}' returns "$N" with prefix
+            return sessions[0]
         if len(sessions) == 0:
             raise RuntimeError(
                 "No tmux sessions found. Start one first:\n  tmux new -s duo"

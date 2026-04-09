@@ -266,7 +266,7 @@ class TestGetTmuxSessionTarget:
     ) -> None:
         """Malformed $TMUX with non-digit session → falls through to list-sessions."""
         monkeypatch.setenv("TMUX", "badvalue")
-        mock_result = MagicMock(returncode=0, stdout="5\n")
+        mock_result = MagicMock(returncode=0, stdout="$5\n")
         with patch("subprocess.run", return_value=mock_result):
             from duo.transport import get_tmux_session_target
 
@@ -275,7 +275,7 @@ class TestGetTmuxSessionTarget:
     def test_no_tmux_env_single_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """$TMUX not set, exactly 1 session → uses it."""
         monkeypatch.delenv("TMUX", raising=False)
-        mock_result = MagicMock(returncode=0, stdout="0\n")
+        mock_result = MagicMock(returncode=0, stdout="$0\n")
         with patch("subprocess.run", return_value=mock_result):
             from duo.transport import get_tmux_session_target
 
@@ -296,7 +296,7 @@ class TestGetTmuxSessionTarget:
     ) -> None:
         """$TMUX not set, 2+ sessions → RuntimeError."""
         monkeypatch.delenv("TMUX", raising=False)
-        mock_result = MagicMock(returncode=0, stdout="0\n1\n")
+        mock_result = MagicMock(returncode=0, stdout="$0\n$1\n")
         with patch("subprocess.run", return_value=mock_result):
             from duo.transport import get_tmux_session_target
 
@@ -323,6 +323,36 @@ class TestGetTmuxSessionTarget:
 
             with pytest.raises(RuntimeError, match="Cannot determine tmux session"):
                 get_tmux_session_target()
+
+    def test_tmux_timeout_expired(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """subprocess.TimeoutExpired in fallback → RuntimeError."""
+        monkeypatch.delenv("TMUX", raising=False)
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=5),
+        ):
+            from duo.transport import get_tmux_session_target
+
+            with pytest.raises(RuntimeError, match="tmux is not running"):
+                get_tmux_session_target()
+
+    def test_tmux_env_only_commas(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """$TMUX set to just commas → falls through to list-sessions."""
+        monkeypatch.setenv("TMUX", ",,,")
+        mock_result = MagicMock(returncode=0, stdout="$0\n")
+        with patch("subprocess.run", return_value=mock_result):
+            from duo.transport import get_tmux_session_target
+
+            assert get_tmux_session_target() == "$0"
+
+    def test_tmux_env_whitespace_session_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """$TMUX with whitespace around session_id → strip handles it."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-501/default,123, 0 ")
+        from duo.transport import get_tmux_session_target
+
+        assert get_tmux_session_target() == "$0"
 
 
 # ── list_panes ────────────────────────────────────────────────────────
