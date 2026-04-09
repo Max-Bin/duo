@@ -205,3 +205,39 @@ sends "2", process A sends Enter — option 2 is selected instead of 1.
 All four dialog operations (`approve_permission`, `select_dialog_option`,
 `send_option_other_message`, `send_text_dialog_message`) acquire the
 pane lock for their entire duration.  Timeout defaults to 30s.
+
+---
+
+## Dialog detection false positives when Copilot describes dialog boxes — LOW PRIORITY
+
+**Status: Open, low priority.**
+
+**Observation:**
+`duo watch` and `wait_for_dialog` occasionally return "dialog detected"
+when there is no actual user-facing dialog.  The pane contains Copilot's
+own narration text that happens to include box-drawing characters (`╭─`,
+`╰─`) — for example, when Copilot is describing how dialog detection
+works, or reading a file that contains box characters, or rendering
+stats tables.
+
+**Impact:**
+CEO observes the false trigger, reads the pane, recognizes there's no
+real dialog, and re-launches `duo watch`.  Wastes a few seconds per false
+trigger.  Does not lose work or burn PRs.
+
+**Likely fix:**
+Make `_detect_dialog_kind` require additional signals beyond just
+box-drawing chars:
+- Dialog footer must contain one of: "Enter to select", "Enter accept",
+  "↑↓ select", "Enter to confirm", "Type your answer"
+- Box must be the LAST box in the pane (recent dialogs are always at
+  the bottom, not in scrollback)
+- Box must have at least one interactive marker (`❯`, numbered option,
+  or text input placeholder)
+
+**Priority:** Low.  CEO can visually distinguish false triggers.  Fix
+when convenient, e.g. as part of a broader dialog detection refinement.
+
+**First observed:** During Round AV (ironically, while implementing
+bullet dialog detection, Copilot's own narration triggered the detector
+multiple times per minute).
