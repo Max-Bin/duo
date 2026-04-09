@@ -2094,7 +2094,8 @@ def resume(name: str | None) -> None:
         targets = [task]
     else:
         all_tasks = list_tasks()
-        targets = [t for t in all_tasks if t.status not in TERMINAL_STATES]
+        SKIP_STATES = TERMINAL_STATES | {TaskStatus.QUEUED}
+        targets = [t for t in all_tasks if t.status not in SKIP_STATES]
         if not targets:
             click.echo("No interrupted tasks found.")
             return

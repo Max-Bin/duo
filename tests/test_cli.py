@@ -3892,6 +3892,29 @@ class TestResume:
         assert mock_start.call_count == 2
         assert mock_send.call_count == 2
 
+    def test_resume_skips_queued_tasks(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Bare resume skips QUEUED tasks (they're intentionally deferred)."""
+        t1 = _make_task("active-one", "Active")
+        t1.status = TaskStatus.RUNNING
+        save_task(t1)
+
+        t2 = _make_task("queued-one", "Queued")
+        t2.status = TaskStatus.QUEUED
+        save_task(t2)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
+        result = runner.invoke(main, ["resume"])
+        assert result.exit_code == 0
+        assert "active-one" in result.output
+        assert "queued-one" not in result.output
+        assert mock_start.call_count == 1
+
     def test_resume_task_not_found(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
