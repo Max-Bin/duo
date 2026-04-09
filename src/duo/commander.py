@@ -527,10 +527,13 @@ def start_session(task: Task) -> None:
     click.echo("Waiting for Copilot to start...")
     wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0)
 
-    # Auto-approve all operations to avoid interactive prompts
-    click.echo("Sending /allow-all...")
-    send_shell_command(task.pane_label, "/allow-all")
-    wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0)
+    # Auto-approve all operations to avoid interactive prompts (configurable)
+    if get_config("auto_allow_all"):
+        click.echo("Sending /allow-all...")
+        send_shell_command(task.pane_label, "/allow-all")
+        wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0)
+    else:
+        click.echo("Skipping /allow-all (auto_allow_all=false)")
 
     # Send bootstrap prompt (this is the first and only ❯ prompt message)
     bootstrap = build_bootstrap_prompt(task)

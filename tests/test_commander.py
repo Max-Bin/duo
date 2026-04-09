@@ -559,6 +559,78 @@ class TestStartSession:
             start_session(task)
             assert task.status == TaskStatus.PROMPT_SENT
 
+    def test_start_session_auto_allow_all_enabled(self):
+        """When auto_allow_all=True, /allow-all is sent during start."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+
+        config_values = {
+            "auto_allow_all": True,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            # /allow-all should have been sent
+            allow_calls = [
+                c for c in mock_send.call_args_list if "/allow-all" in str(c)
+            ]
+            assert len(allow_calls) == 1
+
+    def test_start_session_auto_allow_all_disabled(self):
+        """When auto_allow_all=False, /allow-all is NOT sent."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+
+        config_values = {
+            "auto_allow_all": False,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            # /allow-all should NOT have been sent
+            allow_calls = [
+                c for c in mock_send.call_args_list if "/allow-all" in str(c)
+            ]
+            assert len(allow_calls) == 0
+
 
 # ---------------------------------------------------------------------------
 # write_commander_claude_md and start_claude_commander
