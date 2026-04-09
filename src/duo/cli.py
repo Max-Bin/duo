@@ -2710,6 +2710,95 @@ def ceo_focus_clear() -> None:
     click.echo("CEO focus cleared.")
 
 
+def _gather_task_info(task: Task, focus: dict[str, Any]) -> dict[str, Any]:
+    """Build the focus/task-status section of the dashboard data."""
+    return {
+        "task_id": task.id,
+        "status": task.status.value,
+        "started_at": focus.get("started_at", ""),
+    }
+
+
+def _gather_pane_info(task: Task) -> dict[str, Any]:
+    """Collect tmux pane liveness and dialog state for a task."""
+    pane_alive = False
+    try:
+        from duo.transport import (
+            get_dialog_kind,
+            is_in_dialog,
+            resolve_label,
+        )
+
+        resolve_label(task.pane_label)
+        pane_alive = True
+    except (subprocess.SubprocessError, OSError, RuntimeError):
+        pass
+
+    in_dialog = False
+    dialog_kind = ""
+    if pane_alive:
+        try:
+            in_dialog = is_in_dialog(task.pane_label)
+            if in_dialog:
+                dialog_kind = get_dialog_kind(task.pane_label).value
+        except (subprocess.SubprocessError, OSError, RuntimeError):
+            pass
+
+    return {
+        "label": task.pane_label,
+        "alive": pane_alive,
+        "in_dialog": in_dialog,
+        "dialog_kind": dialog_kind,
+    }
+
+
+def _gather_git_info() -> dict[str, Any] | None:
+    """Collect git HEAD commit and working-tree cleanliness."""
+    try:
+        result = subprocess.run(
+            ["git", "--no-pager", "log", "-1", "--format=%h %s"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        git_info: dict[str, Any] | None = None
+        if result.returncode == 0:
+            git_info = {"head": result.stdout.strip()}
+        git_status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if git_info:
+            git_info["clean"] = git_status.stdout.strip() == ""
+        return git_info
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+def _gather_recent_decisions(focus: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the last 5 decision/dialog events from the CEO session."""
+    if not focus.get("session_id"):
+        return []
+    from duo.ceo_log import replay_session
+
+    events_list = replay_session(focus["session_id"])
+    return [
+        e for e in events_list if e.get("event") in ("decision", "dialog_detected")
+    ][-5:]
+
+
+def _gather_budget_info(task: Task) -> dict[str, Any]:
+    """Collect PR budget usage for a task."""
+    events = read_jsonl(task.journal_path)
+    pr_count = sum(1 for e in events if e.get("event") == "pr_consumed")
+    budget_setting = int(get_config("pr_budget") or 0)
+    return {"used": pr_count, "limit": budget_setting}
+
+
 @main.command("ceo-now")
 @click.option("--json-output", is_flag=True, help="Output as JSON.")
 def ceo_now(json_output: bool) -> None:
@@ -2731,84 +2820,15 @@ def ceo_now(json_output: bool) -> None:
         task_id = focus.get("task_id", "")
         task = load_task(task_id)
         if task:
-            started = focus.get("started_at", "")
-            data["focus"] = {
-                "task_id": task_id,
-                "status": task.status.value,
-                "started_at": started,
-            }
-
-            # Pane status
-            pane_alive = False
-            try:
-                from duo.transport import (
-                    get_dialog_kind,
-                    is_in_dialog,
-                    resolve_label,
-                )
-
-                resolve_label(task.pane_label)
-                pane_alive = True
-            except (subprocess.SubprocessError, OSError, RuntimeError):
-                pass
-
-            in_dialog = False
-            dialog_kind = ""
-            if pane_alive:
-                try:
-                    in_dialog = is_in_dialog(task.pane_label)
-                    if in_dialog:
-                        dialog_kind = get_dialog_kind(task.pane_label).value
-                except (subprocess.SubprocessError, OSError, RuntimeError):
-                    pass
-
-            data["pane"] = {
-                "label": task.pane_label,
-                "alive": pane_alive,
-                "in_dialog": in_dialog,
-                "dialog_kind": dialog_kind,
-            }
-
-            # Budget
-            events = read_jsonl(task.journal_path)
-            pr_count = sum(1 for e in events if e.get("event") == "pr_consumed")
-            budget_setting = int(get_config("pr_budget") or 0)
-            data["budget"] = {"used": pr_count, "limit": budget_setting}
+            data["focus"] = _gather_task_info(task, focus)
+            data["pane"] = _gather_pane_info(task)
+            data["budget"] = _gather_budget_info(task)
         else:
             data["focus"] = {"task_id": task_id, "status": "not_found"}
 
-    # Git HEAD
-    try:
-        result = subprocess.run(
-            ["git", "--no-pager", "log", "-1", "--format=%h %s"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        if result.returncode == 0:
-            data["git"] = {"head": result.stdout.strip()}
-        git_status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        if data["git"]:
-            data["git"]["clean"] = git_status.stdout.strip() == ""
-    except (subprocess.SubprocessError, OSError):
-        pass
-
-    # Recent decisions from CEO session
-    if focus and focus.get("session_id"):
-        from duo.ceo_log import replay_session
-
-        events_list = replay_session(focus["session_id"])
-        recent = [
-            e for e in events_list if e.get("event") in ("decision", "dialog_detected")
-        ][-5:]
-        data["recent_decisions"] = recent
+    data["git"] = _gather_git_info()
+    if focus:
+        data["recent_decisions"] = _gather_recent_decisions(focus)
 
     if json_output:
         click.echo(json.dumps(data, indent=2))
