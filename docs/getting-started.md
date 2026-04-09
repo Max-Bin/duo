@@ -1,5 +1,7 @@
 # Getting Started with Duo
 
+> **Quick verify:** Run `bash scripts/quickstart-test.sh --local` to validate your environment in one command.
+
 Duo is an **Agent Orchestration Runtime** — it coordinates Copilot CLI (or Claude Code) executors via tmux and a file-based protocol. The Python CLI (`duo`) acts as the Commander, managing tasks through a 13-state finite state machine.
 
 ---
