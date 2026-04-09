@@ -25,9 +25,11 @@ from duo.transport import (
     ensure_minimum_pane_size,
     get_dialog_kind,
     get_pane_id,
+    get_pane_pid,
     get_pane_size,
     is_in_dialog,
     is_in_dialog_stable,
+    is_pane_process_alive,
     is_permission_dialog,
     is_process_alive,
     list_panes,
@@ -1711,6 +1713,9 @@ class TestIsTmuxServerAlive:
 class TestSendKeysVerified:
     """Tests for send_keys_verified()."""
 
+    @pytest.fixture(autouse=True)
+    def _alive(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: True)
     @patch("duo.transport._time")
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
@@ -1864,6 +1869,10 @@ class TestEnsureMinimumPaneSize:
 class TestSendKeysVerifiedAutoResize:
     """Tests for send_keys_verified auto-resize fallback."""
 
+    @pytest.fixture(autouse=True)
+    def _alive(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: True)
+
     @patch("duo.transport._time")
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
@@ -1933,3 +1942,130 @@ class TestMinimumPaneConstants:
     def test_minimum_rows(self):
         assert MINIMUM_PANE_ROWS >= 20
         assert MINIMUM_PANE_ROWS <= 60
+
+
+class TestGetPanePid:
+    """Tests for get_pane_pid."""
+
+    def test_returns_pid(self, monkeypatch):
+        monkeypatch.setattr(
+            "duo.transport.resolve_label", lambda _: "%42"
+        )
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="12345\n"),
+        )
+        assert get_pane_pid("test") == 12345
+
+    def test_returns_none_on_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            "duo.transport.resolve_label", lambda _: "%42"
+        )
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert get_pane_pid("test") is None
+
+    def test_returns_none_on_resolve_error(self, monkeypatch):
+        monkeypatch.setattr(
+            "duo.transport.resolve_label",
+            lambda _: (_ for _ in ()).throw(RuntimeError("no pane")),
+        )
+        assert get_pane_pid("test") is None
+
+    def test_returns_none_on_empty_stdout(self, monkeypatch):
+        monkeypatch.setattr(
+            "duo.transport.resolve_label", lambda _: "%42"
+        )
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout=""),
+        )
+        assert get_pane_pid("test") is None
+
+    def test_returns_none_on_timeout(self, monkeypatch):
+        monkeypatch.setattr(
+            "duo.transport.resolve_label", lambda _: "%42"
+        )
+
+        def _raise(*a, **kw):
+            raise subprocess.TimeoutExpired("tmux", 5)
+
+        monkeypatch.setattr("duo.transport.subprocess.run", _raise)
+        assert get_pane_pid("test") is None
+
+
+class TestIsPaneProcessAlive:
+    """Tests for is_pane_process_alive."""
+
+    def test_alive_running(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="S\n"),
+        )
+        assert is_pane_process_alive("test") is True
+
+    def test_dead_no_pid(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: None)
+        assert is_pane_process_alive("test") is False
+
+    def test_stopped_process(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="T\n"),
+        )
+        assert is_pane_process_alive("test") is False
+
+    def test_stopped_process_with_plus(self, monkeypatch):
+        """macOS ps may report 'T+' for stopped foreground processes."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="T+\n"),
+        )
+        assert is_pane_process_alive("test") is False
+
+    def test_ps_failure(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert is_pane_process_alive("test") is False
+
+    def test_ps_timeout(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+
+        def _raise(*a, **kw):
+            raise subprocess.TimeoutExpired("ps", 5)
+
+        monkeypatch.setattr("duo.transport.subprocess.run", _raise)
+        assert is_pane_process_alive("test") is False
+
+    def test_ps_oserror(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+
+        def _raise(*a, **kw):
+            raise OSError("no ps")
+
+        monkeypatch.setattr("duo.transport.subprocess.run", _raise)
+        assert is_pane_process_alive("test") is False
+
+
+class TestSendKeysVerifiedProcessCheck:
+    """send_keys_verified raises RuntimeError for dead/stopped processes."""
+
+    def test_dead_process_raises(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: False)
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: None)
+        with pytest.raises(RuntimeError, match="process is dead"):
+            send_keys_verified("test", "Enter")
+
+    def test_stopped_process_raises(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: False)
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
+        with pytest.raises(RuntimeError, match="stopped"):
+            send_keys_verified("test", "Enter")

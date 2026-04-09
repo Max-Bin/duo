@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, call, patch
 
+import pytest
+
 from duo.transport import (
     _KEY_TO_HEX,
     MINIMUM_PANE_COLS,
@@ -91,6 +93,7 @@ class TestLayer1HexBypass:
             # Simulate: pane content changes after hex send
             patch("duo.transport.read_pane", side_effect=["before", "after"]),
             patch("duo.transport.ensure_minimum_pane_size", return_value=False),
+            patch("duo.transport.is_pane_process_alive", return_value=True),
         ):
             mock_time.sleep = MagicMock()
             mock_hex.return_value = None
@@ -102,6 +105,10 @@ class TestLayer1HexBypass:
 
 class TestLayer2VerifiedRetry:
     """Layer 2: send_keys_verified retries and detects content changes."""
+
+    @pytest.fixture(autouse=True)
+    def _alive(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: True)
 
     @patch("duo.transport._time")
     @patch("duo.transport.send_keys")
@@ -157,6 +164,10 @@ class TestLayer2VerifiedRetry:
 
 class TestLayer3AutoResize:
     """Layer 3: Auto-resize pane when verified send fails."""
+
+    @pytest.fixture(autouse=True)
+    def _alive(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: True)
 
     @patch("duo.transport._time")
     @patch("duo.transport.send_keys")

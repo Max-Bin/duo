@@ -15,6 +15,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import subprocess
 import threading
 import time as _time
@@ -51,11 +52,13 @@ __all__ = [
     "ensure_minimum_pane_size",
     "get_dialog_kind",
     "get_pane_id",
+    "get_pane_pid",
     "get_pane_size",
     "get_pr_log",
     "is_in_dialog",
     "is_in_dialog_stable",
     "is_likely_stuck",
+    "is_pane_process_alive",
     "is_permission_dialog",
     "is_process_alive",
     "is_tmux_server_alive",
@@ -305,6 +308,54 @@ def send_keys(label: str, *keys: str) -> None:
             bridge(["keys", label, key])
 
 
+def get_pane_pid(label: str) -> int | None:
+    """Return the PID of the foreground process in the pane, or None."""
+    try:
+        pane_id = resolve_label(label)
+        result = subprocess.run(
+            ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_pid}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip())
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def is_pane_process_alive(label: str) -> bool:
+    """Check if the foreground process in the pane is alive and running.
+
+    Returns False if the process is dead, stopped (SIGTSTP), or the
+    PID cannot be determined.  Logs a warning for stopped processes.
+    """
+    pid = get_pane_pid(label)
+    if pid is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "state=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return False
+        state = result.stdout.strip()
+        if state.startswith("T"):
+            logger.warning(
+                "Pane %s process (PID %d) is stopped — run `fg` in the pane",
+                label,
+                pid,
+            )
+            return False
+        return True
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def send_keys_verified(
     label: str,
     key: str,
@@ -326,7 +377,20 @@ def send_keys_verified(
     Returns True if the pane content changed (key was consumed), False if
     the key appears to have been silently buffered (Copilot Ink event loop
     likely blocked on background tasks — physical keypress may be needed).
+
+    Raises RuntimeError if the pane process is dead or stopped.
     """
+    if not is_pane_process_alive(label):
+        pid = get_pane_pid(label)
+        if pid is None:
+            raise RuntimeError(
+                f"Pane '{label}' process is dead — cannot send keys"
+            )
+        raise RuntimeError(
+            f"Pane '{label}' process (PID {pid}) is stopped — "
+            f"run `fg` in the pane first"
+        )
+
     before = read_pane(label, 20)
     for attempt in range(retries):
         send_keys(label, key)
@@ -981,7 +1045,6 @@ def send_text_dialog_message(label: str, text: str) -> bool:
                     timeout=5,
                 )
                 if pid_result.returncode == 0 and pid_result.stdout.strip():
-                    import signal
                     os.kill(int(pid_result.stdout.strip()), signal.SIGWINCH)
             except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
                 pass
