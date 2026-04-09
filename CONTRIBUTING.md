@@ -1,81 +1,110 @@
-# 贡献指南
+# Contributing to Duo
 
-感谢你对 Duo 项目的兴趣！以下是参与贡献的指南。
+Welcome! Duo is an open-source AI agent orchestration runtime, and we'd love your help making it better. Whether you're fixing a bug, adding a feature, improving docs, or just filing an issue — every contribution matters. This guide will get you started.
 
-## 开发环境
+## Development Setup
 
 ```bash
-# 克隆项目
-git clone https://github.com/user/duo.git
+git clone https://github.com/Max-Bin/duo.git
 cd duo
-
-# 一键安装
-bash install.sh
-
-# 或手动安装
 uv sync
 uv pip install -e .
+make check  # runs lint + format-check + type-check + coverage
 ```
 
-## 开发流程
+**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/) package manager, tmux.
 
-1. Fork 项目并创建功能分支
-2. 编写代码和测试
-3. 确保所有测试通过：`python -m pytest tests/ -v`
-4. 确保类型检查通过：`python -m mypy src/duo/ --ignore-missing-imports`
-5. 提交 Pull Request
+## Code Style
 
-## 代码规范
+| Tool | Purpose | Command |
+|------|---------|---------|
+| **ruff format** | Auto-formatter | `ruff format src/duo/ tests/` |
+| **ruff check** | Linter (rules: F, E, W, I, UP, B, RET) | `ruff check src/duo/ tests/` |
+| **mypy --strict** | Type checker on all source | `mypy src/duo/ --ignore-missing-imports` |
+| **pytest + coverage** | 100% coverage enforced | `make coverage` |
 
-- Python 3.12+，使用 type hints
-- 所有公共函数需要完整的类型注解
-- 使用 `from __future__ import annotations`
-- 数据模型使用 `dataclass`，不用 dict
-- Transport 抽象层：不直接调用 tmux，通过 `duo.transport` 模块
-- Journal 是 append-only JSONL，不修改已有条目
-- 原子写入：使用 `write_json` 的 tmp+rename 模式
+Key conventions:
 
-## 测试
+- Python 3.12+ with full type annotations on all public functions.
+- Use `from __future__ import annotations` in every module.
+- Data models use `@dataclass`, never raw dicts.
+- All file writes use atomic tmp+rename via `write_json`.
+- **Never use `shell=True`** in subprocess calls — always pass argument lists.
+- **100% test coverage is enforced** — every new line of code must have a corresponding test. The CI will reject any PR that drops below 100%.
 
-- 提交前请运行 `make check`，确保 lint、格式化、类型检查和覆盖率全部通过
-- 覆盖率不得低于 95%（CI 通过 `make coverage` 强制执行）
-- 每个新功能需要对应的测试
-- 使用 `tmp_path` fixture 隔离文件操作
-- 使用 `monkeypatch` 覆盖 `TASKS_DIR`，避免污染 `~/.duo`
-- Mock subprocess.run 用于 git/tmux-bridge 调用
-- CLI 测试使用 `click.testing.CliRunner`
+## Commit Convention
 
-## 安全
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-- **禁止使用 `shell=True`** — 所有 subprocess 调用必须使用列表形式参数
-- **验证所有用户输入** — 任务名、pane label 等必须通过正则校验
-- 不要在代码中硬编码密钥或 token
-- 变更文件必须在 `writable_paths` 白名单内
+```
+type: description
+```
 
-## 模块结构
+| Type | When to use |
+|------|-------------|
+| `feat:` | New feature or command |
+| `fix:` | Bug fix |
+| `refactor:` | Code restructuring with no behavior change |
+| `test:` | Adding or updating tests |
+| `docs:` | Documentation only |
+| `release:` | Version bumps and release prep |
 
-| 模块 | 职责 |
-|------|------|
-| `protocol.py` | FSM、数据模型、文件 I/O（状态真相） |
-| `commander.py` | 编排逻辑、prompt 模板 |
-| `transport.py` | tmux-bridge 封装 |
-| `poller.py` | 自适应轮询 |
-| `verifier.py` | 质量门禁 |
-| `config.py` | 配置管理 |
-| `cli.py` | Click CLI 入口 |
+Examples from the repo:
 
-## 提交规范
+```
+feat: duo cost command + multi-project isolation tests
+fix: atomic writes everywhere (fsync + tmp+rename) for crash safety
+refactor: extract inspect helpers + 10 edge case tests
+test: 23 edge case tests for cost, errors, atomic writes, ANSI strip
+docs: update badges, CHANGELOG, and getting-started for v0.7.0
+release: v1.0.0 — complete PyPI metadata
+```
 
-使用 conventional commits：
-- `feat:` 新功能
-- `fix:` Bug 修复
-- `test:` 测试
-- `docs:` 文档
-- `refactor:` 重构
+## Pull Request Process
 
-## 报告 Bug
+1. **Fork** the repository and create a feature branch.
+2. **Implement** your changes with tests.
+3. **Run `make check`** — this must pass before opening a PR:
+   - `ruff check` (linter)
+   - `ruff format --check` (formatter)
+   - `mypy --strict` (type checker)
+   - `pytest` with 100% coverage
+4. **Open a PR** with a clear title using the commit convention above.
+5. **Keep PRs focused** — one feature or fix per PR. Smaller PRs get reviewed faster.
 
-请在 Issues 中报告，包含：
-- 复现步骤
-- 期望行为 vs 实际行为
-- 操作系统和 Python 版本
+All PRs must pass the full CI pipeline (lint, type-check, 100% coverage) before merge.
+
+## Testing Guidelines
+
+- Use `tmp_path` fixture to isolate file operations.
+- Use `monkeypatch` to override `TASKS_DIR` — never touch `~/.duo` in tests.
+- Mock `subprocess.run` for git/tmux-bridge calls.
+- CLI tests use `click.testing.CliRunner`.
+- Run the full suite: `python -m pytest tests/ -q`
+
+## Using Duo to Develop Duo
+
+Duo is built with Duo. You can use `duo start` to create tasks that improve Duo itself — this is a core use case and a great way to dogfood the tool. For example:
+
+```bash
+duo start "add shell completion for zsh"
+duo assign
+duo watch
+```
+
+See [docs/ceo-workflow.md](docs/ceo-workflow.md) for the full automated workflow.
+
+## Reporting Issues
+
+Please use our issue templates:
+
+- 🐛 [Bug Report](.github/ISSUE_TEMPLATE/bug_report.md) — for unexpected behavior or errors
+- 💡 [Feature Request](.github/ISSUE_TEMPLATE/feature_request.md) — for ideas and enhancements
+
+Include reproduction steps, expected vs. actual behavior, and your OS / Python version.
+
+## Further Reading
+
+- [Getting Started](docs/getting-started.md)
+- [Architecture](docs/architecture.md)
+- [CEO Workflow](docs/ceo-workflow.md)
