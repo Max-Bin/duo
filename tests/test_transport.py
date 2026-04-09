@@ -21,7 +21,6 @@ from duo.transport import (
     approve_permission,
     bridge,
     cancel_current,
-    cleanup_pane_state,
     diagnose_pane,
     doctor,
     ensure_minimum_pane_size,

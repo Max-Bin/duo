@@ -237,7 +237,9 @@ class TestTaskStatusTransitions:
 
     def test_transition_function_rejects_invalid(self, tmp_path: Path):
         task = create_task("fsm-bad", "desc", "/w", "b", "abc", [_make_subtask()])
-        assert transition(task, TaskStatus.COMPLETED) is False  # CREATED→COMPLETED illegal
+        assert (
+            transition(task, TaskStatus.COMPLETED) is False
+        )  # CREATED→COMPLETED illegal
         assert task.status == TaskStatus.CREATED  # unchanged
 
         events = read_jsonl(task.journal_path)
@@ -1450,9 +1452,7 @@ class TestReadJsonlMalformed:
     def test_malformed_line_skipped(self, tmp_path: Path):
         journal = tmp_path / "journal.jsonl"
         journal.write_text(
-            '{"event":"ok","data":{}}\n'
-            "not valid json\n"
-            '{"event":"also_ok","data":{}}\n'
+            '{"event":"ok","data":{}}\nnot valid json\n{"event":"also_ok","data":{}}\n'
         )
         entries = read_jsonl(journal)
         assert len(entries) == 2

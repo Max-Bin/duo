@@ -43,7 +43,6 @@ from duo.cli import (
     _find_idle_children,
     _fmt_ts,
     _gather_budget_info,
-    _gather_pane_info,
     _gather_session_health,
     _get_pid_child_count,
     _get_pid_fd_count,

@@ -166,7 +166,9 @@ def _check_security_scope(
         # Null byte injection defense
         if "\x00" in path:
             reason = f"Security violation: null byte in path {path!r}"
-            append_event(task, "security_violation", {"file": path, "reason": "null_byte"})
+            append_event(
+                task, "security_violation", {"file": path, "reason": "null_byte"}
+            )
             return Correction(reason)
 
         # Normalize and reject traversals
@@ -181,7 +183,10 @@ def _check_security_scope(
         # Resolve symlinks and verify containment within worktree
         full_path = os.path.join(real_worktree, normalized)
         real_path = os.path.realpath(full_path)
-        if not real_path.startswith(real_worktree + os.sep) and real_path != real_worktree:
+        if (
+            not real_path.startswith(real_worktree + os.sep)
+            and real_path != real_worktree
+        ):
             reason = (
                 f"Security violation: '{path}' resolves to '{real_path}' "
                 f"which is outside worktree '{real_worktree}'"

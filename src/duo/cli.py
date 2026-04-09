@@ -99,14 +99,22 @@ class _OrderedGroup(click.Group):
         extra: list[tuple[str, str]] = []
         for name in self.list_commands(ctx):
             if name not in seen:
-                cmd = self.get_command(ctx, name)  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+                cmd = self.get_command(
+                    ctx, name
+                )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
                 if cmd:  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
                     extra.append(
                         (name, cmd.get_short_help_str(limit=60))
                     )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-        if extra:  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-            with formatter.section("Other"):  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-                formatter.write_dl(extra)  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+        if (
+            extra
+        ):  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+            with formatter.section(
+                "Other"
+            ):  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+                formatter.write_dl(
+                    extra
+                )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
 
 
 def _validate_task_name(name: str) -> None:

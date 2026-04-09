@@ -1133,7 +1133,15 @@ def approve_permission(label: str) -> None:
 
         # Strategy: find the best "yes" option
         # Prefer "Yes + approve for session" over plain "Yes"
-        _AFFIRMATIVE = {"yes", "ok", "continue", "proceed", "allow", "accept", "confirm"}
+        _AFFIRMATIVE = {
+            "yes",
+            "ok",
+            "continue",
+            "proceed",
+            "allow",
+            "accept",
+            "confirm",
+        }
         best = None
         for num, text in options.items():
             text_lower = text.lower()
