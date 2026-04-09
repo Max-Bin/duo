@@ -379,17 +379,11 @@ def send(name: str, prompt: str) -> None:
     """Send a prompt to a task's Copilot session."""
     from duo.commander import send_task_prompt
 
-    _validate_task_name(name)
     if not prompt or not prompt.strip():
         raise click.UsageError(
             'prompt cannot be empty. Usage: duo send TASK_NAME "your instruction"'
         )
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     if task.status == TaskStatus.QUEUED:
         click.echo(
@@ -409,12 +403,7 @@ def send(name: str, prompt: str) -> None:
 def status(name: str | None = None, *, as_json: bool = False) -> None:
     """Show task status."""
     if name:
-        task = load_task(name)
-        if task is None:
-            raise DuoUserError(
-                f"task '{name}' not found",
-                fix="Run 'duo list' to see available tasks.",
-            )
+        task = _load_task_or_fail(name)
         if as_json:
             output = {
                 "id": task.id,
@@ -594,13 +583,7 @@ def recover() -> None:
 @click.option("--dry-run", is_flag=True, help="Preview merge without executing")
 def merge(name: str, dry_run: bool) -> None:
     """Merge a completed task's worktree to main."""
-    _validate_task_name(name)
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     if task.status != TaskStatus.COMPLETED:
         raise DuoUserError(
@@ -690,12 +673,7 @@ def stop(name: str) -> None:
     """Stop a task gracefully (preserves worktree for resume)."""
     from duo.protocol import append_event, transition
 
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     if task.status in terminal_states:
@@ -728,13 +706,7 @@ def stop(name: str) -> None:
 @click.argument("name")
 def kill(name: str) -> None:
     """Kill a task and clean up."""
-    _validate_task_name(name)
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     # Try to kill the pane
     r = subprocess.run(
@@ -1003,11 +975,7 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
 
     if name:
         # Single task audit
-        task = load_task(name)
-        if task is None:
-            raise DuoUserError(
-                f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
-            )
+        task = _load_task_or_fail(name)
         events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
 
@@ -1123,12 +1091,7 @@ def cost(
 
     # Resolve tasks
     if task_name is not None:
-        task = load_task(task_name)
-        if task is None:
-            raise DuoUserError(
-                f"task '{task_name}' not found",
-                fix="Run 'duo list' to see available tasks.",
-            )
+        task = _load_task_or_fail(task_name)
         tasks_to_scan = [task]
     else:
         tasks_to_scan = list_tasks()
@@ -1226,12 +1189,7 @@ def logs(
     """Show task journal events."""
     from duo.protocol import read_jsonl
 
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     events = read_jsonl(task.journal_path)
     if not events:
@@ -1293,12 +1251,7 @@ def inspect(name: str, as_json: bool, include_files: bool) -> None:
         read_result_for_step,
     )
 
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     if as_json:
         data: dict[str, Any] = {
@@ -1944,11 +1897,7 @@ def resume(name: str | None) -> None:
     TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
 
     if name is not None:
-        task = load_task(name)
-        if task is None:
-            raise DuoUserError(
-                f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
-            )
+        task = _load_task_or_fail(name)
         if task.status in TERMINAL_STATES:
             click.echo(f"Task '{name}' is already completed.")
             return
@@ -1984,12 +1933,7 @@ def retry(name: str) -> None:
     """Retry a failed or blocked task from its current step."""
     from duo.protocol import transition
 
-    _validate_task_name(name)
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
-        )
+    task = _load_task_or_fail(name)
     if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
         raise DuoUserError(
             f"task '{name}' is '{task.status.value}', not retryable",
@@ -2806,12 +2750,7 @@ def ceo_resume(task: str, instruction: str) -> None:
 )
 def export(name: str, fmt: str, outfile: str | None) -> None:
     """Export task report (events, files changed, summary)."""
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+    task = _load_task_or_fail(name)
 
     if fmt == "jsonl":
         events = read_jsonl(task.journal_path) if task.journal_path.exists() else []
@@ -2975,12 +2914,7 @@ def cleanup(
 @click.argument("name")
 def diff_cmd(name: str) -> None:
     """Show git diff for a task's worktree changes."""
-    _validate_task_name(name)
-    task = load_task(name)
-    if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
-        )
+    task = _load_task_or_fail(name)
 
     if not Path(task.worktree).exists():
         raise DuoUserError(
