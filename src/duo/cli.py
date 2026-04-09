@@ -728,6 +728,11 @@ def stop(name: str) -> None:
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
 
+    # Clean up transport-layer state for this pane
+    from duo.transport import cleanup_pane_state
+
+    cleanup_pane_state(task.pane_label)
+
     previous = task.status.value
     transition(task, TaskStatus.BLOCKED)
     append_event(task, "task_stopped", {"previous_status": previous})
@@ -751,6 +756,11 @@ def kill(name: str) -> None:
     )
     if r.returncode != 0:
         click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
+
+    # Clean up transport-layer state for this pane
+    from duo.transport import cleanup_pane_state
+
+    cleanup_pane_state(task.pane_label)
 
     # Find parent repo
     main_worktree = None
