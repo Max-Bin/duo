@@ -182,16 +182,12 @@ class TestDialogFunctionsUseLock:
                 yield
 
         monkeypatch.setattr("duo.transport.pane_lock", tracking_lock)
-        monkeypatch.setattr(
-            "duo.transport.is_in_dialog_stable", lambda _label: True
-        )
+        monkeypatch.setattr("duo.transport.is_in_dialog_stable", lambda _label: True)
         monkeypatch.setattr(
             "duo.transport.read_pane",
             lambda _label, _lines: "╭─\n  1. Yes\n╰─\n",
         )
-        monkeypatch.setattr(
-            "duo.transport.select_dialog_option", lambda _l, _o: None
-        )
+        monkeypatch.setattr("duo.transport.select_dialog_option", lambda _l, _o: None)
 
         from duo.transport import approve_permission
 
@@ -214,14 +210,10 @@ class TestDialogFunctionsUseLock:
                 yield
 
         monkeypatch.setattr("duo.transport.pane_lock", tracking_lock)
-        monkeypatch.setattr(
-            "duo.transport.is_in_dialog_stable", lambda _label: True
-        )
+        monkeypatch.setattr("duo.transport.is_in_dialog_stable", lambda _label: True)
         monkeypatch.setattr("duo.transport.type_text", lambda _l, _t: None)
         monkeypatch.setattr("duo.transport.is_in_dialog", lambda _label: False)
-        monkeypatch.setattr(
-            "duo.transport._record_pr", lambda _l, _k, _v: None
-        )
+        monkeypatch.setattr("duo.transport._record_pr", lambda _l, _k, _v: None)
 
         from duo.transport import select_dialog_option
 

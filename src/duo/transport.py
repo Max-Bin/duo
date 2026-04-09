@@ -33,6 +33,7 @@ class DialogKind(enum.Enum):
     NONE = "none"
     OPTION = "option"  # Numbered options (1. 2. 3.)
     TEXT = "text"  # Free-text input ("Type your answer...")
+    BULLET = "bullet"  # Arrow-navigated bullets (❯ item / item / ...)
 
 
 class TmuxServerDownError(RuntimeError):
@@ -397,9 +398,7 @@ def send_keys_verified(
     if not is_pane_process_alive(label):
         pid = get_pane_pid(label)
         if pid is None:
-            raise RuntimeError(
-                f"Pane '{label}' process is dead — cannot send keys"
-            )
+            raise RuntimeError(f"Pane '{label}' process is dead — cannot send keys")
         raise RuntimeError(
             f"Pane '{label}' process (PID {pid}) is stopped — "
             f"run `fg` in the pane first"
@@ -493,8 +492,7 @@ def pane_lock(label: str, *, timeout: float = 30.0) -> Generator[None, None, Non
 
     if not thread_lock.acquire(timeout=timeout):
         raise TimeoutError(
-            f"Could not acquire in-process pane lock for {label!r} "
-            f"within {timeout}s"
+            f"Could not acquire in-process pane lock for {label!r} within {timeout}s"
         )
 
     tid = threading.get_ident()
@@ -647,8 +645,7 @@ def ensure_minimum_pane_size(
 
     if effective_cols < min_cols or effective_rows < min_rows:
         logger.warning(
-            "Client size %dx%d smaller than minimum %dx%d — "
-            "capping resize to %dx%d",
+            "Client size %dx%d smaller than minimum %dx%d — capping resize to %dx%d",
             client_w,
             client_h,
             min_cols,
@@ -850,6 +847,19 @@ def _detect_dialog_kind(content: str) -> DialogKind:
     if has_opt:
         return DialogKind.OPTION
 
+    # Bullet dialog: ❯ cursor without numbered options, or footer markers
+    bullet_footer = ("↑↓ select", "Enter accept", "ctrl+d decline")
+    if any(ind in box_content for ind in bullet_footer):
+        return DialogKind.BULLET
+
+    # ❯ prefix on non-numbered lines inside the box
+    has_bullet = any(
+        re.match(r"\s*[│]?\s*❯\s+\S", l) and not re.match(r"\s*[│]?\s*❯\s+\d+\.", l)
+        for l in box_lines
+    )
+    if has_bullet:
+        return DialogKind.BULLET
+
     text_indicators = ("Type your answer", "Enter to submit", "type your response")
     if any(ind in box_content for ind in text_indicators):
         return DialogKind.TEXT
@@ -863,7 +873,7 @@ def get_dialog_kind(label: str) -> DialogKind:
 
 
 def is_in_dialog(label: str) -> bool:
-    """True if Copilot shows any dialog (option or text-input)."""
+    """True if Copilot shows any dialog (option, text, or bullet)."""
     return get_dialog_kind(label) != DialogKind.NONE
 
 
@@ -1009,13 +1019,17 @@ def approve_permission(label: str) -> None:
             text_lower = text.lower()
             # Skip any "No" or "tell differently" options
             if "no" in text_lower and (
-                "tell" in text_lower or "esc" in text_lower or "differently" in text_lower
+                "tell" in text_lower
+                or "esc" in text_lower
+                or "differently" in text_lower
             ):
                 continue
             if text_lower.startswith("no"):
                 continue
             # Prefer "approve for session" / "approve all" / "add to allowed"
-            if "approve" in text_lower or ("add" in text_lower and "allowed" in text_lower):
+            if "approve" in text_lower or (
+                "add" in text_lower and "allowed" in text_lower
+            ):
                 best = num
                 break
             # Otherwise plain "Yes"
@@ -1046,6 +1060,63 @@ def select_dialog_option(label: str, option: str) -> None:
         if is_in_dialog(label):
             safe_enter(label)
         _record_pr(label, "dialog_option", option[:80])
+
+
+def _count_bullet_items(content: str) -> tuple[int, int]:
+    """Count bullet items and find current cursor position in a BULLET dialog.
+
+    Returns (total_items, current_position) where position is 1-based.
+    The cursor position is the item with ❯ prefix.
+    """
+    box_lines = _extract_last_box_lines(content)
+    if box_lines is None:
+        return 0, 0
+
+    total = 0
+    cursor_pos = 0
+    for line in box_lines:
+        stripped = line.strip().lstrip("│").strip()
+        if not stripped:
+            continue
+        if "↑↓" in stripped or "ctrl+" in stripped:
+            continue
+        total += 1
+        if stripped.startswith("❯"):
+            cursor_pos = total
+    return total, cursor_pos
+
+
+def select_bullet_option(label: str, position: int) -> None:
+    """Select a bullet dialog option by 1-based position.
+
+    Uses Up/Down arrow keys to navigate to the target position,
+    then sends Enter to confirm the selection.
+    """
+    with pane_lock(label):
+        if not is_in_dialog_stable(label):
+            raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
+
+        content = read_pane(label, 40)
+        content = strip_ansi(content)
+        total, current = _count_bullet_items(content)
+
+        if total == 0:
+            raise RuntimeError(f"SAFETY: '{label}' no bullet items found.")
+        if position < 1 or position > total:
+            raise RuntimeError(f"SAFETY: position {position} out of range (1–{total}).")
+
+        # Navigate to target
+        diff = position - current
+        key = "Down" if diff > 0 else "Up"
+        for _ in range(abs(diff)):
+            send_keys(label, key)
+            _time.sleep(0.2)
+
+        # Confirm selection
+        _time.sleep(0.3)
+        if is_in_dialog(label):
+            safe_enter(label)
+        _record_pr(label, "bullet_option", str(position))
 
 
 def send_option_other_message(label: str, text: str) -> bool:

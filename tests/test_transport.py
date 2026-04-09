@@ -14,6 +14,7 @@ from duo.transport import (
     MINIMUM_PANE_ROWS,
     DialogKind,
     PaneInfo,
+    _count_bullet_items,
     _find_bridge,
     _is_at_main_prompt,
     _retry,
@@ -37,6 +38,7 @@ from duo.transport import (
     read_pane,
     resolve_label,
     safe_enter,
+    select_bullet_option,
     select_dialog_option,
     select_other_option,
     send_bootstrap,
@@ -1716,6 +1718,7 @@ class TestSendKeysVerified:
     @pytest.fixture(autouse=True)
     def _alive(self, monkeypatch):
         monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: True)
+
     @patch("duo.transport._time")
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
@@ -1952,9 +1955,7 @@ class TestGetPanePid:
     """Tests for get_pane_pid."""
 
     def test_returns_pid(self, monkeypatch):
-        monkeypatch.setattr(
-            "duo.transport.resolve_label", lambda _: "%42"
-        )
+        monkeypatch.setattr("duo.transport.resolve_label", lambda _: "%42")
         monkeypatch.setattr(
             "duo.transport.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="12345\n"),
@@ -1962,9 +1963,7 @@ class TestGetPanePid:
         assert get_pane_pid("test") == 12345
 
     def test_returns_none_on_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            "duo.transport.resolve_label", lambda _: "%42"
-        )
+        monkeypatch.setattr("duo.transport.resolve_label", lambda _: "%42")
         monkeypatch.setattr(
             "duo.transport.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=1, stdout=""),
@@ -1979,9 +1978,7 @@ class TestGetPanePid:
         assert get_pane_pid("test") is None
 
     def test_returns_none_on_empty_stdout(self, monkeypatch):
-        monkeypatch.setattr(
-            "duo.transport.resolve_label", lambda _: "%42"
-        )
+        monkeypatch.setattr("duo.transport.resolve_label", lambda _: "%42")
         monkeypatch.setattr(
             "duo.transport.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout=""),
@@ -1989,9 +1986,7 @@ class TestGetPanePid:
         assert get_pane_pid("test") is None
 
     def test_returns_none_on_timeout(self, monkeypatch):
-        monkeypatch.setattr(
-            "duo.transport.resolve_label", lambda _: "%42"
-        )
+        monkeypatch.setattr("duo.transport.resolve_label", lambda _: "%42")
 
         def _raise(*a, **kw):
             raise subprocess.TimeoutExpired("tmux", 5)
@@ -2164,9 +2159,7 @@ class TestEnsureMinimumPaneSizeClientCap:
     @pytest.fixture(autouse=True)
     def _mock_deps(self, monkeypatch):
         self._resized = []
-        monkeypatch.setattr(
-            "duo.transport.resolve_label", lambda _: "%1"
-        )
+        monkeypatch.setattr("duo.transport.resolve_label", lambda _: "%1")
 
         def mock_run(cmd, **kw):
             if "resize-pane" in cmd:
@@ -2259,3 +2252,313 @@ class TestPreemptiveDialogResize:
         monkeypatch.setattr("duo.transport.ensure_minimum_pane_size", _raise)
         content = "╭─ dialog ─╮\n  opt 1\n  opt 2\n  opt 3\n  opt 4\n  opt 5\n  opt 6\n╰─────────╯\n"
         _preemptive_dialog_resize("test", content)  # No error raised
+
+
+# ── Bullet dialog detection ─────────────────────────────────────────
+
+
+class TestBulletDialogDetection:
+    """Tests for DialogKind.BULLET detection in _detect_dialog_kind."""
+
+    @patch("subprocess.run")
+    def test_bullet_footer_markers(self, mock_run):
+        """Footer with ↑↓ select / Enter accept → BULLET."""
+        content = (
+            "╭─ Question ─╮\n"
+            "❯ Option A\n"
+            "  Option B\n"
+            "  ↑↓ select · Enter accept · ctrl+d decline\n"
+            "╰────────────╯"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.BULLET
+
+    @patch("subprocess.run")
+    def test_bullet_cursor_no_numbers(self, mock_run):
+        """❯ prefix without numbered options → BULLET."""
+        content = (
+            "╭─ Question ─╮\n"
+            "❯ Create a new branch\n"
+            "  Use existing branch\n"
+            "╰────────────╯"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.BULLET
+
+    @patch("subprocess.run")
+    def test_numbered_options_not_bullet(self, mock_run):
+        """Numbered options → OPTION, not BULLET, even with ❯."""
+        content = "╭─ Question ─╮\n❯ 1. Yes\n  2. No\n╰────────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.OPTION
+
+    @patch("subprocess.run")
+    def test_bullet_with_pipe_prefix(self, mock_run):
+        """❯ prefix with │ pipe chars → BULLET."""
+        content = (
+            "╭─ Pick one ─╮\n"
+            "│ ❯ Alpha    │\n"
+            "│   Beta     │\n"
+            "│   Gamma    │\n"
+            "╰────────────╯"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.BULLET
+
+    @patch("subprocess.run")
+    def test_enter_accept_only_footer(self, mock_run):
+        """Only 'Enter accept' in footer → BULLET."""
+        content = "╭─ Question ─╮\n  Item 1\n  Item 2\n  Enter accept\n╰────────────╯"
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.BULLET
+
+    @patch("subprocess.run")
+    def test_ctrl_d_decline_footer(self, mock_run):
+        """'ctrl+d decline' in footer → BULLET."""
+        content = (
+            "╭─ Question ─╮\n  Item X\n  ctrl+d decline · Esc cancel\n╰────────────╯"
+        )
+        mock_run.return_value = MagicMock(returncode=0, stdout=content, stderr="")
+        assert get_dialog_kind("test-pane") == DialogKind.BULLET
+
+    @patch("subprocess.run")
+    def test_bullet_enum_value(self, mock_run):
+        assert DialogKind.BULLET.value == "bullet"
+
+
+# ── _count_bullet_items ─────────────────────────────────────────────
+
+
+class TestCountBulletItems:
+    """Tests for _count_bullet_items parsing logic."""
+
+    def test_basic_three_items(self):
+        content = "╭─ Question ─╮\n❯ Alpha\n  Beta\n  Gamma\n╰────────────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 3
+        assert cursor == 1
+
+    def test_cursor_on_second_item(self):
+        content = "╭─ Question ─╮\n  Alpha\n❯ Beta\n  Gamma\n╰────────────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 3
+        assert cursor == 2
+
+    def test_cursor_on_last_item(self):
+        content = "╭─ Question ─╮\n  Alpha\n  Beta\n❯ Gamma\n╰────────────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 3
+        assert cursor == 3
+
+    def test_no_box(self):
+        total, cursor = _count_bullet_items("just some text")
+        assert total == 0
+        assert cursor == 0
+
+    def test_empty_box(self):
+        content = "╭─ Title ─╮\n╰────────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 0
+        assert cursor == 0
+
+    def test_ignores_footer_lines(self):
+        content = (
+            "╭─ Pick ─╮\n"
+            "❯ One\n"
+            "  Two\n"
+            "  ↑↓ select · Enter accept · ctrl+d decline\n"
+            "╰────────╯"
+        )
+        total, cursor = _count_bullet_items(content)
+        assert total == 2
+        assert cursor == 1
+
+    def test_single_item(self):
+        content = "╭─ Q ─╮\n❯ Only option\n╰─────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 1
+        assert cursor == 1
+
+    def test_pipe_borders(self):
+        content = "╭─ Dialog ─╮\n│ ❯ First  │\n│   Second │\n│   Third  │\n╰──────────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 3
+        assert cursor == 1
+
+    def test_blank_lines_between_items(self):
+        """Blank lines inside the box are ignored."""
+        content = "╭─ Q ─╮\n❯ A\n\n  B\n\n  C\n╰─────╯"
+        total, cursor = _count_bullet_items(content)
+        assert total == 3
+        assert cursor == 1
+
+
+# ── select_bullet_option ────────────────────────────────────────────
+
+
+class TestSelectBulletOption:
+    """Tests for select_bullet_option navigation."""
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.safe_enter")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_navigate_down(
+        self,
+        mock_lock,
+        mock_stable,
+        mock_read,
+        mock_strip,
+        mock_dialog,
+        mock_time,
+        mock_keys,
+        mock_enter,
+        mock_record,
+    ):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_dialog.return_value = True
+        mock_time.sleep = MagicMock()
+        mock_read.return_value = "╭─ Q ─╮\n❯ First\n  Second\n  Third\n╰─────╯"
+        select_bullet_option("test-pane", 3)
+        # cursor at 1, target 3 → 2 Down presses
+        down_calls = [c for c in mock_keys.call_args_list if c[0][1] == "Down"]
+        assert len(down_calls) == 2
+        mock_enter.assert_called_once()
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.safe_enter")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_navigate_up(
+        self,
+        mock_lock,
+        mock_stable,
+        mock_read,
+        mock_strip,
+        mock_dialog,
+        mock_time,
+        mock_keys,
+        mock_enter,
+        mock_record,
+    ):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_dialog.return_value = True
+        mock_time.sleep = MagicMock()
+        mock_read.return_value = "╭─ Q ─╮\n  First\n  Second\n❯ Third\n╰─────╯"
+        select_bullet_option("test-pane", 1)
+        # cursor at 3, target 1 → 2 Up presses
+        up_calls = [c for c in mock_keys.call_args_list if c[0][1] == "Up"]
+        assert len(up_calls) == 2
+        mock_enter.assert_called_once()
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.safe_enter")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog")
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_no_movement_same_position(
+        self,
+        mock_lock,
+        mock_stable,
+        mock_read,
+        mock_strip,
+        mock_dialog,
+        mock_time,
+        mock_keys,
+        mock_enter,
+        mock_record,
+    ):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_dialog.return_value = True
+        mock_time.sleep = MagicMock()
+        mock_read.return_value = "╭─ Q ─╮\n  First\n❯ Second\n  Third\n╰─────╯"
+        select_bullet_option("test-pane", 2)
+        # cursor already at 2 → no arrow keys
+        assert mock_keys.call_count == 0
+        mock_enter.assert_called_once()
+
+    @patch("duo.transport.is_in_dialog_stable", return_value=False)
+    @patch("duo.transport.pane_lock")
+    def test_refuses_when_not_in_dialog(self, mock_lock, mock_stable):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        with pytest.raises(RuntimeError, match="not in stable dialog"):
+            select_bullet_option("test-pane", 1)
+
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_refuses_no_items(self, mock_lock, mock_stable, mock_read, mock_strip):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_read.return_value = "just some text without a dialog box"
+        with pytest.raises(RuntimeError, match="no bullet items"):
+            select_bullet_option("test-pane", 1)
+
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_refuses_out_of_range(self, mock_lock, mock_stable, mock_read, mock_strip):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_read.return_value = "╭─ Q ─╮\n❯ One\n  Two\n╰─────╯"
+        with pytest.raises(RuntimeError, match="out of range"):
+            select_bullet_option("test-pane", 5)
+
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_refuses_position_zero(self, mock_lock, mock_stable, mock_read, mock_strip):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_read.return_value = "╭─ Q ─╮\n❯ One\n  Two\n╰─────╯"
+        with pytest.raises(RuntimeError, match="out of range"):
+            select_bullet_option("test-pane", 0)
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.is_in_dialog")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport._time")
+    @patch("duo.transport.strip_ansi", side_effect=lambda x: x)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.is_in_dialog_stable", return_value=True)
+    @patch("duo.transport.pane_lock")
+    def test_skips_enter_when_dialog_dismissed(
+        self,
+        mock_lock,
+        mock_stable,
+        mock_read,
+        mock_strip,
+        mock_time,
+        mock_keys,
+        mock_dialog,
+        mock_record,
+    ):
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_dialog.return_value = False  # Dialog gone after navigation
+        mock_time.sleep = MagicMock()
+        mock_read.return_value = "╭─ Q ─╮\n❯ One\n╰─────╯"
+        select_bullet_option("test-pane", 1)
+        # No enter sent because dialog is gone
+        # safe_enter is NOT called (is_in_dialog returned False)

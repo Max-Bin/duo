@@ -2554,6 +2554,18 @@ def ceo_select(
             click.echo(
                 f"Typed text: {other_text} (dialog may still be active — check manually)"
             )
+    elif kind == DialogKind.BULLET:
+        from duo.transport import select_bullet_option
+
+        if option is not None:
+            select_bullet_option(t.pane_label, int(option))
+            click.echo(f"Selected bullet option {option}")
+        elif other_text is not None:
+            # BULLET last item is usually "Type your answer..."
+            send_text_dialog_message(t.pane_label, other_text)
+            click.echo(f"Typed text in bullet dialog: {other_text}")
+        else:  # pragma: no cover
+            raise click.ClickException("Internal error: expected OPTION or --other.")
     elif other_text is not None:
         success = send_option_other_message(t.pane_label, other_text)
         if success:
@@ -3156,7 +3168,13 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
     Use --assert-in-dialog in scripts:
       duo ceo-status my-task --assert-in-dialog || handle_no_dialog
     """
-    from duo.transport import DialogKind, get_dialog_kind, is_process_alive, read_pane
+    from duo.transport import (
+        DialogKind,
+        get_dialog_kind,
+        is_process_alive,
+        read_pane,
+        strip_ansi,
+    )
 
     t = _load_task_or_fail(task)
     label = t.pane_label
@@ -3189,6 +3207,22 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
 
     if kind == DialogKind.TEXT:
         click.echo(json.dumps({"task": task, "state": "text_dialog"}))
+        return
+
+    if kind == DialogKind.BULLET:
+        from duo.transport import _count_bullet_items
+
+        total, cursor = _count_bullet_items(strip_ansi(content))
+        click.echo(
+            json.dumps(
+                {
+                    "task": task,
+                    "state": "bullet_dialog",
+                    "items": total,
+                    "cursor": cursor,
+                }
+            )
+        )
         return
 
     # Check spinner (processing)
@@ -3345,6 +3379,17 @@ def _handle_dialog(
                 send_text_dialog_message(label, resp)
                 return "auto_responded"
 
+    if kind == "bullet":
+        # Bullet dialogs typically require human judgment — default to pause
+        bullet_policy = policy.get("bullet_dialogs", {})
+        if isinstance(bullet_policy, dict):
+            default_action = bullet_policy.get("default", "pause")
+            if default_action == "select_first":
+                from duo.transport import select_bullet_option
+
+                select_bullet_option(label, 1)
+                return "bullet_selected_first"
+
     # Pause — wait for CEO to resume
     _write_loop_state(
         task_id,
@@ -3418,7 +3463,12 @@ def ceo_loop(
                 continue
 
             content = read_pane(t.pane_label, 40)
-            kind_str = "option" if kind == DialogKind.OPTION else "text"
+            kind_map = {
+                DialogKind.OPTION: "option",
+                DialogKind.TEXT: "text",
+                DialogKind.BULLET: "bullet",
+            }
+            kind_str = kind_map.get(kind, "unknown")
             click.echo(f"Dialog detected ({kind_str}):")
             click.echo(content[:200])
 

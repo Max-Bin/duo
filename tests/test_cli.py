@@ -6435,6 +6435,40 @@ class TestCeoSelect:
         assert result.exit_code == 0
         assert "may still be active" in result.output
 
+    def test_bullet_dialog_select_option(self, runner: CliRunner, make_task) -> None:
+        """Selecting a number in a BULLET dialog calls select_bullet_option."""
+        task = make_task("sel-bullet")
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.BULLET),
+            patch("duo.transport.select_bullet_option") as mock_sel,
+        ):
+            result = runner.invoke(main, ["ceo-select", task.id, "2"])
+        assert result.exit_code == 0
+        assert "Selected bullet option 2" in result.output
+        mock_sel.assert_called_once_with(task.pane_label, 2)
+
+    def test_bullet_dialog_other_text(self, runner: CliRunner, make_task) -> None:
+        """--other in a BULLET dialog uses send_text_dialog_message."""
+        task = make_task("sel-bullet-other")
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.BULLET),
+            patch(
+                "duo.transport.send_text_dialog_message", return_value=True
+            ) as mock_send,
+        ):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "--other", "custom answer"]
+            )
+        assert result.exit_code == 0
+        assert "Typed text in bullet dialog" in result.output
+        mock_send.assert_called_once_with(task.pane_label, "custom answer")
+
     """Tests for duo ceo-approve."""
 
     def test_task_not_found(self, runner: CliRunner) -> None:
@@ -6794,6 +6828,40 @@ class TestCeoStatus:
         data = json.loads(result.output)
         assert data["options"] == 5
 
+    def test_bullet_dialog_state(self, runner: CliRunner, make_task) -> None:
+        """ceo-status reports bullet_dialog for bullet-style dialogs."""
+        task = make_task("stat-bullet")
+        pane_content = (
+            "╭─ Pick branch ─╮\n❯ main\n  develop\n  feature-x\n╰───────────────╯"
+        )
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.BULLET),
+            patch("duo.transport.strip_ansi", side_effect=lambda x: x),
+        ):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["state"] == "bullet_dialog"
+        assert data["items"] == 3
+        assert data["cursor"] == 1
+
+    def test_assert_in_dialog_passes_for_bullet(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        """--assert-in-dialog exits 0 for bullet_dialog."""
+        task = make_task("stat-aid-bullet")
+        pane_content = "╭─ Q ─╮\n❯ A\n  B\n╰─────╯"
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.BULLET),
+            patch("duo.transport.strip_ansi", side_effect=lambda x: x),
+        ):
+            result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
+        assert result.exit_code == 0
+
 
 # ---------------------------------------------------------------------------
 # duo ceo-loop / ceo-resume
@@ -7053,6 +7121,43 @@ class TestHandleDialog:
         # Check state was written
         state_file = tmp_path / "loops" / "t1.json"
         assert state_file.exists()
+
+    def test_bullet_pause_fallback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Bullet dialogs with no policy fall through to paused."""
+        from duo.cli import _handle_dialog
+
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {"default": "pause", "rules": []},
+            "text_dialogs": {"action": "pause"},
+        }
+        with patch("duo.transport.is_permission_dialog", return_value=False):
+            action = _handle_dialog("t1", "lbl", policy, "content", "bullet")
+        assert action == "paused"
+
+    def test_bullet_select_first(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Bullet dialog with select_first policy auto-selects first item."""
+        from duo.cli import _handle_dialog
+
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {"default": "pause", "rules": []},
+            "text_dialogs": {"action": "pause"},
+            "bullet_dialogs": {"default": "select_first"},
+        }
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_bullet_option") as mock_sel,
+        ):
+            action = _handle_dialog("t1", "lbl", policy, "content", "bullet")
+        assert action == "bullet_selected_first"
+        mock_sel.assert_called_once_with("lbl", 1)
 
 
 class TestCeoLoop:
