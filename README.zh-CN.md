@@ -89,7 +89,11 @@ duo --help               # 10 组共 37 个命令
 
 ## 示例
 
-参见 [`examples/`](examples/) 目录，包含示例任务定义和工作流配置。
+参见 [`examples/`](examples/) 目录，包含分步操作指南：
+
+- [Hello World](examples/01-hello-world/) — 你的第一个 duo 任务
+- [Bug Fix with Thinking](examples/02-bug-fix/) — 先规划再执行
+- [Multi-Task Parallel](examples/03-multi-task/) — 同时运行多个 agent
 
 ## 文档
 

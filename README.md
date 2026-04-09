@@ -89,7 +89,11 @@ duo --help               # 37 commands in 10 groups
 
 ## Examples
 
-See the [`examples/`](examples/) directory for sample task definitions and workflow configurations.
+See the [`examples/`](examples/) directory for step-by-step walkthroughs:
+
+- [Hello World](examples/01-hello-world/) — Your first duo task
+- [Bug Fix with Thinking](examples/02-bug-fix/) — Plan before executing
+- [Multi-Task Parallel](examples/03-multi-task/) — Run multiple agents simultaneously
 
 ## Documentation
 
