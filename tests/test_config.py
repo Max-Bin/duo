@@ -297,3 +297,110 @@ class TestUnknownConfigKeys:
             config_mod.load_config()
         assert "unknown config keys" in caplog.text.lower()
         assert "typo_key" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Round BO: load_config validation + worktree default
+# ---------------------------------------------------------------------------
+
+
+class TestLoadConfigValidation:
+    """load_config() validates types and cross-key constraints."""
+
+    def test_wrong_type_bool_falls_back(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps({"auto_allow_all": "not-a-bool"}))
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="duo.config"):
+            cfg = config_mod.load_config()
+        assert cfg["auto_allow_all"] is True  # default
+        assert "expected bool" in caplog.text.lower()
+
+    def test_wrong_type_number_falls_back(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps({"heartbeat_timeout": "bad"}))
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="duo.config"):
+            cfg = config_mod.load_config()
+        assert cfg["heartbeat_timeout"] == 90  # default
+        assert "expected number" in caplog.text.lower()
+
+    def test_wrong_type_str_falls_back(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps({"copilot_model": 42}))
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="duo.config"):
+            cfg = config_mod.load_config()
+        assert cfg["copilot_model"] == "claude-opus-4.6"  # default
+        assert "expected str" in caplog.text.lower()
+
+    def test_poll_max_lt_base_resets(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(
+            json.dumps({"poll_base_interval": 10.0, "poll_max_interval": 5.0})
+        )
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="duo.config"):
+            cfg = config_mod.load_config()
+        assert cfg["poll_max_interval"] >= cfg["poll_base_interval"]
+        assert "resetting max to base" in caplog.text.lower()
+
+    def test_valid_values_accepted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(
+            json.dumps({"heartbeat_timeout": 30, "copilot_model": "gpt-4o"})
+        )
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg = config_mod.load_config()
+        assert cfg["heartbeat_timeout"] == 30
+        assert cfg["copilot_model"] == "gpt-4o"
+
+    def test_float_as_int_coerced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """JSON may store 90.0 for an int field; load_config coerces to int."""
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps({"heartbeat_timeout": 90.0}))
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg = config_mod.load_config()
+        assert cfg["heartbeat_timeout"] == 90
+        assert isinstance(cfg["heartbeat_timeout"], int)
+
+
+class TestWorktreeDefault:
+    """worktree_base_path defaults to persistent ~/.duo/worktrees."""
+
+    def test_default_is_persistent(self) -> None:
+        path = config_mod.DEFAULTS["worktree_base_path"]
+        assert "/tmp" not in path
+        assert ".duo/worktrees" in path

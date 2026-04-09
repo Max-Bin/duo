@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from duo.protocol import DUO_DIR, atomic_write_text
@@ -34,12 +35,12 @@ DEFAULTS: dict[str, Any] = {
     "max_parallel": 3,
     "pr_budget": 0,  # 0 = unlimited, >0 = max PR per task
     "task_timeout": 0,  # 0 = disabled, >0 = max seconds per task
-    "worktree_base_path": "/tmp/duo-worktrees",
+    "worktree_base_path": str(Path("~/.duo/worktrees").expanduser()),
 }
 
 
 def load_config() -> dict[str, Any]:
-    """Load config, falling back to defaults for missing keys."""
+    """Load config, falling back to defaults for missing/invalid keys."""
     config = dict(DEFAULTS)
     if CONFIG_PATH.exists():
         try:
@@ -49,7 +50,47 @@ def load_config() -> dict[str, Any]:
                 logger.warning(
                     "Unknown config keys (ignored for defaults): %s", ", ".join(unknown)
                 )
-            config.update(stored)
+            for key, value in stored.items():
+                if key not in DEFAULTS:
+                    config[key] = value
+                    continue
+                expected = type(DEFAULTS[key])
+                if expected is bool:
+                    if not isinstance(value, bool):
+                        logger.warning(
+                            "Config key '%s' expected bool, got %s — using default",
+                            key,
+                            type(value).__name__,
+                        )
+                        continue
+                elif expected in (int, float):
+                    if not isinstance(value, (int, float)):
+                        logger.warning(
+                            "Config key '%s' expected number, got %s — using default",
+                            key,
+                            type(value).__name__,
+                        )
+                        continue
+                    if expected is int:
+                        value = int(value)
+                elif expected is str:
+                    if not isinstance(value, str):
+                        logger.warning(
+                            "Config key '%s' expected str, got %s — using default",
+                            key,
+                            type(value).__name__,
+                        )
+                        continue
+                config[key] = value
+            # Cross-key constraint: poll_max must be >= poll_base
+            if config["poll_max_interval"] < config["poll_base_interval"]:
+                logger.warning(
+                    "poll_max_interval (%.1f) < poll_base_interval (%.1f) — "
+                    "resetting max to base",
+                    config["poll_max_interval"],
+                    config["poll_base_interval"],
+                )
+                config["poll_max_interval"] = config["poll_base_interval"]
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Config file corrupted or empty, using defaults: %s", e)
     return config
