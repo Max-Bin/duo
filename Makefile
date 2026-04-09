@@ -1,4 +1,4 @@
-.PHONY: install test lint format type-check check coverage clean help quickstart release-check
+.PHONY: install test lint format type-check check coverage clean help quickstart release-check bench-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -40,3 +40,6 @@ clean: ## Remove build artifacts and caches
 
 release-check: ## Run pre-release validation
 	bash scripts/pre-release-check.sh
+
+bench-check: ## Run benchmark regression check against saved baseline
+	bash scripts/bench-regression-check.sh
