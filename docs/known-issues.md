@@ -417,3 +417,32 @@ prefers persisted prompt over synthesized.
 `duo resume` started/restarted sessions but never sent a prompt, leaving
 the executor idle. Fixed: now replays the persisted prompt file (or builds
 a new one). Replay failure is non-fatal.
+
+## Findings resolved in Rounds CE-CM — RESOLVED
+
+**Status: All resolved.**
+
+### TRANSITIONS dict mutable (Round CE, commit `998ed0c`)
+FSM transition table was a plain dict — callers could accidentally mutate it.
+Fixed: `MappingProxyType` with `frozenset` values. Immutability test added.
+
+### send lacks task-state gating (Round CJ, commit `c1d92cc`)
+`duo send` would attempt transport on COMPLETED/FAILED/ESCALATED/BLOCKED
+tasks, timing out after 60s on a dead pane. Fixed: early rejection with
+actionable fix hints.
+
+### Incarnation mismatch silently dropped (Round CK, commit `2b3108b`)
+When `poll_task` saw RESULT_READY but incarnation didn't match, the result
+was silently discarded with no trace. Fixed: logs warning and appends
+`result_incarnation_mismatch` journal event.
+
+### Monitor sends prompt after failed session start (Round CL, commit `59b3bcc`)
+Monitor promotion and crash-recovery paths didn't check `task.status`
+after `start_session()` / `restart_session()`. If session start failed
+silently (returning with FAILED status), the code would still try to send
+a prompt, wasting 60s per task on a dead pane. Fixed: status check guard.
+
+### Resume creates duplicate panes (Round CM, commit `fc62c64`)
+`duo resume` called `restart_session()` on tasks with alive panes, but
+`restart_session()` never killed the old pane — creating two executors
+sharing the same label. Fixed: old pane explicitly terminated before restart.
