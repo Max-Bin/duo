@@ -30,6 +30,7 @@ from duo.cli import (
     _doctor_check_claude_cli,
     _doctor_check_config,
     _doctor_check_copilot_cli,
+    _doctor_check_copilot_health,
     _doctor_check_corrupted,
     _doctor_check_duo_dir,
     _doctor_check_git,
@@ -39,6 +40,9 @@ from duo.cli import (
     _doctor_check_tmux_bridge,
     _doctor_check_tmux_session,
     _fmt_ts,
+    _get_pid_child_count,
+    _get_pid_fd_count,
+    _get_pid_kqueue_count,
     _is_auto_selectable,
     _load_batch_file,
     _load_smart_config,
@@ -5224,6 +5228,313 @@ class TestDoctorTaskTimeout:
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
         assert "invalid" in result.output.lower()
+
+
+# ── Copilot health check (doctor) ────────────────────────────────────
+
+
+class TestGetPidFdCount:
+    """Tests for _get_pid_fd_count()."""
+
+    def test_counts_lines(self, monkeypatch: pytest.MonkeyPatch):
+        """Should return line count minus header."""
+        header = "COMMAND PID FD TYPE"
+        lines = "\n".join([header] + [f"line{i}" for i in range(10)])
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout=lines),
+        )
+        assert _get_pid_fd_count(1234) == 10
+
+    def test_lsof_fails(self, monkeypatch: pytest.MonkeyPatch):
+        """lsof returns non-zero → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert _get_pid_fd_count(1234) == -1
+
+    def test_lsof_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """Timeout → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired("lsof", 10)
+            ),
+        )
+        assert _get_pid_fd_count(1234) == -1
+
+    def test_lsof_oserror(self, monkeypatch: pytest.MonkeyPatch):
+        """OSError → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(OSError("no lsof")),
+        )
+        assert _get_pid_fd_count(1234) == -1
+
+    def test_empty_output(self, monkeypatch: pytest.MonkeyPatch):
+        """Empty output → 0."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout=""),
+        )
+        assert _get_pid_fd_count(1234) == 0
+
+
+class TestGetPidKqueueCount:
+    """Tests for _get_pid_kqueue_count()."""
+
+    def test_counts_kqueue_lines(self, monkeypatch: pytest.MonkeyPatch):
+        """Should count lines containing KQUEUE."""
+        output = "HEADER\nnode 123 KQUEUE\nnode 124 FD\nnode 125 KQUEUE\n"
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout=output),
+        )
+        assert _get_pid_kqueue_count(1234) == 2
+
+    def test_no_kqueues(self, monkeypatch: pytest.MonkeyPatch):
+        """No KQUEUE lines → 0."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="HEADER\nfd\nfd\n"),
+        )
+        assert _get_pid_kqueue_count(1234) == 0
+
+    def test_lsof_fails(self, monkeypatch: pytest.MonkeyPatch):
+        """lsof non-zero → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert _get_pid_kqueue_count(1234) == -1
+
+    def test_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """Timeout → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired("lsof", 10)
+            ),
+        )
+        assert _get_pid_kqueue_count(1234) == -1
+
+
+class TestGetPidChildCount:
+    """Tests for _get_pid_child_count()."""
+
+    def test_counts_children(self, monkeypatch: pytest.MonkeyPatch):
+        """Should count non-empty output lines."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="111\n222\n333\n"),
+        )
+        assert _get_pid_child_count(1234) == 3
+
+    def test_no_children(self, monkeypatch: pytest.MonkeyPatch):
+        """pgrep returns non-zero → 0."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert _get_pid_child_count(1234) == 0
+
+    def test_timeout(self, monkeypatch: pytest.MonkeyPatch):
+        """Timeout → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(
+                subprocess.TimeoutExpired("pgrep", 5)
+            ),
+        )
+        assert _get_pid_child_count(1234) == -1
+
+    def test_oserror(self, monkeypatch: pytest.MonkeyPatch):
+        """OSError → -1."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(OSError("no pgrep")),
+        )
+        assert _get_pid_child_count(1234) == -1
+
+    def test_blank_lines_ignored(self, monkeypatch: pytest.MonkeyPatch):
+        """Blank lines in pgrep output should be ignored."""
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="111\n\n222\n\n"),
+        )
+        assert _get_pid_child_count(1234) == 2
+
+
+class TestDoctorCheckCopilotHealth:
+    """Tests for _doctor_check_copilot_health()."""
+
+    def test_no_active_tasks(self, monkeypatch: pytest.MonkeyPatch):
+        """No active tasks → empty list."""
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [])
+        assert _doctor_check_copilot_health() == []
+
+    def test_list_tasks_exception(self, monkeypatch: pytest.MonkeyPatch):
+        """list_tasks raises → empty list."""
+        monkeypatch.setattr(
+            "duo.cli.list_tasks",
+            lambda: (_ for _ in ()).throw(OSError("fs error")),
+        )
+        assert _doctor_check_copilot_health() == []
+
+    def test_terminal_tasks_skipped(self, monkeypatch: pytest.MonkeyPatch):
+        """Completed/failed tasks should be skipped."""
+        tasks = [
+            MagicMock(status=TaskStatus.COMPLETED, pane_label="done-pane"),
+            MagicMock(status=TaskStatus.FAILED, pane_label="fail-pane"),
+            MagicMock(status=TaskStatus.ESCALATED, pane_label="esc-pane"),
+        ]
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: tasks)
+        assert _doctor_check_copilot_health() == []
+
+    def test_pid_unavailable(self, monkeypatch: pytest.MonkeyPatch):
+        """PID not found → warn."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="my-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
+        results = _doctor_check_copilot_health()
+        assert len(results) == 1
+        assert results[0].status == "warn"
+        assert "PID unavailable" in results[0].message
+
+    def test_healthy_pane(self, monkeypatch: pytest.MonkeyPatch):
+        """Low fd/kqueue/child counts → pass."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="healthy-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        results = _doctor_check_copilot_health()
+        assert len(results) == 1
+        assert results[0].status == "pass"
+        assert "fds=50" in results[0].message
+
+    def test_warn_on_high_fds(self, monkeypatch: pytest.MonkeyPatch):
+        """fds >= 500 → warn."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="warn-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "warn"
+        assert "ceo-cleanup" in results[0].fix
+
+    def test_critical_on_very_high_fds(self, monkeypatch: pytest.MonkeyPatch):
+        """fds >= 2000 → fail."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="crit-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 3000)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "fail"
+        assert "restart" in results[0].fix.lower()
+
+    def test_warn_on_high_kqueue(self, monkeypatch: pytest.MonkeyPatch):
+        """kqueue >= 50 → warn."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="kq-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 60)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "warn"
+
+    def test_warn_on_high_children(self, monkeypatch: pytest.MonkeyPatch):
+        """children >= 10 → warn."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="child-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 15)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "warn"
+
+    def test_fail_overrides_warn(self, monkeypatch: pytest.MonkeyPatch):
+        """If fds critical AND kqueue high → status is fail (worst wins)."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="both-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 2500)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 20)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "fail"
+
+    def test_negative_counts_ignored(self, monkeypatch: pytest.MonkeyPatch):
+        """Negative counts (lsof unavailable) → pass with empty parts."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="neg-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: -1)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "pass"
+        assert "healthy" in results[0].message
+
+    def test_multiple_panes(self, monkeypatch: pytest.MonkeyPatch):
+        """Multiple active tasks → one result per pane."""
+        tasks = [
+            MagicMock(status=TaskStatus.RUNNING, pane_label="pane-a"),
+            MagicMock(status=TaskStatus.ACKED, pane_label="pane-b"),
+        ]
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: tasks)
+        pids = {"pane-a": 111, "pane-b": 222}
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: pids.get(label))
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 10)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 1)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 0)
+        results = _doctor_check_copilot_health()
+        assert len(results) == 2
+        names = {r.name for r in results}
+        assert "pane:pane-a" in names
+        assert "pane:pane-b" in names
+
+    def test_empty_pane_label_skipped(self, monkeypatch: pytest.MonkeyPatch):
+        """Task with empty pane_label → skipped."""
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        assert _doctor_check_copilot_health() == []
+
+    def test_doctor_integrates_health_checks(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """doctor command includes copilot health check results."""
+        monkeypatch.setattr("duo.cli.shutil.which", lambda n: f"/usr/bin/{n}")
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=5 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
+        )
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(duo.cli, "TASKS_DIR", tmp_path / "tasks")
+        (tmp_path / "tasks").mkdir(exist_ok=True)
+
+        task = MagicMock(status=TaskStatus.RUNNING, pane_label="test-pane")
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 10)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 3)
+
+        result = runner.invoke(main, ["doctor"])
+        assert "pane:test-pane" in result.output
+        assert "fds=600" in result.output
 
 
 # ── Bare array batch file auto-wrapping ──────────────────────────────

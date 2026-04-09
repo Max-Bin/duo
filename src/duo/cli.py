@@ -1834,6 +1834,128 @@ def _doctor_check_git() -> CheckResult:
         return CheckResult("git", "pass", "installed", "")
 
 
+_COPILOT_FD_WARN = 500
+_COPILOT_FD_CRITICAL = 2000
+_COPILOT_CHILD_WARN = 10
+_COPILOT_KQUEUE_WARN = 50
+
+
+def _get_pid_fd_count(pid: int) -> int:
+    """Return total open fd count for *pid* using lsof."""
+    try:
+        proc = subprocess.run(
+            ["lsof", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return -1
+        # lsof header is 1 line; each subsequent line = 1 fd entry
+        return max(0, len(proc.stdout.strip().splitlines()) - 1)
+    except (OSError, subprocess.TimeoutExpired):
+        return -1
+
+
+def _get_pid_kqueue_count(pid: int) -> int:
+    """Return kqueue fd count for *pid* using lsof (macOS only)."""
+    try:
+        proc = subprocess.run(
+            ["lsof", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return -1
+        return sum(1 for line in proc.stdout.splitlines() if "KQUEUE" in line)
+    except (OSError, subprocess.TimeoutExpired):
+        return -1
+
+
+def _get_pid_child_count(pid: int) -> int:
+    """Return count of child processes for *pid*."""
+    try:
+        proc = subprocess.run(
+            ["pgrep", "-P", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            return 0
+        lines = [l for l in proc.stdout.strip().splitlines() if l.strip()]
+        return len(lines)
+    except (OSError, subprocess.TimeoutExpired):
+        return -1
+
+
+def _doctor_check_copilot_health() -> list[CheckResult]:
+    """Check Copilot pane process health (fd/kqueue/child counts).
+
+    Returns a list of CheckResult — one per active Copilot pane.
+    An empty list is returned when there are no active panes.
+    """
+    from duo.transport import get_pane_pid
+
+    terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+    try:
+        tasks = list_tasks()
+    except Exception:
+        return []
+
+    active = [t for t in tasks if t.status not in terminal and t.pane_label]
+    if not active:
+        return []
+
+    results: list[CheckResult] = []
+    for task in active:
+        pid = get_pane_pid(task.pane_label)
+        if pid is None:
+            results.append(
+                CheckResult(
+                    f"pane:{task.pane_label}",
+                    "warn",
+                    "PID unavailable",
+                    "Pane may be dead — run: duo status",
+                )
+            )
+            continue
+
+        fd_count = _get_pid_fd_count(pid)
+        kqueue_count = _get_pid_kqueue_count(pid)
+        child_count = _get_pid_child_count(pid)
+
+        parts: list[str] = []
+        worst = "pass"
+
+        if fd_count >= 0:
+            parts.append(f"fds={fd_count}")
+            if fd_count >= _COPILOT_FD_CRITICAL:
+                worst = "fail"
+            elif fd_count >= _COPILOT_FD_WARN:
+                worst = "warn" if worst != "fail" else worst
+        if kqueue_count >= 0:
+            parts.append(f"kqueue={kqueue_count}")
+            if kqueue_count >= _COPILOT_KQUEUE_WARN:
+                worst = "warn" if worst != "fail" else worst
+        if child_count >= 0:
+            parts.append(f"children={child_count}")
+            if child_count >= _COPILOT_CHILD_WARN:
+                worst = "warn" if worst != "fail" else worst
+
+        msg = f"PID {pid}: {', '.join(parts)}" if parts else f"PID {pid}: healthy"
+        fix = ""
+        if worst == "fail":
+            fix = "Critical — restart session: duo stop + duo start"
+        elif worst == "warn":
+            fix = "Run: duo ceo-cleanup"
+
+        results.append(CheckResult(f"pane:{task.pane_label}", worst, msg, fix))
+
+    return results
+
+
 _DOCTOR_CHECKS: list[Any] = [
     _doctor_check_python,
     _doctor_check_tmux,
@@ -1867,6 +1989,7 @@ _STATUS_COLORS: dict[str, str] = {
 def doctor(json_output: bool, strict: bool) -> None:
     """Check environment dependencies and configuration."""
     results: list[CheckResult] = [fn() for fn in _DOCTOR_CHECKS]
+    results.extend(_doctor_check_copilot_health())
 
     counts = {"pass": 0, "warn": 0, "fail": 0}
     for r in results:
@@ -2305,8 +2428,12 @@ def assert_not_at_main_prompt(label: str) -> None:
 
 @main.command("ceo-wait")
 @click.argument("task")
-@click.option("--timeout", default=300, type=float, help="Max seconds to wait (default: 300).")
-@click.option("--interval", default=5, type=float, help="Poll interval in seconds (default: 5).")
+@click.option(
+    "--timeout", default=300, type=float, help="Max seconds to wait (default: 300)."
+)
+@click.option(
+    "--interval", default=5, type=float, help="Poll interval in seconds (default: 5)."
+)
 def ceo_wait(task: str, timeout: float, interval: float) -> None:
     """Wait for a dialog to appear in a task's pane.
 
@@ -2749,9 +2876,7 @@ def _gather_pane_info(task: Task) -> dict[str, Any]:
 
             content = read_pane(task.pane_label, 5)
             recent_lines = [
-                line.strip()
-                for line in content.strip().splitlines()
-                if line.strip()
+                line.strip() for line in content.strip().splitlines() if line.strip()
             ][-5:]
         except (subprocess.SubprocessError, OSError, RuntimeError):
             pass
@@ -3155,9 +3280,18 @@ def _handle_dialog(
     default=None,
     help="YAML policy file for auto-handling dialogs.",
 )
-@click.option("--interval", default=5.0, type=float, help="Poll interval in seconds (default: 5).")
-@click.option("--timeout", default=3600.0, type=float, help="Max loop duration in seconds (default: 3600).")
-def ceo_loop(task: str, policy_path: str | None, interval: float, timeout: float) -> None:
+@click.option(
+    "--interval", default=5.0, type=float, help="Poll interval in seconds (default: 5)."
+)
+@click.option(
+    "--timeout",
+    default=3600.0,
+    type=float,
+    help="Max loop duration in seconds (default: 3600).",
+)
+def ceo_loop(
+    task: str, policy_path: str | None, interval: float, timeout: float
+) -> None:
     """Automated CEO workflow loop.
 
     Polls for dialogs and handles them according to the policy file.
@@ -3387,7 +3521,12 @@ def ceo_smart_config(*, json_output: bool) -> None:
 
 @main.command("ceo-dispatch")
 @click.argument("task")
-@click.option("--timeout", default=30, type=float, help="Seconds to wait for dialog (default: 30).")
+@click.option(
+    "--timeout",
+    default=30,
+    type=float,
+    help="Seconds to wait for dialog (default: 30).",
+)
 @click.option(
     "--policy",
     type=click.Path(exists=True),
