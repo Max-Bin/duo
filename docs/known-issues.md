@@ -106,7 +106,7 @@ and "parallel sub-agents" failures (see commit `dab818f` onwards).
 
 ## Concurrent dialog operations have no pane-level locking
 
-**Status: Open** (discovered during resilience audit)
+**Status: RESOLVED** (pane-level advisory locking implemented)
 
 **Scenario:**
 If two `duo ceo-select` (or `ceo-approve`, `ceo-dispatch`, etc.)
@@ -114,23 +114,12 @@ commands run simultaneously targeting the same pane, their key
 sequences can interleave.  For example, process A sends "1", process B
 sends "2", process A sends Enter — option 2 is selected instead of 1.
 
-**Current defense:** None.  The 3-layer send_keys defense does not
-address logical concurrency — it only defends against key-name
-translation and pane-size issues.
+**Defense:** Two-level advisory locking via `pane_lock()`:
+1. In-process: `threading.RLock` per label (reentrant, prevents
+   deadlock when `approve_permission` → `select_dialog_option`).
+2. Cross-process: `fcntl.flock(LOCK_EX)` on `~/.duo/locks/<label>.lock`
+   (prevents interleaving from separate CLI invocations).
 
-**Recommended fix:**
-Add a file-based advisory lock per pane label:
-```python
-lock_path = DUO_DIR / "locks" / f"{label}.lock"
-with open(lock_path, "w") as lock_fd:
-    fcntl.flock(lock_fd, fcntl.LOCK_EX)
-    # ... perform dialog operation ...
-```
-This should wrap each dialog operation (select, approve, text send)
-end-to-end, not individual key sends.
-
-**Priority:** Medium.  In practice, the CEO orchestration loop is
-single-threaded per task, so concurrent sends are unlikely but not
-impossible (e.g., manual `duo ceo-select` during active `ceo-loop`).
-
-**See also:** `docs/send-keys-resilience-audit.md`, edge case #10.
+All four dialog operations (`approve_permission`, `select_dialog_option`,
+`send_option_other_message`, `send_text_dialog_message`) acquire the
+pane lock for their entire duration.  Timeout defaults to 30s.

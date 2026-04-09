@@ -155,20 +155,18 @@ transient failures with automatic retry.
 **Scenario**: Two `duo ceo-select` commands running simultaneously
 on different tasks, both sending keys to the same pane.
 
-**Status**: ❌ Not defended
+**Status**: ✅ Defended (pane-level advisory locking)
 
 **Analysis**: tmux serializes PTY writes, so bytes won't interleave.
 However, the logical sequence (select option N → Enter) could be
 scrambled: process A sends "1", process B sends "2", process A sends
-Enter — selects option 2 instead of 1.  Layer 2's content comparison
-can't distinguish "correct change" from "wrong change caused by
-concurrent send."
+Enter — selects option 2 instead of 1.
 
-**Recommendation**: Add a file-based lock per pane label
-(`~/.duo/locks/<label>.lock`) using `fcntl.flock()`.  Acquire before
-the first `send_keys` in a dialog operation, release after the final
-Enter.  This is a protocol-level concern, not a transport-level one.
-See known-issues.md for tracking.
+**Defense**: `pane_lock(label)` wraps all four dialog operations:
+- In-process: `threading.RLock` (reentrant, prevents same-thread deadlock)
+- Cross-process: `fcntl.flock(LOCK_EX)` on `~/.duo/locks/<label>.lock`
+- Timeout: 30s default, raises `TimeoutError` on contention
+- Auto-releases on process death (flock semantics)
 
 ---
 
@@ -234,7 +232,7 @@ positives from tmux rendering inconsistencies.
 | 12 | tmux server restart | ✅ | TmuxServerDownError |
 | 13 | Unicode width | ⚠️ | content compare |
 
-**Score: 8/13 fully defended, 4/13 partial, 1/13 undefended**
+**Score: 9/13 fully defended, 4/13 partial, 0/13 undefended**
 
 ## Action Items
 

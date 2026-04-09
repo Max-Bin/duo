@@ -6,7 +6,9 @@ list_panes() is diagnostic only — scheduling truth comes from the file protoco
 
 from __future__ import annotations
 
+import contextlib
 import enum
+import fcntl
 import functools
 import logging
 import os
@@ -16,8 +18,9 @@ import shutil
 import subprocess
 import threading
 import time as _time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -60,6 +63,7 @@ __all__ = [
     "MINIMUM_PANE_COLS",
     "MINIMUM_PANE_ROWS",
     "name_pane",
+    "pane_lock",
     "read_pane",
     "resolve_label",
     "safe_enter",
@@ -86,6 +90,18 @@ logger = logging.getLogger(__name__)
 _SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+$")
 
 _BRIDGE_TIMEOUT = 30  # seconds for tmux-bridge subprocess calls
+
+# Advisory lock directory for cross-process dialog operation locking.
+_LOCKS_DIR = Path.home() / ".duo" / "locks"
+
+# In-process reentrant lock per label (prevents deadlock when
+# approve_permission calls select_dialog_option in the same thread).
+_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+# Track which thread holds the flock for each label so nested
+# pane_lock calls skip the (non-reentrant) fcntl.flock.
+_FLOCK_OWNERS: dict[str, int] = {}  # label → thread ident
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -365,6 +381,79 @@ def _validate_label(label: str) -> None:
     """Ensure pane label is safe for shell use."""
     if not _SAFE_LABEL.match(label):
         raise ValueError(f"Unsafe pane label: {label!r}")
+
+
+def _get_thread_lock(label: str) -> threading.RLock:
+    """Get or create a per-label reentrant thread lock."""
+    with _THREAD_LOCKS_GUARD:
+        if label not in _THREAD_LOCKS:
+            _THREAD_LOCKS[label] = threading.RLock()
+        return _THREAD_LOCKS[label]
+
+
+@contextlib.contextmanager
+def pane_lock(label: str, *, timeout: float = 30.0) -> Generator[None, None, None]:
+    """Acquire an advisory lock for a pane label.
+
+    Two-level locking:
+    1. In-process: ``threading.RLock`` per label (reentrant, so
+       ``approve_permission`` → ``select_dialog_option`` in the same
+       thread doesn't deadlock).
+    2. Cross-process: ``fcntl.flock(LOCK_EX)`` on a per-label file
+       (prevents interleaving from separate ``duo`` CLI invocations).
+       Skipped on reentrant calls (same thread already holds flock).
+
+    The cross-process lock uses non-blocking polls with a timeout.
+    If the lock cannot be acquired within *timeout* seconds,
+    ``TimeoutError`` is raised.
+
+    The lock is released when the outermost context exits (or the
+    process dies, which auto-releases flock locks).
+    """
+    _validate_label(label)
+    thread_lock = _get_thread_lock(label)
+
+    if not thread_lock.acquire(timeout=timeout):
+        raise TimeoutError(
+            f"Could not acquire in-process pane lock for {label!r} "
+            f"within {timeout}s"
+        )
+
+    tid = threading.get_ident()
+    already_owned = _FLOCK_OWNERS.get(label) == tid
+
+    try:
+        if already_owned:
+            # Reentrant — flock already held by this thread.
+            yield
+        else:
+            _LOCKS_DIR.mkdir(parents=True, exist_ok=True)
+            lock_path = _LOCKS_DIR / f"{label}.lock"
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY)
+            try:
+                deadline = _time.monotonic() + timeout
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except OSError:
+                        if _time.monotonic() >= deadline:
+                            raise TimeoutError(
+                                f"Could not acquire cross-process pane lock "
+                                f"for {label!r} within {timeout}s — another "
+                                f"dialog operation may be in progress"
+                            ) from None
+                        _time.sleep(0.1)
+                _FLOCK_OWNERS[label] = tid
+                try:
+                    yield
+                finally:
+                    del _FLOCK_OWNERS[label]
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+    finally:
+        thread_lock.release()
 
 
 def resolve_label(label: str) -> str:
@@ -715,53 +804,52 @@ def approve_permission(label: str) -> None:
 
     MUST read the actual option text to decide. Never blindly pick a number.
     """
-    if not is_in_dialog_stable(label):
-        raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
-    content = read_pane(label, 20)
-    lines = content.strip().split("\n")
+    with pane_lock(label):
+        if not is_in_dialog_stable(label):
+            raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
+        content = read_pane(label, 20)
+        lines = content.strip().split("\n")
 
-    # Find all numbered options within dialog box boundaries (╭─ … ╰─)
-    import re
+        # Find all numbered options within dialog box boundaries (╭─ … ╰─)
+        in_box = False
+        options: dict[str, str] = {}
+        for line in lines:
+            if "╭─" in line:
+                in_box = True
+                continue
+            if "╰─" in line:
+                break
+            if not in_box:
+                continue
+            m = re.search(r"[❯\s]+(\d+)\.\s+(.+)", line)
+            if m:
+                options[m.group(1)] = m.group(2).strip()
 
-    in_box = False
-    options: dict[str, str] = {}
-    for line in lines:
-        if "╭─" in line:
-            in_box = True
-            continue
-        if "╰─" in line:
-            break
-        if not in_box:
-            continue
-        m = re.search(r"[❯\s]+(\d+)\.\s+(.+)", line)
-        if m:
-            options[m.group(1)] = m.group(2).strip()
+        # Strategy: find the best "yes" option
+        # Prefer "Yes + approve for session" over plain "Yes"
+        best = None
+        for num, text in options.items():
+            text_lower = text.lower()
+            # Skip any "No" or "tell differently" options
+            if "no" in text_lower and (
+                "tell" in text_lower or "esc" in text_lower or "differently" in text_lower
+            ):
+                continue
+            if text_lower.startswith("no"):
+                continue
+            # Prefer "approve for session" / "approve all" / "add to allowed"
+            if "approve" in text_lower or ("add" in text_lower and "allowed" in text_lower):
+                best = num
+                break
+            # Otherwise plain "Yes"
+            if "yes" in text_lower and best is None:
+                best = num
 
-    # Strategy: find the best "yes" option
-    # Prefer "Yes + approve for session" over plain "Yes"
-    best = None
-    for num, text in options.items():
-        text_lower = text.lower()
-        # Skip any "No" or "tell differently" options
-        if "no" in text_lower and (
-            "tell" in text_lower or "esc" in text_lower or "differently" in text_lower
-        ):
-            continue
-        if text_lower.startswith("no"):
-            continue
-        # Prefer "approve for session" / "approve all" / "add to allowed"
-        if "approve" in text_lower or ("add" in text_lower and "allowed" in text_lower):
-            best = num
-            break
-        # Otherwise plain "Yes"
-        if "yes" in text_lower and best is None:
-            best = num
+        if best is None:
+            # Fallback: pick option 1 (usually "Yes")
+            best = "1"
 
-    if best is None:
-        # Fallback: pick option 1 (usually "Yes")
-        best = "1"
-
-    select_dialog_option(label, best)
+        select_dialog_option(label, best)
 
 
 def select_dialog_option(label: str, option: str) -> None:
@@ -772,14 +860,15 @@ def select_dialog_option(label: str, option: str) -> None:
     If the dialog is already gone, we skip safe_enter to avoid a
     spurious "at ❯ prompt" error.
     """
-    if not is_in_dialog_stable(label):
-        raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
-    type_text(label, option)
-    _time.sleep(0.3)
-    # Dialog may have been dismissed by the keypress alone
-    if is_in_dialog(label):
-        safe_enter(label)
-    _record_pr(label, "dialog_option", option[:80])
+    with pane_lock(label):
+        if not is_in_dialog_stable(label):
+            raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
+        type_text(label, option)
+        _time.sleep(0.3)
+        # Dialog may have been dismissed by the keypress alone
+        if is_in_dialog(label):
+            safe_enter(label)
+        _record_pr(label, "dialog_option", option[:80])
 
 
 def send_option_other_message(label: str, text: str) -> bool:
@@ -788,69 +877,70 @@ def send_option_other_message(label: str, text: str) -> bool:
     Like send_text_dialog_message but handles the OPTION dialog navigate-to-last step.
     Returns True if dialog was dismissed, False if retries exhausted.
     """
-    content = read_pane(label, 20)
-    if _is_at_main_prompt(content):
-        raise RuntimeError(f"BLOCKED: '{label}' at ❯ prompt. REFUSED.")
-    if not is_in_dialog(label):
-        raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
-
-    # Count options within dialog box boundaries
-    lines = content.strip().split("\n")
-    in_box = False
-    option_count = 0
-    current_pos = 0
-    opt_re = re.compile(r"^\s*[│]?\s*(❯\s*)?(\d+)\.\s")
-    for line in lines:
-        if "╭─" in line:
-            in_box = True
-            continue
-        if "╰─" in line:
-            break
-        if not in_box:
-            continue
-        m = opt_re.match(line)
-        if m:
-            n = int(m.group(2))
-            option_count = max(option_count, n)
-            if m.group(1) is not None:
-                current_pos = n
-
-    if option_count < 2:
-        raise RuntimeError(
-            f"SAFETY: '{label}' dialog has {option_count} options, need ≥2."
-        )
-
-    # Navigate down to last option (Other)
-    downs_needed = option_count - current_pos
-    for _ in range(downs_needed):
-        send_keys(label, "Down")
-        _time.sleep(0.2)
-        read_pane(label, 5)
-
-    # Type text
-    type_text(label, text)
-    _time.sleep(0.3)
-
-    # Unconditional Enter (NOT safe_enter)
-    send_keys(label, "Enter")
-    _time.sleep(0.5)
-
-    # Verify dialog dismissed; retry Enter up to 2 times
-    for _retry in range(2):
+    with pane_lock(label):
         content = read_pane(label, 20)
-        dialog_kind = _detect_dialog_kind(content)
-        if dialog_kind == DialogKind.NONE:
-            _record_pr(label, "dialog_other", text[:80])
-            return True
+        if _is_at_main_prompt(content):
+            raise RuntimeError(f"BLOCKED: '{label}' at ❯ prompt. REFUSED.")
+        if not is_in_dialog(label):
+            raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
+
+        # Count options within dialog box boundaries
+        lines = content.strip().split("\n")
+        in_box = False
+        option_count = 0
+        current_pos = 0
+        opt_re = re.compile(r"^\s*[│]?\s*(❯\s*)?(\d+)\.\s")
+        for line in lines:
+            if "╭─" in line:
+                in_box = True
+                continue
+            if "╰─" in line:
+                break
+            if not in_box:
+                continue
+            m = opt_re.match(line)
+            if m:
+                n = int(m.group(2))
+                option_count = max(option_count, n)
+                if m.group(1) is not None:
+                    current_pos = n
+
+        if option_count < 2:
+            raise RuntimeError(
+                f"SAFETY: '{label}' dialog has {option_count} options, need ≥2."
+            )
+
+        # Navigate down to last option (Other)
+        downs_needed = option_count - current_pos
+        for _ in range(downs_needed):
+            send_keys(label, "Down")
+            _time.sleep(0.2)
+            read_pane(label, 5)
+
+        # Type text
+        type_text(label, text)
+        _time.sleep(0.3)
+
+        # Unconditional Enter (NOT safe_enter)
         send_keys(label, "Enter")
         _time.sleep(0.5)
 
-    # Final check
-    content = read_pane(label, 20)
-    if _detect_dialog_kind(content) == DialogKind.NONE:
-        _record_pr(label, "dialog_other", text[:80])
-        return True
-    return False
+        # Verify dialog dismissed; retry Enter up to 2 times
+        for _retry in range(2):
+            content = read_pane(label, 20)
+            dialog_kind = _detect_dialog_kind(content)
+            if dialog_kind == DialogKind.NONE:
+                _record_pr(label, "dialog_other", text[:80])
+                return True
+            send_keys(label, "Enter")
+            _time.sleep(0.5)
+
+        # Final check
+        content = read_pane(label, 20)
+        if _detect_dialog_kind(content) == DialogKind.NONE:
+            _record_pr(label, "dialog_other", text[:80])
+            return True
+        return False
 
 
 def select_other_option(label: str, text: str) -> None:
@@ -872,48 +962,48 @@ def send_text_dialog_message(label: str, text: str) -> bool:
     Returns True if the dialog was successfully dismissed, False if
     retries were exhausted and the dialog is still showing.
     """
-    type_text(label, text)
-    _time.sleep(0.3)
-
-    # Verify text is visible before sending Enter
-    for _attempt in range(3):
-        content = read_pane(label, 20)
-        if text in content:
-            break
-        # Text not visible — send SIGWINCH to force Ink TUI refresh
-        try:
-            pane_id = resolve_label(label)
-            pid_result = subprocess.run(
-                ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_pid}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if pid_result.returncode == 0 and pid_result.stdout.strip():
-                import signal
-
-                os.kill(int(pid_result.stdout.strip()), signal.SIGWINCH)
-        except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
-            pass
+    with pane_lock(label):
+        type_text(label, text)
         _time.sleep(0.3)
 
-    # Send Enter
-    send_keys(label, "Enter")
-    _time.sleep(0.5)
+        # Verify text is visible before sending Enter
+        for _attempt in range(3):
+            content = read_pane(label, 20)
+            if text in content:
+                break
+            # Text not visible — send SIGWINCH to force Ink TUI refresh
+            try:
+                pane_id = resolve_label(label)
+                pid_result = subprocess.run(
+                    ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_pid}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if pid_result.returncode == 0 and pid_result.stdout.strip():
+                    import signal
+                    os.kill(int(pid_result.stdout.strip()), signal.SIGWINCH)
+            except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
+                pass
+            _time.sleep(0.3)
 
-    # Verify dialog was dismissed; retry Enter up to 2 times
-    for _retry in range(2):
-        content = read_pane(label, 20)
-        dialog_kind = _detect_dialog_kind(content)
-        if dialog_kind == DialogKind.NONE:
-            return True
-        # Dialog still showing — retry Enter
+        # Send Enter
         send_keys(label, "Enter")
         _time.sleep(0.5)
 
-    # Final check
-    content = read_pane(label, 20)
-    return _detect_dialog_kind(content) == DialogKind.NONE
+        # Verify dialog was dismissed; retry Enter up to 2 times
+        for _retry in range(2):
+            content = read_pane(label, 20)
+            dialog_kind = _detect_dialog_kind(content)
+            if dialog_kind == DialogKind.NONE:
+                return True
+            # Dialog still showing — retry Enter
+            send_keys(label, "Enter")
+            _time.sleep(0.5)
+
+        # Final check
+        content = read_pane(label, 20)
+        return _detect_dialog_kind(content) == DialogKind.NONE
 
 
 # === Composite operations ===
