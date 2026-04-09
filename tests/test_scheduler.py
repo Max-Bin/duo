@@ -329,3 +329,72 @@ class TestQueueStatus:
         assert qs["queued_count"] == 1
         assert "active1" in qs["active_tasks"]
         assert "queued1" in qs["queued_tasks"]
+
+
+# === Edge-case tests ===
+
+
+class TestSchedulerEdgeCases:
+    """Edge cases for scheduler robustness."""
+
+    def test_promote_after_multiple_failures(self) -> None:
+        """When multiple active tasks fail, all freed slots get filled."""
+        # Fill up 3 slots
+        t1 = _make_task("active1")
+        _force_status(t1, TaskStatus.RUNNING)
+        t2 = _make_task("active2")
+        _force_status(t2, TaskStatus.RUNNING)
+        t3 = _make_task("active3")
+        _force_status(t3, TaskStatus.RUNNING)
+        # Queue 3 more
+        t4 = _make_task("queued1")
+        _force_status(t4, TaskStatus.QUEUED)
+        t5 = _make_task("queued2")
+        _force_status(t5, TaskStatus.QUEUED)
+        t6 = _make_task("queued3")
+        _force_status(t6, TaskStatus.QUEUED)
+        # All 3 active tasks fail
+        _force_status(t1, TaskStatus.FAILED)
+        _force_status(t2, TaskStatus.FAILED)
+        _force_status(t3, TaskStatus.FAILED)
+        # Promote should fill all 3 freed slots
+        promoted = promote_queued()
+        assert len(promoted) == 3
+
+    def test_queue_position_deterministic_with_ties(self) -> None:
+        """Tasks with the same created_at timestamp have stable queue positions."""
+        import time
+        now = time.time()
+        tasks = []
+        for i in range(5):
+            t = _make_task(f"tie{i}")
+            t.created_at = now  # same timestamp
+            save_task(t)
+            _force_status(t, TaskStatus.QUEUED)
+            tasks.append(t)
+        # Verify all have valid, unique positions
+        positions = [_queue_position(t) for t in tasks]
+        assert sorted(positions) == list(range(1, 6))
+
+    def test_enqueue_or_start_returns_queued_when_full(self) -> None:
+        """enqueue_or_start returns 'queued' status when all slots occupied."""
+        for i in range(3):
+            t = _make_task(f"active{i}")
+            _force_status(t, TaskStatus.RUNNING)
+        new_task = _make_task("overflow")
+        result = enqueue_or_start(new_task)
+        assert result == "queued"
+        assert new_task.status == TaskStatus.QUEUED
+
+    def test_promote_queued_empty_returns_empty_list(self) -> None:
+        """promote_queued with no queued tasks returns empty list."""
+        promoted = promote_queued()
+        assert promoted == []
+
+    def test_active_statuses_constant(self) -> None:
+        """ACTIVE_STATUSES includes expected states."""
+        assert TaskStatus.RUNNING in ACTIVE_STATUSES
+        assert TaskStatus.VERIFYING in ACTIVE_STATUSES
+        assert TaskStatus.CORRECTING in ACTIVE_STATUSES
+        assert TaskStatus.COMPLETED not in ACTIVE_STATUSES
+        assert TaskStatus.FAILED not in ACTIVE_STATUSES

@@ -2389,3 +2389,87 @@ class TestWriteWatchEvent:
             path = _write_watch_event(task, big_content)
             data = json.loads(path.read_text())
             assert len(data["pane_content"]) == 2000
+
+
+# === Edge-case tests ===
+
+
+class TestVerifyAndAdvanceEdgeCases:
+    """Edge cases for verify_and_advance — malformed results, missing fields."""
+
+    def _write_raw(self, task, step_num, attempt_num, **data):
+        """Write a raw result JSON file."""
+        result_path = task.result_path(step_num, attempt_num)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(result_path, data)
+
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander.select_dialog_option")
+    def test_result_with_missing_fields_defaults(self, mock_send, mock_wait):
+        """Result with only step/attempt uses defaults for missing fields."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_raw(task, 1, 1, step=1, attempt=1, status="blocked")
+        verify_and_advance(task)
+        assert task.status == TaskStatus.BLOCKED
+
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander.select_dialog_option")
+    def test_result_with_empty_status_treated_as_done(self, mock_send, mock_wait):
+        """Result with status='' is treated as a normal result (goes to verify)."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_raw(
+            task, 1, 1,
+            step=1, attempt=1, incarnation=task.incarnation_id, status="",
+        )
+        # Empty status is not "blocked" or "error", so it goes to verify_step
+        with patch("duo.commander.verify_step", return_value=Pass()) as mock_verify:
+            verify_and_advance(task)
+        mock_verify.assert_called_once()
+
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander.select_dialog_option")
+    def test_result_error_status_transitions_to_blocked(self, mock_send, mock_wait):
+        """Result with status='error' transitions task to BLOCKED."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_raw(
+            task, 1, 1,
+            step=1, attempt=1, incarnation=task.incarnation_id,
+            status="error", reason="executor crashed",
+        )
+        verify_and_advance(task)
+        assert task.status == TaskStatus.BLOCKED
+
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.verify_step")
+    def test_verify_step_exception_transitions_to_failed(self, mock_verify, mock_send, mock_wait):
+        """When verify_step raises, task transitions to FAILED."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_raw(
+            task, 1, 1,
+            step=1, attempt=1, incarnation=task.incarnation_id, status="done",
+        )
+        mock_verify.side_effect = RuntimeError("git diff exploded")
+        verify_and_advance(task)
+        assert task.status == TaskStatus.FAILED
+
+
+class TestCountCorrectionsEdgeCases:
+    """Edge cases for _count_corrections."""
+
+    def test_no_events_returns_zero(self):
+        task = _make_task()
+        assert _count_corrections(task, 1) == 0
+
+    def test_corrections_different_steps_isolated(self):
+        """Corrections for step 1 don't count toward step 2."""
+        task = _make_task("multi-step", subtasks=[_make_subtask(1), _make_subtask(2)])
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        append_event(task, "correction_sent", {"step": 1, "attempt": 3})
+        append_event(task, "correction_sent", {"step": 2, "attempt": 2})
+        assert _count_corrections(task, 1) == 2
+        assert _count_corrections(task, 2) == 1
