@@ -99,14 +99,14 @@ class _OrderedGroup(click.Group):
         extra: list[tuple[str, str]] = []
         for name in self.list_commands(ctx):
             if name not in seen:
-                cmd = self.get_command(ctx, name)  # pragma: no cover
-                if cmd:  # pragma: no cover
+                cmd = self.get_command(ctx, name)  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+                if cmd:  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
                     extra.append(
                         (name, cmd.get_short_help_str(limit=60))
-                    )  # pragma: no cover
-        if extra:  # pragma: no cover
-            with formatter.section("Other"):  # pragma: no cover
-                formatter.write_dl(extra)  # pragma: no cover
+                    )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+        if extra:  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+            with formatter.section("Other"):  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+                formatter.write_dl(extra)  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
 
 
 def _validate_task_name(name: str) -> None:
@@ -2563,7 +2563,7 @@ def ceo_select(
             # BULLET last item is usually "Type your answer..."
             send_text_dialog_message(t.pane_label, other_text)
             click.echo(f"Typed text in bullet dialog: {other_text}")
-        else:  # pragma: no cover
+        else:  # pragma: no cover — unreachable: Click mutual-exclusion ensures option or other_text is set
             raise click.ClickException("Internal error: expected OPTION or --other.")
     elif other_text is not None:
         success = send_option_other_message(t.pane_label, other_text)
