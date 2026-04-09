@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -123,6 +124,16 @@ class TestGitDiff:
         with pytest.raises(RuntimeError, match="git diff failed"):
             git_diff("/w")
 
+    @patch("duo.verifier.subprocess.run")
+    def test_raises_on_oversized_diff(self, mock_run):
+        """git_diff raises RuntimeError when diff exceeds size limit."""
+        from duo.verifier import _MAX_DIFF_BYTES
+
+        huge_output = "x" * (_MAX_DIFF_BYTES + 1)
+        mock_run.return_value = _mock_proc(huge_output)
+        with pytest.raises(RuntimeError, match="Diff too large"):
+            git_diff("/w")
+
 
 class TestGitUntracked:
     @patch("duo.verifier.subprocess.run")
@@ -190,41 +201,41 @@ class TestRunInWorktree:
 class TestCheckSecurityScope:
     def test_files_within_writable_paths(self):
         task = _make_task()
-        result = _check_security_scope(task, {"src/main.py"}, ["src/*"])
+        result = _check_security_scope(task, {"src/main.py"}, ["src/*"], "/fake/worktree")
         assert result is None
 
     def test_file_outside_writable_paths(self):
         task = _make_task()
-        result = _check_security_scope(task, {"etc/config"}, ["src/*"])
+        result = _check_security_scope(task, {"etc/config"}, ["src/*"], "/fake/worktree")
         assert isinstance(result, Correction)
         assert "etc/config" in result.reason
 
     def test_wildcard_star_matches_everything(self):
         task = _make_task()
-        result = _check_security_scope(task, {"any/deep/path.py"}, ["*"])
+        result = _check_security_scope(task, {"any/deep/path.py"}, ["*"], "/fake/worktree")
         assert result is None
 
     def test_glob_pattern_matches(self):
         task = _make_task()
-        result = _check_security_scope(task, {"src/main.py"}, ["src/*.py"])
+        result = _check_security_scope(task, {"src/main.py"}, ["src/*.py"], "/fake/worktree")
         assert result is None
 
     def test_glob_pattern_rejects_mismatch(self):
         task = _make_task()
-        result = _check_security_scope(task, {"src/main.js"}, ["src/*.py"])
+        result = _check_security_scope(task, {"src/main.js"}, ["src/*.py"], "/fake/worktree")
         assert isinstance(result, Correction)
 
     def test_multiple_writable_paths(self):
         task = _make_task()
         paths = ["src/*", "tests/*"]
-        assert _check_security_scope(task, {"src/a.py"}, paths) is None
-        assert _check_security_scope(task, {"tests/b.py"}, paths) is None
-        result = _check_security_scope(task, {"docs/c.md"}, paths)
+        assert _check_security_scope(task, {"src/a.py"}, paths, "/fake/worktree") is None
+        assert _check_security_scope(task, {"tests/b.py"}, paths, "/fake/worktree") is None
+        result = _check_security_scope(task, {"docs/c.md"}, paths, "/fake/worktree")
         assert isinstance(result, Correction)
 
     def test_empty_changed_set(self):
         task = _make_task()
-        assert _check_security_scope(task, set(), ["src/*"]) is None
+        assert _check_security_scope(task, set(), ["src/*"], "/fake/worktree") is None
 
     def test_first_violation_short_circuits(self):
         task = _make_task()
@@ -232,6 +243,7 @@ class TestCheckSecurityScope:
             task,
             {"bad1.txt", "bad2.txt"},
             ["src/*"],
+            "/fake/worktree",
         )
         assert isinstance(result, Correction)
         # Only the first (sorted) offender is reported
@@ -240,14 +252,75 @@ class TestCheckSecurityScope:
     def test_empty_writable_paths_rejects_all(self):
         """With no writable paths, every changed file is rejected."""
         task = _make_task()
-        result = _check_security_scope(task, {"src/main.py"}, [])
+        result = _check_security_scope(task, {"src/main.py"}, [], "/fake/worktree")
         assert isinstance(result, Correction)
         assert "src/main.py" in result.reason
 
     def test_empty_writable_paths_empty_changed(self):
         """Empty writable_paths + no changes = pass."""
         task = _make_task()
-        result = _check_security_scope(task, set(), [])
+        result = _check_security_scope(task, set(), [], "/fake/worktree")
+        assert result is None
+
+    def test_path_traversal_rejected(self):
+        """Paths with ../ are rejected as path traversal."""
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"src/../../../etc/passwd"}, ["src/*"], "/fake/worktree"
+        )
+        assert isinstance(result, Correction)
+        assert "path traversal" in result.reason.lower()
+
+    def test_absolute_path_rejected(self):
+        """Absolute paths are rejected."""
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"/etc/passwd"}, ["*"], "/fake/worktree"
+        )
+        assert isinstance(result, Correction)
+        assert "path traversal" in result.reason.lower()
+
+    def test_null_byte_rejected(self):
+        """Paths containing null bytes are rejected."""
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"safe.py\x00../../etc/passwd"}, ["*"], "/fake/worktree"
+        )
+        assert isinstance(result, Correction)
+        assert "null byte" in result.reason.lower()
+
+    def test_symlink_escape_rejected(self, tmp_path):
+        """Symlinks pointing outside worktree are rejected."""
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "secret.txt"
+        target.write_text("secret")
+        link = worktree / "evil_link"
+        link.symlink_to(target)
+
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"evil_link"}, ["*"], str(worktree)
+        )
+        assert isinstance(result, Correction)
+        assert "outside worktree" in result.reason.lower()
+
+    def test_symlink_within_worktree_allowed(self, tmp_path):
+        """Symlinks pointing within worktree are allowed."""
+        worktree = tmp_path / "worktree"
+        src = worktree / "src"
+        src.mkdir(parents=True)
+        target = src / "real.py"
+        target.write_text("code")
+        link = src / "alias.py"
+        link.symlink_to(target)
+
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"src/alias.py"}, ["src/*"], str(worktree)
+        )
         assert result is None
 
 
@@ -491,3 +564,28 @@ class TestVerifyStep:
         result = verify_step(task, self._result())
         assert isinstance(result, Correction)
         assert "Git operation failed" in result.reason
+
+
+# ---------------------------------------------------------------------------
+# Round BI: Rubber-duck security audit regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestSecretLeakEmptyPatternsWarning:
+    """Empty secret_patterns should log a warning."""
+
+    def test_empty_patterns_warns(self, caplog):
+        task = _make_task()
+        with caplog.at_level(logging.WARNING, logger="duo.verifier"):
+            _check_secret_leak(task, "+some code\n", [])
+        assert "secret detection disabled" in caplog.text.lower()
+
+
+class TestRunInWorktreeShlex:
+    """shlex parse failure should be logged."""
+
+    def test_shlex_failure_logged(self, tmp_path, caplog):
+        with caplog.at_level(logging.WARNING, logger="duo.verifier"):
+            result = run_in_worktree(str(tmp_path), "echo 'unterminated")
+        assert result == 127
+        assert "Failed to parse" in caplog.text

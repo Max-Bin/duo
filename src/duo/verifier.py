@@ -62,8 +62,15 @@ def git_diff_names(worktree: str) -> set[str]:
     return {line for line in proc.stdout.strip().splitlines() if line}
 
 
+_MAX_DIFF_BYTES = 10 * 1024 * 1024  # 10 MB — reject diffs larger than this
+
+
 def git_diff(worktree: str) -> str:
-    """Return the full unified diff relative to HEAD."""
+    """Return the full unified diff relative to HEAD.
+
+    Limits output to ``_MAX_DIFF_BYTES`` to prevent OOM from large
+    binary files checked into the worktree.
+    """
     worktree = os.path.realpath(worktree)
     proc = subprocess.run(
         ["git", "diff", "HEAD"],
@@ -76,6 +83,11 @@ def git_diff(worktree: str) -> str:
     if proc.returncode != 0:
         raise RuntimeError(
             f"git diff failed in {worktree}: {proc.stderr.strip()[:500]}"
+        )
+    if len(proc.stdout) > _MAX_DIFF_BYTES:
+        raise RuntimeError(
+            f"Diff too large ({len(proc.stdout)} bytes > {_MAX_DIFF_BYTES} limit). "
+            "Binary files or very large changes should be reviewed manually."
         )
     return proc.stdout
 
@@ -107,7 +119,8 @@ def run_in_worktree(worktree: str, command: str) -> int:
     worktree = os.path.realpath(worktree)
     try:
         argv = shlex.split(command)
-    except ValueError:
+    except ValueError as exc:
+        logger.warning("Failed to parse command %r: %s", command, exc)
         return 127
     try:
         proc = subprocess.run(
@@ -138,10 +151,51 @@ def _check_security_scope(
     task: Task,
     changed: set[str],
     writable_paths: list[str],
+    worktree: str,
 ) -> VerifyResult | None:
-    """HARD reject if any changed file falls outside writable_paths."""
+    """HARD reject if any changed file falls outside writable_paths.
+
+    Defense-in-depth:
+    1. Reject paths containing null bytes
+    2. Normalize paths and reject ``../`` traversals
+    3. Resolve symlinks and reject files that escape the worktree
+    4. Match the *resolved* relative path against writable_paths
+    """
+    real_worktree = os.path.realpath(worktree)
     for path in sorted(changed):
-        if not any(PurePosixPath(path).match(pat) for pat in writable_paths):
+        # Null byte injection defense
+        if "\x00" in path:
+            reason = f"Security violation: null byte in path {path!r}"
+            append_event(task, "security_violation", {"file": path, "reason": "null_byte"})
+            return Correction(reason)
+
+        # Normalize and reject traversals
+        normalized = os.path.normpath(path)
+        if normalized.startswith("..") or os.path.isabs(normalized):
+            reason = f"Security violation: path traversal in '{path}'"
+            append_event(
+                task, "security_violation", {"file": path, "reason": "path_traversal"}
+            )
+            return Correction(reason)
+
+        # Resolve symlinks and verify containment within worktree
+        full_path = os.path.join(real_worktree, normalized)
+        real_path = os.path.realpath(full_path)
+        if not real_path.startswith(real_worktree + os.sep) and real_path != real_worktree:
+            reason = (
+                f"Security violation: '{path}' resolves to '{real_path}' "
+                f"which is outside worktree '{real_worktree}'"
+            )
+            append_event(
+                task,
+                "security_violation",
+                {"file": path, "resolved": real_path, "reason": "symlink_escape"},
+            )
+            return Correction(reason)
+
+        # Match resolved relative path against writable_paths
+        rel_real = os.path.relpath(real_path, real_worktree)
+        if not any(PurePosixPath(rel_real).match(pat) for pat in writable_paths):
             reason = f"Security violation: '{path}' is outside writable paths {writable_paths}"
             append_event(
                 task,
@@ -178,7 +232,16 @@ def _check_secret_leak(
     diff_content: str,
     secret_patterns: list[str],
 ) -> VerifyResult | None:
-    """HARD reject if added lines in the diff contain any secret pattern."""
+    """HARD reject if added lines in the diff contain any secret pattern.
+
+    Patterns are treated as literal substrings (not regex).
+    Matching is case-insensitive.
+    """
+    if not secret_patterns:
+        logger.warning(
+            "No secret patterns configured for task %s — secret detection disabled",
+            task.id,
+        )
     # Only check newly added lines (start with '+' but not '+++' header)
     added_lines = "\n".join(
         line
@@ -251,7 +314,7 @@ def verify_step(task: Task, result: StepResult) -> VerifyResult:
         return Correction(f"Git operation failed: {exc}")
 
     # (a) Security scope — HARD
-    err = _check_security_scope(task, changed, subtask.writable_paths)
+    err = _check_security_scope(task, changed, subtask.writable_paths, worktree)
     if err is not None:
         return err
 
