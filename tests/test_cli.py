@@ -39,6 +39,7 @@ from duo.cli import (
     _doctor_check_tmux_bridge,
     _doctor_check_tmux_session,
     _fmt_ts,
+    _is_auto_selectable,
     _load_batch_file,
     _parse_age,
     _print_results,
@@ -7989,3 +7990,497 @@ class TestResolveTaskFromFocus:
     def test_raises_when_no_task_no_focus(self) -> None:
         with pytest.raises(DuoUserError, match="No task specified"):
             _resolve_task_from_focus(None)
+
+
+# ---------------------------------------------------------------------------
+# ceo-now command
+# ---------------------------------------------------------------------------
+
+
+class TestCeoNow:
+    """Tests for duo ceo-now dashboard command."""
+
+    def test_ceo_now_no_focus(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "Focus:     (none" in result.output
+        assert "Duo CEO Dashboard" in result.output
+
+    def test_ceo_now_with_focus(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        task = make_task("dash-task")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("dash-task", session_id="s1")
+        with (
+            patch("duo.transport.resolve_label", return_value="%42"),
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="fd95932 fix auth\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "dash-task" in result.output
+        assert task.status.value in result.output
+        assert "alive" in result.output
+        assert "dialog: option" in result.output
+
+    def test_ceo_now_json_output(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        task = make_task("json-now")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("json-now")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc1234 msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["focus"]["task_id"] == "json-now"
+        assert data["focus"]["status"] == task.status.value
+        assert data["pane"]["alive"] is True
+        assert data["pane"]["in_dialog"] is False
+        assert data["budget"] is not None
+        assert "used" in data["budget"]
+        assert isinstance(data["recent_decisions"], list)
+
+    def test_ceo_now_focus_task_deleted(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+    ) -> None:
+        import shutil as shutil_mod
+
+        task = make_task("gone-now")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("gone-now")
+        task_dir = tmp_path / "tasks" / task.id
+        if task_dir.exists():
+            shutil_mod.rmtree(task_dir)
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="abc1234 msg\n"),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["focus"]["task_id"] == "gone-now"
+        assert data["focus"]["status"] == "not_found"
+        assert data["pane"] is None
+
+    def test_ceo_now_no_session_id(
+        self,
+        runner: CliRunner,
+        make_task,
+    ) -> None:
+        make_task("no-sess")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("no-sess")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["recent_decisions"] == []
+
+    def test_ceo_now_with_recent_decisions(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+
+        log_dialog_detected(sid, "ev-task", "content here", "option")
+        log_decision(sid, "ev-task", "select", "option 2", elapsed_ms=50)
+
+        make_task("ev-task")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("ev-task", session_id=sid)
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="fd9 fix\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "Recent events (last 5):" in result.output
+        assert "dialog_detected" in result.output
+        assert "decision" in result.output
+
+    def test_ceo_now_pane_resolve_fails(
+        self,
+        runner: CliRunner,
+        make_task,
+    ) -> None:
+        make_task("dead-pane")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("dead-pane")
+        with (
+            patch(
+                "duo.transport.resolve_label",
+                side_effect=RuntimeError("no pane"),
+            ),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["pane"]["alive"] is False
+
+    def test_ceo_now_dialog_check_fails(
+        self,
+        runner: CliRunner,
+        make_task,
+    ) -> None:
+        make_task("dlg-fail")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("dlg-fail")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch(
+                "duo.transport.is_in_dialog",
+                side_effect=RuntimeError("read fail"),
+            ),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["pane"]["alive"] is True
+        assert data["pane"]["in_dialog"] is False
+
+    def test_ceo_now_git_fails(
+        self,
+        runner: CliRunner,
+    ) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=OSError("git not found"),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["git"] is None
+
+
+class TestIsAutoSelectable:
+    """Tests for _is_auto_selectable helper."""
+
+    def test_continue(self) -> None:
+        content = "Some header\n  1. Continue with changes\n  2. Cancel"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+        assert "Continue" in text
+
+    def test_no_match(self) -> None:
+        content = "Some header\n  1. Create new file\n  2. Delete file"
+        auto, text = _is_auto_selectable(content)
+        assert auto is False
+        assert "Create" in text
+
+    def test_empty(self) -> None:
+        content = "No options here at all"
+        auto, text = _is_auto_selectable(content)
+        assert auto is False
+        assert text == ""
+
+    def test_marker(self) -> None:
+        content = "Header\n  ❯ Yes, proceed with operation\n  Other"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+        assert "Yes" in text
+
+    def test_begin_keyword(self) -> None:
+        content = "╭─ Dialog ─╮\n  1. Begin installation\n  2. Abort"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+
+    def test_ok_keyword(self) -> None:
+        content = "1. OK\n2. Cancel"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+
+    def test_chinese_continue(self) -> None:
+        content = "  1. 继续执行\n  2. 取消"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+        assert "继续" in text
+
+    def test_chinese_next(self) -> None:
+        content = "  1. 下一步\n  2. 返回"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+
+    def test_case_insensitive(self) -> None:
+        content = "1. PROCEED with merge\n2. Abort"
+        auto, text = _is_auto_selectable(content)
+        assert auto is True
+
+
+class TestCeoSmart:
+    """Tests for duo ceo-smart."""
+
+    def test_ceo_smart_no_dialog(self, runner: CliRunner, make_task) -> None:
+        task = make_task("smart-nodlg")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        assert "No dialog detected" in result.output
+
+    def test_ceo_smart_permission_auto_approve(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        task = make_task("smart-perm")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch(
+                "duo.transport.read_pane",
+                return_value="Do you want to run this command?\n1. Yes\n2. No",
+            ),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission") as mock_approve,
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        assert "Auto-approved permission dialog" in result.output
+        mock_approve.assert_called_once_with(task.pane_label)
+
+    def test_ceo_smart_option_auto_select_continue(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        task = make_task("smart-cont")
+        pane = "╭─ Dialog ─╮\n  1. Continue with changes\n  2. Cancel\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        assert "Auto-selected option 1" in result.output
+        mock_sel.assert_called_once_with(task.pane_label, "1")
+
+    def test_ceo_smart_option_auto_select_yes(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        task = make_task("smart-yes")
+        pane = "╭─ Q ─╮\n  1. Yes, apply\n  2. No\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        assert "Auto-selected option 1" in result.output
+        mock_sel.assert_called_once_with(task.pane_label, "1")
+
+    def test_ceo_smart_option_auto_select_chinese(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        task = make_task("smart-cn")
+        pane = "╭─ Dialog ─╮\n  1. 继续执行\n  2. 取消\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        assert "Auto-selected option 1" in result.output
+        mock_sel.assert_called_once_with(task.pane_label, "1")
+
+    def test_ceo_smart_option_defer_complex(self, runner: CliRunner, make_task) -> None:
+        task = make_task("smart-complex")
+        pane = "╭─ Q ─╮\n  1. Create new file\n  2. Modify existing\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 1
+        assert "manual intervention" in result.output
+        assert "option" in result.output
+
+    def test_ceo_smart_text_dialog_defer(self, runner: CliRunner, make_task) -> None:
+        task = make_task("smart-text")
+        pane = "╭─ Q ─╮\n Type your answer\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 1
+        assert "manual intervention" in result.output
+        assert "text" in result.output
+
+    def test_ceo_smart_unknown_dialog_defer(self, runner: CliRunner, make_task) -> None:
+        """A dialog detected by is_in_dialog but kind is NONE defers."""
+        task = make_task("smart-unk")
+        pane = "Some weird dialog content"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 1
+        assert "manual intervention" in result.output
+
+    def test_ceo_smart_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-smart", "nonexistent"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_ceo_smart_with_ceo_session(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("smart-log")
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch(
+                "duo.transport.read_pane",
+                return_value="Do you want to run?\n1. Yes\n2. No",
+            ),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission"),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(e["event"] == "dialog_detected" for e in events)
+        assert any(
+            e["event"] == "decision" and e["decision_type"] == "smart-approve"
+            for e in events
+        )
+
+    def test_ceo_smart_session_logging_defer(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("smart-defer-log")
+        pane = "╭─ Q ─╮\n Type your answer\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 1
+        events = duo.ceo_log.replay_session(sid)
+        assert any(
+            e["event"] == "decision" and e["decision_type"] == "smart-defer"
+            for e in events
+        )
+
+    def test_ceo_smart_session_logging_auto_select(
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        monkeypatch.setenv("DUO_CEO_SESSION", sid)
+        task = make_task("smart-sel-log")
+        pane = "╭─ Dialog ─╮\n  1. Continue with changes\n  2. Cancel\n╰─"
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=pane),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+        ):
+            result = runner.invoke(main, ["ceo-smart", task.id])
+        assert result.exit_code == 0
+        events = duo.ceo_log.replay_session(sid)
+        assert any(
+            e["event"] == "decision" and e["decision_type"] == "smart-select"
+            for e in events
+        )

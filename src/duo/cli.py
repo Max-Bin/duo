@@ -49,12 +49,14 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-wait",
         "ceo-select",
         "ceo-approve",
+        "ceo-smart",
         "ceo-status",
         "ceo-loop",
         "ceo-resume",
         "ceo-focus",
         "ceo-focus-show",
         "ceo-focus-clear",
+        "ceo-now",
         "ceo-session-start",
         "ceo-session-list",
         "ceo-session-replay",
@@ -2459,6 +2461,124 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
         log_decision(_session_id, task, "approve", "permission approved", elapsed_ms=0)
 
 
+_AUTO_SELECT_KEYWORDS = [
+    "continue",
+    "继续",
+    "yes",
+    "next",
+    "下一",
+    "proceed",
+    "confirm",
+    "start",
+    "begin",
+    "ok",
+]
+
+
+def _is_auto_selectable(pane_content: str) -> tuple[bool, str]:
+    """Check if the first option in a dialog is auto-selectable.
+
+    Returns (should_auto_select, first_option_text).
+    """
+    lines = pane_content.splitlines()
+    first_option = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("1.") or stripped.startswith("❯"):
+            first_option = stripped
+            break
+
+    if not first_option:
+        return False, ""
+
+    lower = first_option.lower()
+    for kw in _AUTO_SELECT_KEYWORDS:
+        if kw in lower:
+            return True, first_option
+
+    return False, first_option
+
+
+@main.command("ceo-smart")
+@click.argument("task")
+def ceo_smart(task: str) -> None:
+    """Auto-decide trivial dialogs, defer complex ones.
+
+    Exits 0 if a decision was made automatically.
+    Exits 1 if the dialog needs manual CEO intervention (prints dialog content).
+    """
+    from duo.transport import (
+        DialogKind,
+        approve_permission,
+        get_dialog_kind,
+        is_in_dialog,
+        is_permission_dialog,
+        read_pane,
+        select_dialog_option,
+    )
+
+    t = _load_task_or_fail(task)
+
+    if not is_in_dialog(t.pane_label):
+        click.echo("No dialog detected.")
+        return
+
+    kind = get_dialog_kind(t.pane_label)
+    content = read_pane(t.pane_label)
+    session_id = os.environ.get("DUO_CEO_SESSION")
+
+    if session_id:
+        from duo.ceo_log import log_dialog_detected
+
+        log_dialog_detected(session_id, task, content, kind.value)
+
+    if is_permission_dialog(t.pane_label):
+        approve_permission(t.pane_label)
+        click.echo(f"Auto-approved permission dialog for '{task}'.")
+        if session_id:
+            from duo.ceo_log import log_decision
+
+            log_decision(
+                session_id,
+                task,
+                "smart-approve",
+                "permission auto-approved",
+                elapsed_ms=0,
+            )
+        return
+
+    if kind == DialogKind.OPTION:
+        auto, first_opt = _is_auto_selectable(content)
+        if auto:
+            select_dialog_option(t.pane_label, "1")
+            click.echo(f"Auto-selected option 1 for '{task}': {first_opt[:60]}")
+            if session_id:
+                from duo.ceo_log import log_decision
+
+                log_decision(
+                    session_id,
+                    task,
+                    "smart-select",
+                    f"auto-selected: {first_opt[:100]}",
+                    elapsed_ms=0,
+                )
+            return
+
+    click.echo(f"Dialog requires manual intervention ({kind.value}):")
+    click.echo(content)
+    if session_id:
+        from duo.ceo_log import log_decision
+
+        log_decision(
+            session_id,
+            task,
+            "smart-defer",
+            f"deferred {kind.value} dialog",
+            elapsed_ms=0,
+        )
+    sys.exit(1)
+
+
 @main.command("ceo-focus")
 @click.argument("task")
 @click.option("--session", default="", help="CEO session ID to associate.")
@@ -2508,6 +2628,150 @@ def ceo_focus_clear() -> None:
 
     clear_ceo_focus()
     click.echo("CEO focus cleared.")
+
+
+@main.command("ceo-now")
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+def ceo_now(json_output: bool) -> None:
+    """One-screen CEO status dashboard."""
+    from duo.ceo_state import load_ceo_focus
+
+    focus = load_ceo_focus()
+
+    data: dict[str, Any] = {
+        "focus": None,
+        "pane": None,
+        "dialog": None,
+        "budget": None,
+        "git": None,
+        "recent_decisions": [],
+    }
+
+    if focus:
+        task_id = focus.get("task_id", "")
+        task = load_task(task_id)
+        if task:
+            started = focus.get("started_at", "")
+            data["focus"] = {
+                "task_id": task_id,
+                "status": task.status.value,
+                "started_at": started,
+            }
+
+            # Pane status
+            pane_alive = False
+            try:
+                from duo.transport import (
+                    get_dialog_kind,
+                    is_in_dialog,
+                    resolve_label,
+                )
+
+                resolve_label(task.pane_label)
+                pane_alive = True
+            except Exception:
+                pass
+
+            in_dialog = False
+            dialog_kind = ""
+            if pane_alive:
+                try:
+                    in_dialog = is_in_dialog(task.pane_label)
+                    if in_dialog:
+                        dialog_kind = get_dialog_kind(task.pane_label).value
+                except Exception:
+                    pass
+
+            data["pane"] = {
+                "label": task.pane_label,
+                "alive": pane_alive,
+                "in_dialog": in_dialog,
+                "dialog_kind": dialog_kind,
+            }
+
+            # Budget
+            events = read_jsonl(task.journal_path)
+            pr_count = sum(1 for e in events if e.get("event") == "pr_consumed")
+            budget_setting = int(get_config("pr_budget") or 0)
+            data["budget"] = {"used": pr_count, "limit": budget_setting}
+        else:
+            data["focus"] = {"task_id": task_id, "status": "not_found"}
+
+    # Git HEAD
+    try:
+        result = subprocess.run(
+            ["git", "--no-pager", "log", "-1", "--format=%h %s"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode == 0:
+            data["git"] = {"head": result.stdout.strip()}
+        git_status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if data["git"]:
+            data["git"]["clean"] = git_status.stdout.strip() == ""
+    except Exception:
+        pass
+
+    # Recent decisions from CEO session
+    if focus and focus.get("session_id"):
+        from duo.ceo_log import replay_session
+
+        events_list = replay_session(focus["session_id"])
+        recent = [
+            e for e in events_list if e.get("event") in ("decision", "dialog_detected")
+        ][-5:]
+        data["recent_decisions"] = recent
+
+    if json_output:
+        click.echo(json.dumps(data, indent=2))
+        return
+
+    # Pretty print
+    width = 55
+    click.echo(f"\u2500\u2500\u2500 Duo CEO Dashboard {'\u2500' * (width - 22)}")
+
+    if data["focus"]:
+        f = data["focus"]
+        click.echo(f"Focus:     {f['task_id']} ({f['status']})")
+    else:
+        click.echo("Focus:     (none \u2014 run 'duo ceo-focus <task>')")
+
+    if data["pane"]:
+        p = data["pane"]
+        status_parts = ["alive" if p["alive"] else "dead"]
+        if p["in_dialog"]:
+            status_parts.append(f"dialog: {p['dialog_kind']}")
+        click.echo(f"Pane:      {p['label']} ({', '.join(status_parts)})")
+
+    if data["budget"]:
+        b = data["budget"]
+        limit_str = f"limit: {b['limit']}" if b["limit"] > 0 else "unlimited"
+        click.echo(f"Budget:    {b['used']} PRs used ({limit_str})")
+
+    if data["git"]:
+        g = data["git"]
+        clean_str = "clean" if g.get("clean") else "dirty"
+        click.echo(f"Git:       {g['head']} ({clean_str})")
+
+    if data["recent_decisions"]:
+        click.echo("")
+        click.echo("Recent events (last 5):")
+        for ev in data["recent_decisions"]:
+            ts = ev.get("ts", "?")[11:16]
+            etype = ev.get("event", "?")
+            task_name = ev.get("task", "")
+            content = ev.get("content", ev.get("decision_type", ""))[:40]
+            click.echo(f"  {ts}  {etype:20s}  {task_name:15s}  {content}")
+
+    click.echo("\u2500" * width)
 
 
 @main.command("ceo-status")
