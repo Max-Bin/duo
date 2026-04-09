@@ -2422,7 +2422,10 @@ def events_show(name: str) -> None:
         )
     data = read_json(target)
     if data is None:
-        raise DuoUserError(f"Invalid event file: {target.name}")
+        raise DuoUserError(
+            f"Invalid event file: {target.name}",
+            fix="The file may be corrupted. Check the raw file content.",
+        )
     click.echo(json.dumps(data, indent=2, ensure_ascii=False))
 
 
@@ -3781,8 +3784,8 @@ def ceo_cleanup(task: str, *, dry_run: bool, json_output: bool) -> None:
     pid = get_pane_pid(t.pane_label)
     if pid is None:
         raise DuoUserError(
-            f"Cannot determine PID for pane '{t.pane_label}'. "
-            "Is the session alive? Run: duo status"
+            f"Cannot determine PID for pane '{t.pane_label}'",
+            fix=f"Is the session alive? Check with 'duo status {task}'.",
         )
 
     children = _find_idle_children(pid)
