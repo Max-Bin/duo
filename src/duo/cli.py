@@ -3492,39 +3492,19 @@ def _match_policy(
     return str(default), ""
 
 
-@main.command("ceo-metrics")
-@click.option("--session", "session_id", default=None, help="Single session ID.")
-@click.option(
-    "--all", "all_sessions", is_flag=True, default=True, help="All sessions (default)."
-)
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
-@click.option(
-    "--since", default=None, help="ISO datetime filter (e.g. 2025-01-01T00:00:00)."
-)
-def ceo_metrics_cmd(
-    *,
+def _metrics_load_events(
     session_id: str | None,
-    all_sessions: bool,
-    json_output: bool,
     since: str | None,
-) -> None:
-    """Aggregate analytics across CEO sessions."""
+) -> tuple[list[dict[str, Any]], int, list[float]]:
+    """Load and filter CEO session events.
+
+    Returns (all_events, session_count, session_durations).
+    """
     from datetime import datetime
 
     from duo.ceo_log import list_sessions, replay_session
 
-    if session_id:
-        session_ids = [session_id]
-    else:
-        session_ids = list_sessions()
-
-    if not session_ids:
-        if json_output:
-            click.echo(json.dumps({"error": "No CEO sessions found."}))
-        else:
-            click.echo("No CEO sessions found.")
-        return
-
+    session_ids = [session_id] if session_id else list_sessions()
     all_events: list[dict[str, Any]] = []
     session_count = 0
     session_durations: list[float] = []
@@ -3546,13 +3526,15 @@ def ceo_metrics_cmd(
             except (ValueError, TypeError):
                 pass
 
-    if session_count == 0:
-        if json_output:
-            click.echo(json.dumps({"error": "No CEO sessions found."}))
-        else:
-            click.echo("No CEO sessions found.")
-        return
+    return all_events, session_count, session_durations
 
+
+def _metrics_aggregate(
+    all_events: list[dict[str, Any]],
+    session_count: int,
+    session_durations: list[float],
+) -> dict[str, Any]:
+    """Compute aggregate metrics from CEO session events."""
     dialogs = [e for e in all_events if e.get("event") == "dialog_detected"]
     decisions = [e for e in all_events if e.get("event") == "decision"]
     total_dialogs = len(dialogs)
@@ -3572,7 +3554,7 @@ def ceo_metrics_cmd(
     approval_rate = (
         (approved_count / total_decisions * 100) if total_decisions > 0 else 0.0
     )
-    avg_decisions = round(total_decisions / session_count, 1)
+    avg_decisions = round(total_decisions / session_count, 1) if session_count else 0.0
     avg_duration_s = (
         sum(session_durations) / len(session_durations) if session_durations else 0.0
     )
@@ -3584,7 +3566,7 @@ def ceo_metrics_cmd(
             content_counts[c] = content_counts.get(c, 0) + 1
     top_patterns = sorted(content_counts.items(), key=lambda x: x[1], reverse=True)[:5]
 
-    metrics: dict[str, Any] = {
+    return {
         "sessions": session_count,
         "total_dialogs": total_dialogs,
         "total_decisions": total_decisions,
@@ -3596,19 +3578,23 @@ def ceo_metrics_cmd(
         "top_dialog_patterns": [{"content": c, "count": n} for c, n in top_patterns],
     }
 
-    if json_output:
-        click.echo(json.dumps(metrics, indent=2))
-        return
 
+def _metrics_format_text(
+    metrics: dict[str, Any],
+    session_id: str | None,
+) -> None:
+    """Emit human-readable metrics to stdout."""
     scope = f"session {session_id}" if session_id else "all sessions"
     click.echo(f"CEO Metrics ({scope})")
     click.echo("\u2500" * 25)
-    click.echo(f"Sessions:    {session_count}")
-    click.echo(f"Dialogs:     {total_dialogs}")
-    click.echo(f"Decisions:   {total_decisions}")
-    click.echo(f"Approval rate: {approval_rate:.1f}%")
+    click.echo(f"Sessions:    {metrics['sessions']}")
+    click.echo(f"Dialogs:     {metrics['total_dialogs']}")
+    click.echo(f"Decisions:   {metrics['total_decisions']}")
+    click.echo(f"Approval rate: {metrics['approval_rate']:.1f}%")
     click.echo()
 
+    dialog_kinds = metrics.get("dialog_kinds", {})
+    total_dialogs = metrics["total_dialogs"]
     if dialog_kinds:
         click.echo("Dialog kinds:")
         for kind, count in sorted(
@@ -3618,6 +3604,8 @@ def ceo_metrics_cmd(
             click.echo(f"  {kind:12s} {count:4d} ({pct:.1f}%)")
         click.echo()
 
+    decision_types = metrics.get("decision_types", {})
+    total_decisions = metrics["total_decisions"]
     if decision_types:
         click.echo("Decision types:")
         for dt, count in sorted(
@@ -3627,16 +3615,52 @@ def ceo_metrics_cmd(
             click.echo(f"  {dt:12s} {count:4d} ({pct:.1f}%)")
         click.echo()
 
-    click.echo(f"Avg decisions/session: {avg_decisions}")
-    mins = int(avg_duration_s) // 60
-    secs = int(avg_duration_s) % 60
+    click.echo(f"Avg decisions/session: {metrics['avg_decisions_per_session']}")
+    avg_s = metrics["avg_session_duration_s"]
+    mins = int(avg_s) // 60
+    secs = int(avg_s) % 60
     click.echo(f"Avg session duration:  {mins}m {secs:02d}s")
 
+    top_patterns = metrics.get("top_dialog_patterns", [])
     if top_patterns:
         click.echo()
         click.echo("Top dialog patterns:")
-        for content, count in top_patterns:
-            click.echo(f"  [{count}x] {content}")
+        for item in top_patterns:
+            click.echo(f"  [{item['count']}x] {item['content']}")
+
+
+@main.command("ceo-metrics")
+@click.option("--session", "session_id", default=None, help="Single session ID.")
+@click.option(
+    "--all", "all_sessions", is_flag=True, default=True, help="All sessions (default)."
+)
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+@click.option(
+    "--since", default=None, help="ISO datetime filter (e.g. 2025-01-01T00:00:00)."
+)
+def ceo_metrics_cmd(
+    *,
+    session_id: str | None,
+    all_sessions: bool,
+    json_output: bool,
+    since: str | None,
+) -> None:
+    """Aggregate analytics across CEO sessions."""
+    all_events, session_count, durations = _metrics_load_events(session_id, since)
+
+    if session_count == 0:
+        if json_output:
+            click.echo(json.dumps({"error": "No CEO sessions found."}))
+        else:
+            click.echo("No CEO sessions found.")
+        return
+
+    metrics = _metrics_aggregate(all_events, session_count, durations)
+
+    if json_output:
+        click.echo(json.dumps(metrics, indent=2))
+    else:
+        _metrics_format_text(metrics, session_id)
 
 
 @main.command()
