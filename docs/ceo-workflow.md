@@ -402,17 +402,47 @@ initiate an orderly session restart when present:
 ```bash
 if [ -f ~/.duo/ceo-sessions/$SESSION_ID/restart-recommended ]; then
     echo "Session degraded — initiating restart"
-    duo stop my-task
-    duo start my-task
+    duo ceo-restart my-task
 fi
 ```
 
-### Orderly Restart Procedure
+### Orderly Restart with `duo ceo-restart`
 
-1. Commit any in-progress work
-2. `duo stop <task>` to cleanly shut down the session
-3. `duo start <task>` to bootstrap a fresh Copilot process
-4. The fresh process costs 1 PR for re-bootstrapping
+Use `duo ceo-restart <task>` for an in-place restart that preserves
+the tmux pane and avoids a full `stop` / `start` cycle:
+
+```bash
+# Restart a degraded session
+duo ceo-restart my-task
+
+# The command will:
+# 1. Record pre-restart health (PID, fds, kqueue)
+# 2. Clean up idle child processes
+# 3. Exit the current Copilot session
+# 4. Wait for the shell prompt to return
+# 5. Launch a fresh Copilot with the same model + /allow-all
+# 6. Report post-restart health improvement
+# 7. Remove the restart-recommended signal file
+```
+
+**When to restart your Copilot session:**
+
+| Symptom | Check command | Action |
+|---------|---------------|--------|
+| Slow responses | `duo ceo-now` — check fd_count | Restart if >500 fds |
+| kqueue leak | `duo doctor` — check kqueue_count | Restart if >2000 |
+| Idle children accumulating | `duo ceo-cleanup <task> --dry-run` | Cleanup first, restart if not enough |
+| Session age >4 hours | `duo ceo-now` — check session_age | Preventive restart recommended |
+| `restart-recommended` signal | `duo doctor` emits this | Restart immediately |
+
+**Smoke testing restarts:**
+
+```bash
+# Run the automated restart smoke test
+make test-ceo-restart TASK=my-task
+# or directly:
+bash scripts/test-ceo-restart.sh my-task
+```
 
 Plan for orderly restart as a first-class operation, not an emergency
 recovery.
