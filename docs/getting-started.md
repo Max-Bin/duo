@@ -394,5 +394,5 @@ duo think my-feature --close            # Close pane, keep files
 
 - **[`docs/ceo-workflow.md`](ceo-workflow.md)** — CEO command reference with bash loop examples and safety model documentation
 - **[`docs/architecture.md`](architecture.md)** — Deep dive into the FSM, file-based protocol, and security model
-- **`duo --help`** — Full CLI reference with all 37 commands
+- **`duo --help`** — Full CLI reference with all 51 commands
 - **`examples/tasks.json`** — Example batch file with multiple task definitions

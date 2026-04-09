@@ -458,3 +458,15 @@ Monitor timeout check used `task.created_at` which includes queue wait time.
 Tasks queued for long periods could time out immediately upon promotion.
 Fixed: added `session_started_at` field to Task, set on `start_session()`,
 used preferentially in timeout calculation.
+
+### ceo-select crashes on non-numeric OPTION (Round CQ, commit `4f6836f`)
+`ceo-select` passed user-supplied OPTION string directly to `int()` without
+validation. Non-numeric input caused an unguarded `ValueError`. Fixed: early
+validation rejects non-digit input with a `DuoUserError` and fix hint.
+
+### Monitor restarts tasks after duo stop (Round CR-CS, commits `39c036f`/`5677278`)
+Race condition: monitor snapshots active tasks, then `duo stop` kills pane
+and transitions to BLOCKED. Monitor detects heartbeat timeout and auto-restarts,
+undoing the stop. Fixed: `poll_task` re-reads task status from disk before
+auto-restarting. Also handles corrupt `task.json` (load_task returns None)
+by skipping restart instead of proceeding blindly.
