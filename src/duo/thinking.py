@@ -7,11 +7,12 @@ No Copilot pane, no Premium Request consumed.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import time
 from pathlib import Path
 
-from duo.protocol import DUO_DIR
+from duo.protocol import DUO_DIR, atomic_write_text
 
 __all__ = [
     "THINKING_DIR",
@@ -119,7 +120,7 @@ def write_thinking_claude_md(name: str) -> Path:
     tdir = thinking_dir(name)
     tdir.mkdir(parents=True, exist_ok=True)
     claude_md = tdir / "CLAUDE.md"
-    claude_md.write_text(_THINKING_CLAUDE_MD.format(name=name), encoding="utf-8")
+    atomic_write_text(claude_md, _THINKING_CLAUDE_MD.format(name=name))
     logger.info("Wrote %s", claude_md)
     return claude_md
 
@@ -133,7 +134,7 @@ def write_plan_template(name: str) -> Path:
     tdir = thinking_dir(name)
     tdir.mkdir(parents=True, exist_ok=True)
     tmpl = tdir / "plan-template.md"
-    tmpl.write_text(_PLAN_TEMPLATE.format(name=name), encoding="utf-8")
+    atomic_write_text(tmpl, _PLAN_TEMPLATE.format(name=name))
     logger.info("Wrote %s", tmpl)
     return tmpl
 
@@ -351,6 +352,8 @@ def append_session_log(name: str, user_message: str, response: str) -> None:
     )
     with log_file.open("a", encoding="utf-8") as f:
         f.write(entry)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def list_sessions() -> list[dict[str, str]]:

@@ -34,6 +34,7 @@ from duo.protocol import (
     Task,
     TaskStatus,
     append_event,
+    atomic_write_text,
     list_tasks,
     new_incarnation,
     now_iso,
@@ -297,7 +298,7 @@ def write_commander_claude_md(task: Task) -> None:
 
     claude_md = Path(task.worktree) / "CLAUDE.md"
     try:
-        claude_md.write_text(content)
+        atomic_write_text(claude_md, content)
         logger.info("Wrote CLAUDE.md to %s", claude_md)
     except OSError as exc:
         logger.warning("Failed to write CLAUDE.md to %s: %s", claude_md, exc)
@@ -590,7 +591,7 @@ def send_task_prompt(task: Task, prompt: str) -> None:
     prompt_path = task.prompt_path(task.current_step, task.current_attempt)
     prompt_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        prompt_path.write_text(prompt, encoding="utf-8")
+        atomic_write_text(prompt_path, prompt)
     except OSError as exc:
         logger.warning("Failed to write prompt file %s: %s", prompt_path, exc)
         raise

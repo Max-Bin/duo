@@ -1162,14 +1162,10 @@ class TestStartSessionError:
         """OSError writing prompt file is logged and re-raised."""
         task = _make_task()
         _advance_to_prompt_sent(task)
-        _orig_write_text = Path.write_text
-
-        def _guarded_write_text(self, *a, **kw):
-            if "prompt-" in str(self):
-                raise OSError("read-only filesystem")
-            return _orig_write_text(self, *a, **kw)
-
-        monkeypatch.setattr(Path, "write_text", _guarded_write_text)
+        monkeypatch.setattr(
+            "duo.commander.atomic_write_text",
+            MagicMock(side_effect=OSError("read-only filesystem")),
+        )
         with pytest.raises(OSError, match="read-only filesystem"):
             send_task_prompt(task, "prompt")
 

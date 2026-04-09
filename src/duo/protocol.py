@@ -28,6 +28,7 @@ __all__ = [
     "Task",
     "TaskStatus",
     "append_event",
+    "atomic_write_text",
     "create_task",
     "list_corrupted",
     "list_tasks",
@@ -269,11 +270,16 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
             f"max {_MAX_JSON_BYTES})"
         )
 
+    atomic_write_text(path, json_str)
+
+
+def atomic_write_text(path: Path, content: str) -> None:
+    """Write text atomically: tmp file → fsync → rename."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
     try:
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(json_str)
+            f.write(content)
             f.flush()
             os.fsync(f.fileno())
         tmp.rename(path)
@@ -326,8 +332,8 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
             # Rotate: keep last half
             lines = journal.read_text(encoding="utf-8").splitlines()
             half = len(lines) // 2
-            journal.write_text(
-                "\n".join(lines[half:]) + "\n", encoding="utf-8"
+            atomic_write_text(
+                journal, "\n".join(lines[half:]) + "\n"
             )
             logger.info(
                 "Rotated journal for task %r (%d entries removed)", task.id, half

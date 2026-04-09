@@ -20,6 +20,7 @@ from duo.protocol import (
     TaskStatus,
     _clear_task_cache,
     append_event,
+    atomic_write_text,
     create_task,
     list_corrupted,
     list_tasks,
@@ -1266,3 +1267,44 @@ class TestReadJsonlEdgeCases:
         events = read_jsonl(path)
         assert events[0]["msg"] == "🚀 日本語"
         assert events[1]["msg"] == "中文测试"
+
+
+class TestAtomicWriteText:
+    """Tests for atomic_write_text helper."""
+
+    def test_basic_write(self, tmp_path: Path) -> None:
+        path = tmp_path / "test.txt"
+        atomic_write_text(path, "hello world")
+        assert path.read_text() == "hello world"
+
+    def test_creates_parent_dirs(self, tmp_path: Path) -> None:
+        path = tmp_path / "a" / "b" / "c.txt"
+        atomic_write_text(path, "deep")
+        assert path.read_text() == "deep"
+
+    def test_overwrites_existing_atomically(self, tmp_path: Path) -> None:
+        path = tmp_path / "overwrite.txt"
+        path.write_text("old")
+        atomic_write_text(path, "new")
+        assert path.read_text() == "new"
+
+    def test_no_tmp_files_left(self, tmp_path: Path) -> None:
+        path = tmp_path / "clean.txt"
+        atomic_write_text(path, "content")
+        tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+        assert len(tmp_files) == 0
+
+    def test_oserror_cleans_tmp(self, tmp_path: Path) -> None:
+        """OSError during write cleans up tmp file."""
+        path = tmp_path / "fail.txt"
+        path.mkdir()  # Make it a directory so rename fails
+        with pytest.raises(OSError):
+            atomic_write_text(path, "will fail")
+        tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+        assert len(tmp_files) == 0
+
+    def test_unicode_content(self, tmp_path: Path) -> None:
+        path = tmp_path / "unicode.txt"
+        content = "🚀 日本語 中文 한국어"
+        atomic_write_text(path, content)
+        assert path.read_text() == content

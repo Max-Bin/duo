@@ -23,6 +23,7 @@ from duo.protocol import (
     Subtask,
     Task,
     TaskStatus,
+    atomic_write_text,
     create_task,
     list_tasks,
     load_task,
@@ -1319,7 +1320,8 @@ def init(repo: str) -> None:
 
     # 5. .duo/instructions.md
     instructions = project_duo / "instructions.md"
-    instructions.write_text(
+    atomic_write_text(
+        instructions,
         "# Duo Project Instructions\n"
         "\n"
         "## Project Overview\n"
@@ -1332,7 +1334,7 @@ def init(repo: str) -> None:
         "<!-- How to run tests -->\n"
         "\n"
         "## Important Notes\n"
-        "<!-- Anything the executor should know -->\n"
+        "<!-- Anything the executor should know -->\n",
     )
     created.append(str(instructions))
 
@@ -1352,6 +1354,8 @@ def init(repo: str) -> None:
             if content and not content.endswith("\n"):
                 f.write("\n")
             f.write(".duo/\n")
+            f.flush()
+            os.fsync(f.fileno())
         created.append(str(gitignore) + " (updated)")
 
     click.echo("Initialized Duo project:")
@@ -2033,6 +2037,8 @@ def _log_pr_budget_warning(label: str, flag: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"{now_iso()} WARNING {flag} used on pane '{label}'\n")
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def _enforce_not_at_main_prompt(label: str, force_new_session: bool) -> None:
@@ -2303,7 +2309,7 @@ def _write_loop_state(task_id: str, state: dict[str, object]) -> None:
     """Write ceo-loop state to ~/.duo/ceo-loops/{task}.json."""
     CEO_LOOPS_DIR.mkdir(parents=True, exist_ok=True)
     state_path = CEO_LOOPS_DIR / f"{task_id}.json"
-    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    atomic_write_text(state_path, json.dumps(state, indent=2) + "\n")
 
 
 def _read_loop_state(task_id: str) -> dict[str, object] | None:
@@ -2529,7 +2535,7 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
             lines.append(json.dumps(line, ensure_ascii=False))
         output = "\n".join(lines)
         if outfile:
-            Path(outfile).write_text(output + "\n" if output else "")
+            atomic_write_text(Path(outfile), output + "\n" if output else "")
             click.echo(f"Report written to {outfile}")
         else:
             for l in lines:
@@ -2539,7 +2545,7 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
     output = _export_as_json(task) if fmt == "json" else _export_as_text(task)
 
     if outfile:
-        Path(outfile).write_text(output + "\n")
+        atomic_write_text(Path(outfile), output + "\n")
         click.echo(f"Report written to {outfile}")
     else:
         click.echo(output)

@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from duo.protocol import DUO_DIR
+from duo.protocol import DUO_DIR, atomic_write_text
 
 __all__ = [
     "CONFIG_PATH",
@@ -56,7 +56,7 @@ def load_config() -> dict[str, Any]:
 def save_config(config: dict[str, Any]) -> None:
     """Save config to disk."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+    atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
 
 
 def get_config(key: str) -> Any:
