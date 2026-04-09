@@ -380,24 +380,13 @@ occurs. The return value enables future callers to be more defensive.
 
 ---
 
-## cleanup_pane_state() not wired into runtime — LOW PRIORITY
+## cleanup_pane_state() now wired into runtime — RESOLVED
 
-**Status: Open, low priority.**
+**Status: Resolved** (Round CD, commit `e6af259`).
 
-**Observation:**
-`cleanup_pane_state(label)` was added in Round BH to prevent unbounded
-`_THREAD_LOCKS` / `_FLOCK_OWNERS` growth in long-lived processes. The
-function exists but is not called by any runtime code path (only tested).
-
-**Impact:** In long-running `ceo-loop` sessions that cycle through many
-task labels, stale `RLock` and flock-owner entries accumulate. Each entry
-is small (~100 bytes), so practical impact is negligible for typical use
-(< 100 tasks per session).
-
-**Fix direction:** Call `cleanup_pane_state()` from pane teardown paths
-(e.g., after `duo stop` or `duo kill` terminates a pane).
-
-**Priority:** Low. Memory impact is negligible for realistic workloads.
+`cleanup_pane_state(label)` is now called after pane termination in both
+`duo stop` and `duo kill` commands, preventing unbounded `_THREAD_LOCKS`
+and `_FLOCK_OWNERS` growth in long-running processes.
 
 ---
 
