@@ -423,6 +423,19 @@ def send(name: str, prompt: str) -> None:
         )
     task = _load_task_or_fail(name)
 
+    # Reject sends to terminal/dead states — give clear guidance
+    _TERMINAL = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+    if task.status in _TERMINAL:
+        raise DuoUserError(
+            f"task '{name}' is in terminal state '{task.status.value}'",
+            fix=f"Use 'duo retry {name}' to retry, or create a new task.",
+        )
+    if task.status == TaskStatus.BLOCKED:
+        raise DuoUserError(
+            f"task '{name}' is blocked",
+            fix=f"Use 'duo resume {name}' to restart it first.",
+        )
+
     if task.status == TaskStatus.QUEUED:
         # Persist prompt for later — no pane exists yet, so don't try transport
         prompt_path = task.prompt_path(task.current_step, task.current_attempt)

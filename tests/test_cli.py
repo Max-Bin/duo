@@ -362,6 +362,26 @@ class TestSend:
             or "empty" in (result.output + str(result.exception)).lower()
         )
 
+    @pytest.mark.parametrize(
+        "status,expected_msg",
+        [
+            (TaskStatus.COMPLETED, "terminal state"),
+            (TaskStatus.FAILED, "terminal state"),
+            (TaskStatus.ESCALATED, "terminal state"),
+            (TaskStatus.BLOCKED, "blocked"),
+        ],
+    )
+    def test_send_rejects_dead_states(
+        self, runner: CliRunner, status: TaskStatus, expected_msg: str
+    ):
+        """send() rejects prompts to tasks in terminal or blocked states."""
+        task = _make_task(f"dead-{status.value}")
+        task.status = status
+        save_task(task)
+        result = runner.invoke(main, ["send", f"dead-{status.value}", "hello"])
+        assert result.exit_code != 0
+        assert expected_msg in result.output
+
 
 # ---------------------------------------------------------------------------
 # start command (error case)
