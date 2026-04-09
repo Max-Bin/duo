@@ -20,6 +20,10 @@ import duo.cli
 import duo.protocol
 from duo.cli import (
     CheckResult,
+    _bench_dialog_detection,
+    _bench_file_protocol,
+    _bench_journal_append,
+    _compare_results,
     _create_worktree,
     _doctor_check_claude_cli,
     _doctor_check_config,
@@ -35,6 +39,7 @@ from duo.cli import (
     _fmt_ts,
     _load_batch_file,
     _parse_age,
+    _print_results,
     _safe_join,
     _validate_task_name,
     main,
@@ -5867,3 +5872,553 @@ class TestThinkList:
         assert "alpha" in result.output
         assert "beta" in result.output
         assert "finalized" in result.output
+
+
+# ── Bench command tests ───────────────────────────────────────────────
+
+
+class TestBenchDialogDetection:
+    """Tests for _bench_dialog_detection."""
+
+    def test_returns_expected_structure(self) -> None:
+        result = _bench_dialog_detection(10)
+        assert result["suite"] == "dialog-detection"
+        assert result["iterations"] == 10
+        assert "results" in result
+        assert "total_time_sec" in result
+        for key in (
+            "option_dialog_detect",
+            "text_dialog_detect",
+            "main_prompt_detect",
+            "spinner_detect",
+        ):
+            assert key in result["results"]
+            metrics = result["results"][key]
+            assert "ops_per_sec" in metrics
+            assert "avg_us" in metrics
+            assert "p99_us" in metrics
+            assert metrics["ops_per_sec"] > 0
+            assert metrics["avg_us"] > 0
+
+    def test_iterations_respected(self) -> None:
+        r5 = _bench_dialog_detection(5)
+        r20 = _bench_dialog_detection(20)
+        assert r5["iterations"] == 5
+        assert r20["iterations"] == 20
+
+
+class TestBenchFileProtocol:
+    """Tests for _bench_file_protocol."""
+
+    def test_returns_expected_structure(self) -> None:
+        result = _bench_file_protocol(10)
+        assert result["suite"] == "file-protocol"
+        assert result["iterations"] == 10
+        assert "write_json" in result["results"]
+        assert "read_json" in result["results"]
+        for key in ("write_json", "read_json"):
+            metrics = result["results"][key]
+            assert "ops_per_sec" in metrics
+            assert "avg_us" in metrics
+            assert "p99_us" in metrics
+            assert "bytes_per_sec" in metrics
+            assert metrics["ops_per_sec"] > 0
+
+    def test_cleans_up_tmp_dir(self) -> None:
+        import tempfile
+
+        before = set(Path(tempfile.gettempdir()).glob("duo-bench-*"))
+        _bench_file_protocol(5)
+        after = set(Path(tempfile.gettempdir()).glob("duo-bench-*"))
+        new_dirs = after - before
+        assert len(new_dirs) == 0
+
+
+class TestBenchJournalAppend:
+    """Tests for _bench_journal_append."""
+
+    def test_returns_expected_structure(self) -> None:
+        result = _bench_journal_append(10)
+        assert result["suite"] == "journal-append"
+        assert result["iterations"] == 10
+        assert "append_event" in result["results"]
+        assert "read_jsonl" in result["results"]
+        for key in ("append_event", "read_jsonl"):
+            metrics = result["results"][key]
+            assert "ops_per_sec" in metrics
+            assert "avg_us" in metrics
+            assert "p99_us" in metrics
+            assert metrics["ops_per_sec"] > 0
+        assert "events_per_sec" in result["results"]["read_jsonl"]
+
+    def test_restores_tasks_dir(self) -> None:
+        """Ensure TASKS_DIR is restored after benchmark."""
+        import duo.protocol
+
+        original = duo.protocol.TASKS_DIR
+        _bench_journal_append(5)
+        assert duo.protocol.TASKS_DIR == original
+
+
+class TestCompareResults:
+    """Tests for _compare_results."""
+
+    def test_no_regression(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression
+        assert "✓" in output
+
+    def test_warning_11_pct_regression(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 44000,
+                        "avg_us": 22.7,
+                        "p99_us": 50.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression  # 12% is warning, not regression
+        assert "⚠ WARNING" in output
+
+    def test_regression_25_pct(self) -> None:
+        current = [
+            {
+                "suite": "file-protocol",
+                "iterations": 10,
+                "results": {
+                    "write_json": {
+                        "ops_per_sec": 750,
+                        "avg_us": 1333.0,
+                        "p99_us": 2000.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "file-protocol",
+                "iterations": 10,
+                "results": {
+                    "write_json": {
+                        "ops_per_sec": 1000,
+                        "avg_us": 1000.0,
+                        "p99_us": 1500.0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert has_regression
+        assert "✗ REGRESSION" in output
+
+    def test_improvement(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 60000,
+                        "avg_us": 16.7,
+                        "p99_us": 35.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression
+        assert "✓" in output
+        assert "+" in output
+
+    def test_missing_suite_in_baseline(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "file-protocol",
+                "iterations": 10,
+                "results": {
+                    "write_json": {
+                        "ops_per_sec": 1000,
+                        "avg_us": 1000.0,
+                        "p99_us": 1500.0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression
+        assert output == ""
+
+    def test_zero_baseline_ops(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 0,
+                        "avg_us": 0,
+                        "p99_us": 0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression
+        assert output == ""
+
+    def test_missing_metric_in_baseline(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                    "new_metric": {
+                        "ops_per_sec": 1000,
+                        "avg_us": 1000.0,
+                        "p99_us": 2000.0,
+                    },
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 50000,
+                        "avg_us": 20.0,
+                        "p99_us": 45.0,
+                    },
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression
+        # new_metric is skipped since not in baseline
+        assert "new_metric" not in output
+
+    def test_missing_key_in_metric(self) -> None:
+        current = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {"avg_us": 20.0, "p99_us": 45.0},
+                },
+            }
+        ]
+        baseline = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {"avg_us": 20.0, "p99_us": 45.0},
+                },
+            }
+        ]
+        output, has_regression = _compare_results(current, baseline)
+        assert not has_regression
+        assert output == ""
+
+
+class TestBenchCommand:
+    """Tests for the bench CLI command."""
+
+    def test_dialog_detection_suite(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "dialog-detection", "-n", "10"])
+        assert result.exit_code == 0
+        assert "dialog-detection" in result.output
+        assert "ops/s" in result.output
+
+    def test_file_protocol_suite(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "file-protocol", "-n", "10"])
+        assert result.exit_code == 0
+        assert "file-protocol" in result.output
+        assert "write_json" in result.output
+        assert "read_json" in result.output
+
+    def test_journal_append_suite(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "journal-append", "-n", "10"])
+        assert result.exit_code == 0
+        assert "journal-append" in result.output
+        assert "append_event" in result.output
+
+    def test_all_suites(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "all", "-n", "10"])
+        assert result.exit_code == 0
+        assert "dialog-detection" in result.output
+        assert "file-protocol" in result.output
+        assert "journal-append" in result.output
+
+    def test_default_suite_is_all(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "-n", "10"])
+        assert result.exit_code == 0
+        assert "dialog-detection" in result.output
+        assert "file-protocol" in result.output
+        assert "journal-append" in result.output
+
+    def test_json_output(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            main, ["bench", "dialog-detection", "-n", "10", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert isinstance(data, list)
+        assert len(data) == 1
+        assert data[0]["suite"] == "dialog-detection"
+
+    def test_json_output_all(self, runner: CliRunner) -> None:
+        result = runner.invoke(
+            main, ["bench", "all", "-n", "10", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 3
+        suites = {d["suite"] for d in data}
+        assert suites == {"dialog-detection", "file-protocol", "journal-append"}
+
+    def test_save_creates_file(
+        self,
+        runner: CliRunner,
+        isolated_tasks: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        bench_dir = isolated_tasks.parent / "bench-results"
+        monkeypatch.setattr(duo.cli, "BENCH_DIR", bench_dir)
+        result = runner.invoke(
+            main, ["bench", "dialog-detection", "-n", "10", "--save"]
+        )
+        assert result.exit_code == 0
+        assert "Results saved to" in result.output
+        files = list(bench_dir.glob("*.json"))
+        assert len(files) == 1
+        data = json.loads(files[0].read_text())
+        assert isinstance(data, list)
+        assert data[0]["suite"] == "dialog-detection"
+
+    def test_baseline_no_regression(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        result = runner.invoke(
+            main, ["bench", "dialog-detection", "-n", "10", "--json-output"]
+        )
+        assert result.exit_code == 0
+        baseline_data = json.loads(result.output)
+        baseline_path = tmp_path / "baseline.json"
+        baseline_path.write_text(json.dumps(baseline_data))
+
+        result = runner.invoke(
+            main,
+            ["bench", "dialog-detection", "-n", "10", "--baseline", str(baseline_path)],
+        )
+        assert result.exit_code == 0
+
+    def test_baseline_with_regression(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        baseline_data = [
+            {
+                "suite": "dialog-detection",
+                "iterations": 10,
+                "results": {
+                    "option_dialog_detect": {
+                        "ops_per_sec": 999999999999,
+                        "avg_us": 0.001,
+                        "p99_us": 0.001,
+                    },
+                    "text_dialog_detect": {
+                        "ops_per_sec": 999999999999,
+                        "avg_us": 0.001,
+                        "p99_us": 0.001,
+                    },
+                    "main_prompt_detect": {
+                        "ops_per_sec": 999999999999,
+                        "avg_us": 0.001,
+                        "p99_us": 0.001,
+                    },
+                    "spinner_detect": {
+                        "ops_per_sec": 999999999999,
+                        "avg_us": 0.001,
+                        "p99_us": 0.001,
+                    },
+                },
+            }
+        ]
+        baseline_path = tmp_path / "baseline.json"
+        baseline_path.write_text(json.dumps(baseline_data))
+
+        result = runner.invoke(
+            main,
+            ["bench", "dialog-detection", "-n", "10", "--baseline", str(baseline_path)],
+        )
+        assert result.exit_code == 1
+        assert "REGRESSION" in result.output
+
+    def test_invalid_suite(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "nonexistent"])
+        assert result.exit_code != 0
+
+    def test_human_readable_output_format(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["bench", "dialog-detection", "-n", "10"])
+        assert result.exit_code == 0
+        assert "Duo Performance Benchmark" in result.output
+        assert "═" in result.output
+        assert "µs avg" in result.output
+        assert "µs p99" in result.output
+
+
+class TestPrintResults:
+    """Tests for _print_results output formatting."""
+
+    def test_bytes_per_sec_mb(self) -> None:
+        results = [
+            {
+                "suite": "file-protocol",
+                "iterations": 100,
+                "results": {
+                    "write_json": {
+                        "ops_per_sec": 5000,
+                        "avg_us": 200.0,
+                        "p99_us": 350.0,
+                        "bytes_per_sec": 2_500_000,
+                    },
+                },
+            }
+        ]
+        lines: list[str] = []
+        with patch("click.echo", side_effect=lambda x="": lines.append(str(x))):
+            _print_results(results)
+        output = "\n".join(lines)
+        assert "MB/s" in output
+
+    def test_bytes_per_sec_kb(self) -> None:
+        results = [
+            {
+                "suite": "file-protocol",
+                "iterations": 100,
+                "results": {
+                    "write_json": {
+                        "ops_per_sec": 100,
+                        "avg_us": 10000.0,
+                        "p99_us": 15000.0,
+                        "bytes_per_sec": 50_000,
+                    },
+                },
+            }
+        ]
+        lines: list[str] = []
+        with patch("click.echo", side_effect=lambda x="": lines.append(str(x))):
+            _print_results(results)
+        output = "\n".join(lines)
+        assert "KB/s" in output
+
+    def test_events_per_sec(self) -> None:
+        results = [
+            {
+                "suite": "journal-append",
+                "iterations": 100,
+                "results": {
+                    "read_jsonl": {
+                        "ops_per_sec": 500,
+                        "avg_us": 2000.0,
+                        "p99_us": 3000.0,
+                        "events_per_sec": 50000,
+                    },
+                },
+            }
+        ]
+        lines: list[str] = []
+        with patch("click.echo", side_effect=lambda x="": lines.append(str(x))):
+            _print_results(results)
+        output = "\n".join(lines)
+        assert "events/s" in output

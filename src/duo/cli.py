@@ -8,8 +8,11 @@ import logging
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,7 +33,10 @@ from duo.protocol import (
     read_json,
     read_jsonl,
     replay_state,
+    write_json,
 )
+
+BENCH_DIR = DUO_DIR / "bench-results"
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
@@ -41,6 +47,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
+    "Benchmarking": ["bench"],
     "Misc": ["version", "completion"],
 }
 
@@ -2888,3 +2895,374 @@ def _think_list_all() -> None:
     click.echo(f"{'NAME':<20} {'PANE':<8} {'STATUS':<12} FILES")
     for s in sessions:
         click.echo(f"{s['name']:<20} {s['pane']:<8} {s['status']:<12} {s['files']}")
+
+
+# ---------------------------------------------------------------------------
+# bench
+# ---------------------------------------------------------------------------
+
+
+def _bench_dialog_detection(iterations: int) -> dict[str, Any]:
+    """Benchmark dialog detection functions."""
+    from duo.transport import _detect_dialog_kind, _is_at_main_prompt
+
+    # Realistic pane content samples
+    option_dialog = (
+        "╭─────────────────────────────────────────╮\n"
+        "│ How would you like to proceed?          │\n"
+        "│                                         │\n"
+        "│ ❯ 1. Create a new file                  │\n"
+        "│   2. Modify existing file               │\n"
+        "│   3. Delete file                        │\n"
+        "╰─────────────────────────────────────────╯\n"
+    )
+    text_dialog = (
+        "╭─────────────────────────────────────────╮\n"
+        "│ Type your answer below:                 │\n"
+        "│                                         │\n"
+        "│ Enter to submit                         │\n"
+        "╰─────────────────────────────────────────╯\n"
+    )
+    main_prompt = (
+        "─────────────────────────────────────\n"
+        "  Remaining reqs: 42\n"
+        "❯ Type @ to mention files\n"
+    )
+    spinner_content = (
+        "◉ Processing your request...\n"
+        "  Working on file changes\n"
+        "❯\n"
+    )
+
+    samples: dict[str, tuple[str, str]] = {
+        "option_dialog_detect": (option_dialog, "_detect_dialog_kind"),
+        "text_dialog_detect": (text_dialog, "_detect_dialog_kind"),
+        "main_prompt_detect": (main_prompt, "_is_at_main_prompt"),
+        "spinner_detect": (spinner_content, "_is_at_main_prompt"),
+    }
+
+    results: dict[str, dict[str, float]] = {}
+    total_start = time.perf_counter_ns()
+
+    for name, (content, func_name) in samples.items():
+        func = _detect_dialog_kind if func_name == "_detect_dialog_kind" else _is_at_main_prompt
+        timings: list[int] = []
+        for _ in range(iterations):
+            t0 = time.perf_counter_ns()
+            func(content)
+            t1 = time.perf_counter_ns()
+            timings.append(t1 - t0)
+
+        timings.sort()
+        avg_ns = statistics.mean(timings)
+        p99_idx = max(0, int(len(timings) * 0.99) - 1)
+        p99_ns = timings[p99_idx]
+        total_ns = sum(timings)
+        ops = iterations / (total_ns / 1_000_000_000) if total_ns > 0 else 0.0
+
+        results[name] = {
+            "ops_per_sec": round(ops, 1),
+            "avg_us": round(avg_ns / 1_000, 2),
+            "p99_us": round(p99_ns / 1_000, 2),
+        }
+
+    total_end = time.perf_counter_ns()
+    return {
+        "suite": "dialog-detection",
+        "iterations": iterations,
+        "results": results,
+        "total_time_sec": round((total_end - total_start) / 1_000_000_000, 4),
+    }
+
+
+def _bench_file_protocol(iterations: int) -> dict[str, Any]:
+    """Benchmark JSON file read/write performance."""
+    tmp_dir = Path(tempfile.mkdtemp(prefix="duo-bench-"))
+    sample_data: dict[str, Any] = {
+        "id": "bench-task",
+        "description": "Benchmark task for performance testing",
+        "status": "running",
+        "current_step": 1,
+        "subtasks": [{"step_id": 1, "description": "step one", "target_files": ["a.py"]}],
+    }
+    json_bytes = len(json.dumps(sample_data, indent=2).encode())
+
+    results: dict[str, dict[str, float]] = {}
+    total_start = time.perf_counter_ns()
+
+    # Benchmark write_json
+    write_timings: list[int] = []
+    for i in range(iterations):
+        p = tmp_dir / f"bench-{i}.json"
+        t0 = time.perf_counter_ns()
+        write_json(p, sample_data)
+        t1 = time.perf_counter_ns()
+        write_timings.append(t1 - t0)
+
+    write_timings.sort()
+    avg_ns = statistics.mean(write_timings)
+    p99_idx = max(0, int(len(write_timings) * 0.99) - 1)
+    total_ns = sum(write_timings)
+    w_ops = iterations / (total_ns / 1_000_000_000) if total_ns > 0 else 0.0
+    w_bps = w_ops * json_bytes
+
+    results["write_json"] = {
+        "ops_per_sec": round(w_ops, 1),
+        "avg_us": round(avg_ns / 1_000, 2),
+        "p99_us": round(write_timings[p99_idx] / 1_000, 2),
+        "bytes_per_sec": round(w_bps, 1),
+    }
+
+    # Benchmark read_json
+    read_timings: list[int] = []
+    target = tmp_dir / "bench-0.json"
+    for _ in range(iterations):
+        t0 = time.perf_counter_ns()
+        read_json(target)
+        t1 = time.perf_counter_ns()
+        read_timings.append(t1 - t0)
+
+    read_timings.sort()
+    avg_ns = statistics.mean(read_timings)
+    p99_idx = max(0, int(len(read_timings) * 0.99) - 1)
+    total_ns = sum(read_timings)
+    r_ops = iterations / (total_ns / 1_000_000_000) if total_ns > 0 else 0.0
+    r_bps = r_ops * json_bytes
+
+    results["read_json"] = {
+        "ops_per_sec": round(r_ops, 1),
+        "avg_us": round(avg_ns / 1_000, 2),
+        "p99_us": round(read_timings[p99_idx] / 1_000, 2),
+        "bytes_per_sec": round(r_bps, 1),
+    }
+
+    total_end = time.perf_counter_ns()
+
+    # Cleanup
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return {
+        "suite": "file-protocol",
+        "iterations": iterations,
+        "results": results,
+        "total_time_sec": round((total_end - total_start) / 1_000_000_000, 4),
+    }
+
+
+def _bench_journal_append(iterations: int) -> dict[str, Any]:
+    """Benchmark journal append and read performance."""
+    from duo.protocol import append_event
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="duo-bench-journal-"))
+    # Temporarily override TASKS_DIR for the benchmark
+    import duo.protocol
+
+    original_tasks_dir = duo.protocol.TASKS_DIR
+    duo.protocol.TASKS_DIR = tmp_dir / "tasks"
+    duo.protocol.TASKS_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        task = create_task(
+            task_id="bench-journal",
+            description="Journal benchmark task",
+            worktree="/fake/bench",
+            branch="duo/bench-journal",
+            base_commit="abc123bench",
+            subtasks=[Subtask(step_id=1, description="bench", target_files=[], writable_paths=["*"])],
+        )
+
+        results: dict[str, dict[str, float]] = {}
+        total_start = time.perf_counter_ns()
+
+        # Benchmark append_event
+        append_timings: list[int] = []
+        for i in range(iterations):
+            t0 = time.perf_counter_ns()
+            append_event(task, "bench_event", {"iteration": i, "data": "x" * 50})
+            t1 = time.perf_counter_ns()
+            append_timings.append(t1 - t0)
+
+        append_timings.sort()
+        avg_ns = statistics.mean(append_timings)
+        p99_idx = max(0, int(len(append_timings) * 0.99) - 1)
+        total_ns = sum(append_timings)
+        a_ops = iterations / (total_ns / 1_000_000_000) if total_ns > 0 else 0.0
+
+        results["append_event"] = {
+            "ops_per_sec": round(a_ops, 1),
+            "avg_us": round(avg_ns / 1_000, 2),
+            "p99_us": round(append_timings[p99_idx] / 1_000, 2),
+        }
+
+        # Benchmark read_jsonl (reading back all events)
+        journal_path = task.journal_path
+        read_timings: list[int] = []
+        for _ in range(iterations):
+            t0 = time.perf_counter_ns()
+            events = read_jsonl(journal_path)
+            t1 = time.perf_counter_ns()
+            read_timings.append(t1 - t0)
+
+        read_timings.sort()
+        avg_ns = statistics.mean(read_timings)
+        p99_idx = max(0, int(len(read_timings) * 0.99) - 1)
+        total_ns = sum(read_timings)
+        r_ops = iterations / (total_ns / 1_000_000_000) if total_ns > 0 else 0.0
+        event_count = len(events)
+        events_per_sec = r_ops * event_count
+
+        results["read_jsonl"] = {
+            "ops_per_sec": round(r_ops, 1),
+            "avg_us": round(avg_ns / 1_000, 2),
+            "p99_us": round(read_timings[p99_idx] / 1_000, 2),
+            "events_per_sec": round(events_per_sec, 1),
+        }
+
+        total_end = time.perf_counter_ns()
+
+        return {
+            "suite": "journal-append",
+            "iterations": iterations,
+            "results": results,
+            "total_time_sec": round((total_end - total_start) / 1_000_000_000, 4),
+        }
+    finally:
+        duo.protocol.TASKS_DIR = original_tasks_dir
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _compare_results(
+    current: list[dict[str, Any]], baseline: list[dict[str, Any]],
+) -> tuple[str, bool]:
+    """Compare current results against a baseline.
+
+    Returns (formatted output, has_regression) where has_regression is True
+    if any metric regressed more than 20%.
+    """
+    baseline_map: dict[str, dict[str, dict[str, float]]] = {}
+    for b in baseline:
+        baseline_map[b["suite"]] = b["results"]
+
+    lines: list[str] = []
+    has_regression = False
+
+    for cur in current:
+        suite = cur["suite"]
+        if suite not in baseline_map:
+            continue
+        for metric_name, cur_vals in cur["results"].items():
+            if metric_name not in baseline_map[suite]:
+                continue
+            base_vals = baseline_map[suite][metric_name]
+            for key in ("ops_per_sec",):
+                if key not in cur_vals or key not in base_vals:
+                    continue
+                old_val = base_vals[key]
+                new_val = cur_vals[key]
+                if old_val == 0:
+                    continue
+                pct = ((new_val - old_val) / old_val) * 100
+                sign = "+" if pct >= 0 else ""
+                label = "ops/sec"
+                status = "✓"
+                if pct < -20:
+                    status = "✗ REGRESSION"
+                    has_regression = True
+                elif pct < -10:
+                    status = "⚠ WARNING"
+                lines.append(
+                    f"{suite} / {metric_name}:\n"
+                    f"  {label}: {old_val:,.0f} → {new_val:,.0f} "
+                    f"({sign}{pct:.1f}%) {status}"
+                )
+
+    return "\n".join(lines), has_regression
+
+
+def _print_results(all_results: list[dict[str, Any]]) -> None:
+    """Print human-readable benchmark results."""
+    click.echo("Duo Performance Benchmark")
+    click.echo("═" * 25)
+    for suite_result in all_results:
+        suite = suite_result["suite"]
+        iters = suite_result["iterations"]
+        click.echo(f"\nSuite: {suite} ({iters:,} iterations)")
+        for name, metrics in suite_result["results"].items():
+            ops = metrics["ops_per_sec"]
+            avg = metrics["avg_us"]
+            p99 = metrics["p99_us"]
+            extra = ""
+            if "bytes_per_sec" in metrics:
+                bps = metrics["bytes_per_sec"]
+                if bps >= 1_000_000:
+                    extra = f"   {bps / 1_000_000:.1f} MB/s"
+                else:
+                    extra = f"   {bps / 1_000:.1f} KB/s"
+            if "events_per_sec" in metrics:
+                extra = f"   {metrics['events_per_sec']:,.0f} events/s"
+            click.echo(
+                f"  {name:<25} {ops:>10,.0f} ops/s   "
+                f"{avg:>8,.1f} µs avg   {p99:>8,.1f} µs p99{extra}"
+            )
+
+
+@main.command()
+@click.argument(
+    "suite",
+    type=click.Choice(
+        ["dialog-detection", "file-protocol", "journal-append", "all"],
+    ),
+    default="all",
+)
+@click.option("--iterations", "-n", default=1000, help="Number of iterations.")
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+@click.option(
+    "--baseline",
+    type=click.Path(exists=True),
+    help="Compare against baseline file.",
+)
+@click.option("--save", is_flag=True, help="Save results to ~/.duo/bench-results/.")
+def bench(
+    suite: str,
+    iterations: int,
+    json_output: bool,
+    baseline: str | None,
+    save: bool,
+) -> None:
+    """Run performance benchmarks."""
+    from datetime import UTC, datetime
+
+    runners: dict[str, Any] = {
+        "dialog-detection": _bench_dialog_detection,
+        "file-protocol": _bench_file_protocol,
+        "journal-append": _bench_journal_append,
+    }
+
+    suites = list(runners.keys()) if suite == "all" else [suite]
+    all_results: list[dict[str, Any]] = []
+    for s in suites:
+        result: dict[str, Any] = runners[s](iterations)
+        all_results.append(result)
+
+    if json_output:
+        click.echo(json.dumps(all_results, indent=2))
+    else:
+        _print_results(all_results)
+
+    if save:
+        bench_dir = BENCH_DIR
+        bench_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        out_path = bench_dir / f"{ts}.json"
+        out_path.write_text(json.dumps(all_results, indent=2) + "\n", encoding="utf-8")
+        click.echo(f"\nResults saved to {out_path}")
+
+    if baseline is not None:
+        baseline_data: list[dict[str, Any]] = json.loads(
+            Path(baseline).read_text(encoding="utf-8")
+        )
+        comparison, has_regression = _compare_results(all_results, baseline_data)
+        if comparison:
+            click.echo(f"\nBaseline comparison:\n{comparison}")
+        if has_regression:
+            raise SystemExit(1)
