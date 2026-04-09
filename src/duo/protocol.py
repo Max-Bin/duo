@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 __all__ = [
     "DUO_DIR",
@@ -81,53 +81,73 @@ class TaskStatus(StrEnum):
 
 
 # Legal state transitions
-TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.CREATED: {TaskStatus.SESSION_STARTING, TaskStatus.QUEUED},
-    TaskStatus.QUEUED: {TaskStatus.SESSION_STARTING, TaskStatus.FAILED},
-    TaskStatus.SESSION_STARTING: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
-    TaskStatus.PROMPT_SENT: {
-        TaskStatus.ACKED,
-        TaskStatus.PROMPT_SENT,
-        TaskStatus.FAILED,
-        TaskStatus.VERIFYING,
-        TaskStatus.RUNNING,
-        TaskStatus.BLOCKED,
-    },
-    TaskStatus.ACKED: {
-        TaskStatus.RUNNING,
-        TaskStatus.RESULT_REPORTED,
-        TaskStatus.FAILED,
-    },
-    TaskStatus.RUNNING: {
-        TaskStatus.RESULT_REPORTED,
-        TaskStatus.BLOCKED,
-        TaskStatus.FAILED,
-    },
-    TaskStatus.RESULT_REPORTED: {TaskStatus.VERIFYING, TaskStatus.FAILED},
-    TaskStatus.VERIFYING: {
-        TaskStatus.PROMPT_SENT,
-        TaskStatus.CORRECTING,
-        TaskStatus.COMPLETED,
-        TaskStatus.ESCALATED,
-        TaskStatus.BLOCKED,
-        TaskStatus.FAILED,
-    },
-    TaskStatus.CORRECTING: {
-        TaskStatus.ACKED,
-        TaskStatus.ESCALATED,
-        TaskStatus.PROMPT_SENT,
-        TaskStatus.FAILED,
-    },
-    TaskStatus.BLOCKED: {
-        TaskStatus.SESSION_STARTING,
-        TaskStatus.PROMPT_SENT,
-        TaskStatus.ESCALATED,
-        TaskStatus.FAILED,
-    },
-    TaskStatus.ESCALATED: {TaskStatus.PROMPT_SENT, TaskStatus.FAILED},
-    TaskStatus.FAILED: {TaskStatus.SESSION_STARTING},
-    TaskStatus.COMPLETED: set(),
-}
+from types import MappingProxyType
+
+TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
+    {
+        TaskStatus.CREATED: frozenset({TaskStatus.SESSION_STARTING, TaskStatus.QUEUED}),
+        TaskStatus.QUEUED: frozenset({TaskStatus.SESSION_STARTING, TaskStatus.FAILED}),
+        TaskStatus.SESSION_STARTING: frozenset(
+            {TaskStatus.PROMPT_SENT, TaskStatus.FAILED}
+        ),
+        TaskStatus.PROMPT_SENT: frozenset(
+            {
+                TaskStatus.ACKED,
+                TaskStatus.PROMPT_SENT,
+                TaskStatus.FAILED,
+                TaskStatus.VERIFYING,
+                TaskStatus.RUNNING,
+                TaskStatus.BLOCKED,
+            }
+        ),
+        TaskStatus.ACKED: frozenset(
+            {
+                TaskStatus.RUNNING,
+                TaskStatus.RESULT_REPORTED,
+                TaskStatus.FAILED,
+            }
+        ),
+        TaskStatus.RUNNING: frozenset(
+            {
+                TaskStatus.RESULT_REPORTED,
+                TaskStatus.BLOCKED,
+                TaskStatus.FAILED,
+            }
+        ),
+        TaskStatus.RESULT_REPORTED: frozenset(
+            {TaskStatus.VERIFYING, TaskStatus.FAILED}
+        ),
+        TaskStatus.VERIFYING: frozenset(
+            {
+                TaskStatus.PROMPT_SENT,
+                TaskStatus.CORRECTING,
+                TaskStatus.COMPLETED,
+                TaskStatus.ESCALATED,
+                TaskStatus.BLOCKED,
+                TaskStatus.FAILED,
+            }
+        ),
+        TaskStatus.CORRECTING: frozenset(
+            {
+                TaskStatus.ACKED,
+                TaskStatus.ESCALATED,
+                TaskStatus.PROMPT_SENT,
+                TaskStatus.FAILED,
+            }
+        ),
+        TaskStatus.BLOCKED: frozenset(
+            {
+                TaskStatus.SESSION_STARTING,
+                TaskStatus.PROMPT_SENT,
+                TaskStatus.ESCALATED,
+                TaskStatus.FAILED,
+            }
+        ),
+        TaskStatus.ESCALATED: frozenset({TaskStatus.PROMPT_SENT, TaskStatus.FAILED}),
+        TaskStatus.FAILED: frozenset({TaskStatus.SESSION_STARTING}),
+        TaskStatus.COMPLETED: frozenset(),
+    }
+)
 # FSM topology:
 #   Entry:      CREATED → QUEUED (capacity wait) or SESSION_STARTING (immediate)
 #   Happy path: SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING
@@ -392,7 +412,7 @@ def transition(task: Task, new_status: TaskStatus) -> bool:
     journal for post-mortem analysis.
     """
     old = task.status
-    if new_status not in TRANSITIONS.get(old, set()):
+    if new_status not in TRANSITIONS.get(old, frozenset()):
         append_event(
             task,
             "invalid_transition",

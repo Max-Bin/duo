@@ -215,7 +215,11 @@ class TestTaskStatusTransitions:
         assert dst in TRANSITIONS[src]
 
     def test_completed_is_terminal(self):
-        assert TRANSITIONS[TaskStatus.COMPLETED] == set()
+        assert TRANSITIONS[TaskStatus.COMPLETED] == frozenset()
+
+    def test_transitions_is_immutable(self):
+        with pytest.raises(TypeError):
+            TRANSITIONS[TaskStatus.COMPLETED] = frozenset({TaskStatus.CREATED})  # type: ignore[index]
 
     @pytest.mark.parametrize(
         "src, dst",
