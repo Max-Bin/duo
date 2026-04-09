@@ -61,6 +61,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-session-list",
         "ceo-session-replay",
         "ceo-session-stats",
+        "ceo-metrics",
     ],
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cost", "cleanup", "events"],
@@ -3191,6 +3192,153 @@ def ceo_session_stats_cmd(session_id: str, *, json_output: bool) -> None:
             click.echo("Types:")
             for dt, count in stats["decision_types"].items():
                 click.echo(f"  {dt}: {count}")
+
+
+@main.command("ceo-metrics")
+@click.option("--session", "session_id", default=None, help="Single session ID.")
+@click.option(
+    "--all", "all_sessions", is_flag=True, default=True, help="All sessions (default)."
+)
+@click.option("--json-output", is_flag=True, help="Output as JSON.")
+@click.option(
+    "--since", default=None, help="ISO datetime filter (e.g. 2025-01-01T00:00:00)."
+)
+def ceo_metrics_cmd(
+    *,
+    session_id: str | None,
+    all_sessions: bool,
+    json_output: bool,
+    since: str | None,
+) -> None:
+    """Aggregate analytics across CEO sessions."""
+    from datetime import datetime
+
+    from duo.ceo_log import list_sessions, replay_session
+
+    if session_id:
+        session_ids = [session_id]
+    else:
+        session_ids = list_sessions()
+
+    if not session_ids:
+        if json_output:
+            click.echo(json.dumps({"error": "No CEO sessions found."}))
+        else:
+            click.echo("No CEO sessions found.")
+        return
+
+    all_events: list[dict[str, Any]] = []
+    session_count = 0
+    session_durations: list[float] = []
+
+    for sid in session_ids:
+        events = replay_session(sid)
+        if since:
+            events = [e for e in events if e.get("ts", "") >= since]
+        if not events:
+            continue
+        session_count += 1
+        all_events.extend(events)
+        timestamps = sorted(e.get("ts", "") for e in events if e.get("ts"))
+        if len(timestamps) >= 2:
+            try:
+                t0 = datetime.fromisoformat(timestamps[0].replace("Z", "+00:00"))
+                t1 = datetime.fromisoformat(timestamps[-1].replace("Z", "+00:00"))
+                session_durations.append((t1 - t0).total_seconds())
+            except (ValueError, TypeError):
+                pass
+
+    if session_count == 0:
+        if json_output:
+            click.echo(json.dumps({"error": "No CEO sessions found."}))
+        else:
+            click.echo("No CEO sessions found.")
+        return
+
+    dialogs = [e for e in all_events if e.get("event") == "dialog_detected"]
+    decisions = [e for e in all_events if e.get("event") == "decision"]
+    total_dialogs = len(dialogs)
+    total_decisions = len(decisions)
+
+    dialog_kinds: dict[str, int] = {}
+    for d in dialogs:
+        kind = d.get("dialog_kind", "unknown").upper()
+        dialog_kinds[kind] = dialog_kinds.get(kind, 0) + 1
+
+    decision_types: dict[str, int] = {}
+    for d in decisions:
+        dt = d.get("decision_type", "unknown")
+        decision_types[dt] = decision_types.get(dt, 0) + 1
+
+    approved_count = sum(v for k, v in decision_types.items() if k.startswith("approv"))
+    approval_rate = (
+        (approved_count / total_decisions * 100) if total_decisions > 0 else 0.0
+    )
+    avg_decisions = round(total_decisions / session_count, 1)
+    avg_duration_s = (
+        sum(session_durations) / len(session_durations) if session_durations else 0.0
+    )
+
+    content_counts: dict[str, int] = {}
+    for d in dialogs:
+        c = d.get("content", "")[:100]
+        if c:
+            content_counts[c] = content_counts.get(c, 0) + 1
+    top_patterns = sorted(content_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    metrics: dict[str, Any] = {
+        "sessions": session_count,
+        "total_dialogs": total_dialogs,
+        "total_decisions": total_decisions,
+        "approval_rate": round(approval_rate, 1),
+        "dialog_kinds": dialog_kinds,
+        "decision_types": decision_types,
+        "avg_decisions_per_session": avg_decisions,
+        "avg_session_duration_s": round(avg_duration_s, 1),
+        "top_dialog_patterns": [{"content": c, "count": n} for c, n in top_patterns],
+    }
+
+    if json_output:
+        click.echo(json.dumps(metrics, indent=2))
+        return
+
+    scope = f"session {session_id}" if session_id else "all sessions"
+    click.echo(f"CEO Metrics ({scope})")
+    click.echo("\u2500" * 25)
+    click.echo(f"Sessions:    {session_count}")
+    click.echo(f"Dialogs:     {total_dialogs}")
+    click.echo(f"Decisions:   {total_decisions}")
+    click.echo(f"Approval rate: {approval_rate:.1f}%")
+    click.echo()
+
+    if dialog_kinds:
+        click.echo("Dialog kinds:")
+        for kind, count in sorted(
+            dialog_kinds.items(), key=lambda x: x[1], reverse=True
+        ):
+            pct = count / total_dialogs * 100 if total_dialogs > 0 else 0.0
+            click.echo(f"  {kind:12s} {count:4d} ({pct:.1f}%)")
+        click.echo()
+
+    if decision_types:
+        click.echo("Decision types:")
+        for dt, count in sorted(
+            decision_types.items(), key=lambda x: x[1], reverse=True
+        ):
+            pct = count / total_decisions * 100 if total_decisions > 0 else 0.0
+            click.echo(f"  {dt:12s} {count:4d} ({pct:.1f}%)")
+        click.echo()
+
+    click.echo(f"Avg decisions/session: {avg_decisions}")
+    mins = int(avg_duration_s) // 60
+    secs = int(avg_duration_s) % 60
+    click.echo(f"Avg session duration:  {mins}m {secs:02d}s")
+
+    if top_patterns:
+        click.echo()
+        click.echo("Top dialog patterns:")
+        for content, count in top_patterns:
+            click.echo(f"  [{count}x] {content}")
 
 
 @main.command()

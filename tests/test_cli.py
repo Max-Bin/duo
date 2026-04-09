@@ -8503,3 +8503,350 @@ class TestCeoSmart:
             e["event"] == "decision" and e["decision_type"] == "smart-select"
             for e in events
         )
+
+
+
+# ---------------------------------------------------------------------------
+# duo ceo-metrics — CEO aggregate analytics
+# ---------------------------------------------------------------------------
+
+
+class TestCeoMetrics:
+    """Tests for duo ceo-metrics."""
+
+    def test_no_sessions_text(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "nonexistent")
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "No CEO sessions found" in result.output
+
+    def test_no_sessions_json(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "nonexistent")
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["error"] == "No CEO sessions found."
+
+    def test_single_session_text(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+        log_dialog_detected(sid, "t1", "Choose option", "option")
+        log_decision(sid, "t1", "approved", "yes", elapsed_ms=100)
+        result = runner.invoke(main, ["ceo-metrics", "--session", sid])
+        assert result.exit_code == 0
+        assert f"session {sid}" in result.output
+        assert "Sessions:    1" in result.output
+        assert "Dialogs:     1" in result.output
+        assert "Decisions:   1" in result.output
+        assert "Approval rate: 100.0%" in result.output
+
+    def test_single_session_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+        log_dialog_detected(sid, "t1", "content", "TEXT")
+        log_decision(sid, "t1", "approved", "ok", elapsed_ms=50)
+        result = runner.invoke(main, ["ceo-metrics", "--session", sid, "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 1
+        assert data["total_dialogs"] == 1
+        assert data["total_decisions"] == 1
+        assert data["approval_rate"] == 100.0
+
+    def test_multiple_sessions(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid1 = start_ceo_session()
+        sid2 = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+        log_dialog_detected(sid1, "t1", "opt A", "OPTION")
+        log_decision(sid1, "t1", "approved", "yes", elapsed_ms=100)
+        log_dialog_detected(sid2, "t2", "text Q", "TEXT")
+        log_decision(sid2, "t2", "selected", "opt1", elapsed_ms=200)
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 2
+        assert data["total_dialogs"] == 2
+        assert data["total_decisions"] == 2
+
+    def test_since_filter_excludes_all(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+        log_dialog_detected(sid, "t1", "c1", "OPTION")
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
+        result = runner.invoke(main, ["ceo-metrics", "--since", "2099-01-01T00:00:00", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["error"] == "No CEO sessions found."
+
+    def test_since_filter_includes(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+        log_dialog_detected(sid, "t1", "c1", "OPTION")
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
+        result = runner.invoke(main, ["ceo-metrics", "--since", "2000-01-01T00:00:00", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 1
+        assert data["total_decisions"] == 1
+
+    def test_dialog_kind_distribution(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_dialog_detected
+        log_dialog_detected(sid, "t1", "c1", "option")
+        log_dialog_detected(sid, "t1", "c2", "option")
+        log_dialog_detected(sid, "t1", "c3", "text")
+        log_dialog_detected(sid, "t1", "c4", "PERMISSION")
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["dialog_kinds"]["OPTION"] == 2
+        assert data["dialog_kinds"]["TEXT"] == 1
+        assert data["dialog_kinds"]["PERMISSION"] == 1
+
+    def test_decision_type_distribution(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=20)
+        log_decision(sid, "t1", "selected", "opt", elapsed_ms=30)
+        log_decision(sid, "t1", "deferred", "later", elapsed_ms=40)
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["decision_types"]["approved"] == 2
+        assert data["decision_types"]["selected"] == 1
+        assert data["decision_types"]["deferred"] == 1
+
+    def test_approval_rate(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=20)
+        log_decision(sid, "t1", "selected", "opt", elapsed_ms=30)
+        log_decision(sid, "t1", "deferred", "later", elapsed_ms=40)
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["approval_rate"] == 50.0
+
+    def test_zero_decisions_no_division_error(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        start_ceo_session()
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 1
+        assert data["total_decisions"] == 0
+        assert data["approval_rate"] == 0.0
+        assert data["avg_decisions_per_session"] == 0.0
+
+    def test_empty_events_session(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        (sessions_dir / "fake-session").mkdir(parents=True)
+        (sessions_dir / "fake-session" / "events.jsonl").write_text("")
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["error"] == "No CEO sessions found."
+
+    def test_text_output_formatting(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision, log_dialog_detected
+        log_dialog_detected(sid, "t1", "Choose option", "option")
+        log_decision(sid, "t1", "approved", "yes", elapsed_ms=100)
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "CEO Metrics (all sessions)" in result.output
+        assert "\u2500" * 25 in result.output
+        assert "Dialog kinds:" in result.output
+        assert "Decision types:" in result.output
+        assert "Avg decisions/session:" in result.output
+        assert "Avg session duration:" in result.output
+
+    def test_avg_decisions_per_session(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid1 = start_ceo_session()
+        sid2 = start_ceo_session()
+        from duo.ceo_log import log_decision
+        log_decision(sid1, "t1", "approved", "y", elapsed_ms=10)
+        log_decision(sid1, "t1", "approved", "y", elapsed_ms=20)
+        log_decision(sid2, "t2", "selected", "x", elapsed_ms=30)
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["avg_decisions_per_session"] == 1.5
+
+    def test_top_dialog_patterns(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_dialog_detected
+        log_dialog_detected(sid, "t1", "pattern A", "option")
+        log_dialog_detected(sid, "t1", "pattern A", "option")
+        log_dialog_detected(sid, "t1", "pattern A", "option")
+        log_dialog_detected(sid, "t1", "pattern B", "text")
+        log_dialog_detected(sid, "t1", "pattern B", "text")
+        log_dialog_detected(sid, "t1", "pattern C", "text")
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        patterns = data["top_dialog_patterns"]
+        assert len(patterns) >= 3
+        assert patterns[0]["content"] == "pattern A"
+        assert patterns[0]["count"] == 3
+        assert patterns[1]["content"] == "pattern B"
+        assert patterns[1]["count"] == 2
+
+    def test_top_patterns_text_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_dialog_detected
+        log_dialog_detected(sid, "t1", "repeated", "option")
+        log_dialog_detected(sid, "t1", "repeated", "option")
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "Top dialog patterns:" in result.output
+        assert "[2x] repeated" in result.output
+
+    def test_session_filter_specific(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid1 = start_ceo_session()
+        sid2 = start_ceo_session()
+        from duo.ceo_log import log_decision
+        log_decision(sid1, "t1", "approved", "y", elapsed_ms=10)
+        log_decision(sid2, "t2", "selected", "x", elapsed_ms=20)
+        result = runner.invoke(main, ["ceo-metrics", "--session", sid1, "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 1
+        assert data["total_decisions"] == 1
+        assert data["decision_types"]["approved"] == 1
+        assert "selected" not in data["decision_types"]
+
+    def test_no_dialogs_no_patterns(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid = start_ceo_session()
+        from duo.ceo_log import log_decision
+        log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "Top dialog patterns:" not in result.output
+        assert "Dialog kinds:" not in result.output
+
+    def test_since_filter_text_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        start_ceo_session()
+        result = runner.invoke(main, ["ceo-metrics", "--since", "2099-01-01T00:00:00"])
+        assert result.exit_code == 0
+        assert "No CEO sessions found" in result.output
+
+    def test_invalid_timestamp_in_events(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import json as _json
+        import duo.ceo_log
+        sessions_dir = tmp_path / "ceo-sessions"
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
+        sid_dir = sessions_dir / "test-session"
+        sid_dir.mkdir(parents=True)
+        events = [
+            {"event": "session_started", "ts": "not-a-date"},
+            {"event": "decision", "ts": "also-bad", "decision_type": "approved"},
+        ]
+        lines = "\n".join(_json.dumps(e) for e in events) + "\n"
+        (sid_dir / "events.jsonl").write_text(lines)
+        result = runner.invoke(main, ["ceo-metrics", "--session", "test-session", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["sessions"] == 1
+        assert data["avg_session_duration_s"] == 0.0
