@@ -3747,6 +3747,140 @@ def _find_idle_children(parent_pid: int) -> list[int]:
     return idle
 
 
+@main.command("ceo-restart")
+@click.argument("task")
+@click.option(
+    "--timeout",
+    default=60,
+    type=float,
+    help="Seconds to wait for Copilot restart (default: 60).",
+)
+def ceo_restart(task: str, timeout: float) -> None:
+    """Restart the Copilot process in a task's pane to reclaim leaked resources.
+
+    Sends exit to the current Copilot process, waits for the shell prompt,
+    then re-launches Copilot CLI with the same model. Reports health
+    metrics before and after restart.
+
+    This is the recommended way to handle degraded sessions (high fd/kqueue
+    count) without losing the tmux pane or worktree context.
+    """
+    import time as _t
+
+    from duo.commander import _get_copilot_model
+    from duo.transport import (
+        cancel_current,
+        get_pane_pid,
+        read_pane,
+        send_shell_command,
+        wait_for_idle,
+    )
+
+    _validate_task_name(task)
+    t = _load_task_or_fail(task)
+
+    # --- Pre-restart health snapshot ---
+    old_pid = get_pane_pid(t.pane_label)
+    old_fds = _get_pid_fd_count(old_pid) if old_pid else -1
+    old_kqueue = _get_pid_kqueue_count(old_pid) if old_pid else -1
+
+    click.echo(f"Restarting Copilot for '{task}'...")
+    if old_pid:
+        click.echo(f"  Pre-restart: PID={old_pid}, fds={old_fds}, kqueue={old_kqueue}")
+
+    # --- Step 1: Clean idle children first ---
+    if old_pid:
+        children = _find_idle_children(old_pid)
+        if children:
+            for cpid in children:
+                try:
+                    os.kill(cpid, 9)
+                except OSError:
+                    pass
+            click.echo(f"  Cleaned {len(children)} idle child process(es)")
+
+    # --- Step 2: Exit Copilot gracefully ---
+    try:
+        cancel_current(t.pane_label)
+        _t.sleep(1.0)
+    except (RuntimeError, subprocess.CalledProcessError, OSError):
+        pass
+
+    try:
+        send_shell_command(t.pane_label, "exit")
+        _t.sleep(2.0)
+    except (RuntimeError, subprocess.CalledProcessError, OSError):
+        pass
+
+    # --- Step 3: Wait for shell prompt ---
+    deadline = _t.monotonic() + timeout
+    shell_ready = False
+    while _t.monotonic() < deadline:
+        try:
+            content = read_pane(t.pane_label, 5)
+            # Look for shell prompt ($ or %)
+            last_line = (
+                content.strip().splitlines()[-1].strip() if content.strip() else ""
+            )
+            if (
+                last_line.endswith("$")
+                or last_line.endswith("%")
+                or last_line.endswith("#")
+            ):
+                shell_ready = True
+                break
+        except (RuntimeError, OSError):
+            pass
+        _t.sleep(1.0)
+
+    if not shell_ready:
+        raise DuoUserError(
+            "Copilot did not exit within timeout",
+            fix="Manually exit Copilot in the pane, then re-run this command.",
+        )
+
+    click.echo("  Copilot exited. Re-launching...")
+
+    # --- Step 4: Re-launch Copilot CLI ---
+    model = _get_copilot_model()
+    copilot_cmd = f"copilot --model {model} --yolo"
+    try:
+        send_shell_command(t.pane_label, copilot_cmd)
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        raise DuoUserError(
+            f"Failed to re-launch Copilot: {exc}",
+            fix="Manually start Copilot in the pane.",
+        ) from exc
+
+    # --- Step 5: Wait for Copilot to start ---
+    click.echo("  Waiting for Copilot to start...")
+    idle = wait_for_idle(t.pane_label, timeout=timeout, poll_interval=2.0)
+    if not idle:
+        click.echo("  Warning: Copilot may not be fully started yet.")
+
+    # --- Step 6: Send /allow-all ---
+    try:
+        send_shell_command(t.pane_label, "/allow-all")
+        wait_for_idle(t.pane_label, timeout=15.0, poll_interval=1.0)
+        click.echo("  Sent /allow-all")
+    except (RuntimeError, subprocess.CalledProcessError, OSError):
+        click.echo("  Warning: /allow-all may not have been sent.")
+
+    # --- Step 7: Post-restart health ---
+    _t.sleep(1.0)
+    new_pid = get_pane_pid(t.pane_label)
+    new_fds = _get_pid_fd_count(new_pid) if new_pid else -1
+    new_kqueue = _get_pid_kqueue_count(new_pid) if new_pid else -1
+
+    if new_pid:
+        click.echo(f"  Post-restart: PID={new_pid}, fds={new_fds}, kqueue={new_kqueue}")
+    click.echo("Restart complete. Copilot is ready at the ❯ prompt.")
+
+    # Remove restart-recommended signal if present
+    signal_path = t.dir / "restart-recommended"
+    signal_path.unlink(missing_ok=True)
+
+
 @main.command("ceo-dispatch")
 @click.argument("task")
 @click.option(

@@ -5819,6 +5819,186 @@ class TestCeoCleanup:
         assert "Killed 1" in result.output
 
 
+class TestCeoRestart:
+    """Tests for duo ceo-restart command."""
+
+    @pytest.fixture()
+    def _task_fixture(self) -> str:
+        task = _make_task(task_id="restart-test", description="restart test")
+        task.pane_label = "test-pane"
+        save_task(task)
+        return task.id
+
+    def test_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-restart", "nope"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_bad_task_name(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-restart", "bad name"])
+        assert result.exit_code != 0
+
+    def test_successful_restart(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Full restart flow: cleanup → exit → re-launch → /allow-all."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [5555])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host:~/project$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+
+        killed = []
+        monkeypatch.setattr("os.kill", lambda pid, sig: killed.append(pid))
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        assert "Restart complete" in result.output
+        assert "Cleaned 1 idle" in result.output
+        assert 5555 in killed
+
+    def test_copilot_exit_timeout(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Times out when Copilot doesn't exit."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        # Never returns shell prompt
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "❯ still copilot"
+        )
+
+        import time
+
+        _real_monotonic = time.monotonic
+
+        call_count = {"n": 0}
+
+        def fast_monotonic():
+            call_count["n"] += 1
+            # After a few calls, jump past deadline
+            return _real_monotonic() + call_count["n"] * 100
+
+        monkeypatch.setattr(time, "monotonic", fast_monotonic)
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code != 0
+        assert "did not exit" in result.output
+
+    def test_no_pid_pre_restart(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Works even when pre-restart PID cannot be determined."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host:~/proj$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        assert "Restart complete" in result.output
+
+    def test_removes_restart_signal(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Restart removes the restart-recommended signal file."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host:~$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        # Create signal file
+        from duo.protocol import TASKS_DIR
+
+        signal_path = TASKS_DIR / "restart-test" / "restart-recommended"
+        signal_path.parent.mkdir(parents=True, exist_ok=True)
+        signal_path.write_text("restart please")
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        assert not signal_path.exists()
+
+    def test_relaunch_failure(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Failure to re-launch Copilot reports helpful error."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+
+        call_count = {"n": 0}
+
+        def fake_send(label, cmd):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return  # 'exit' succeeds
+            raise RuntimeError("pane gone")
+
+        monkeypatch.setattr("duo.transport.send_shell_command", fake_send)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host:~$"
+        )
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code != 0
+        assert "Failed to re-launch" in result.output
+
+
 # ── Bare array batch file auto-wrapping ──────────────────────────────
 
 
