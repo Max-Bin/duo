@@ -924,7 +924,12 @@ def monitor(task_ids: list[str] | None = None) -> None:
             _log_monitor("◷", task.id, "promoted from queue")
             try:
                 start_session(task)
-                prompt = build_task_prompt(task)
+                # Prefer user-persisted prompt over synthesized one
+                persisted = task.prompt_path(task.current_step, task.current_attempt)
+                if persisted.exists():
+                    prompt = persisted.read_text()
+                else:
+                    prompt = build_task_prompt(task)
                 send_task_prompt(task, prompt)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
                 _log_monitor("✗", task.id, f"failed to start: {exc}")

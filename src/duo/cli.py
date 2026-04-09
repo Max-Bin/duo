@@ -408,10 +408,17 @@ def send(name: str, prompt: str) -> None:
     task = _load_task_or_fail(name)
 
     if task.status == TaskStatus.QUEUED:
+        # Persist prompt for later — no pane exists yet, so don't try transport
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        from duo.protocol import atomic_write_text
+
+        atomic_write_text(prompt_path, prompt)
         click.echo(
-            f"Warning: task '{name}' is queued and not yet started. Prompt will be sent when task starts.",
+            f"Task '{name}' is queued — prompt saved and will be sent when task starts.",
             err=True,
         )
+        return
 
     send_task_prompt(task, prompt)
     click.echo(

@@ -623,6 +623,10 @@ class TestEdgeCases:
         save_task(task)
         result = runner.invoke(main, ["send", "q-task", "hello"])
         assert "queued" in result.output.lower()
+        # Prompt should be persisted to file, not sent via transport
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        assert prompt_path.exists()
+        assert prompt_path.read_text() == "hello"
 
     def test_merge_missing_worktree(self, runner: CliRunner):
         task = _make_task("merge-task")
@@ -1632,14 +1636,15 @@ class TestSendSuccess:
         assert "not found" in result.output
 
     def test_send_queued_task_warns(self, runner: CliRunner):
-        """send to queued task prints warning but succeeds."""
+        """send to queued task persists prompt but doesn't call transport."""
         task = _make_task("q-send")
         task.status = TaskStatus.QUEUED
         save_task(task)
-        with patch("duo.commander.send_task_prompt"):
+        with patch("duo.commander.send_task_prompt") as mock_send:
             result = runner.invoke(main, ["send", "q-send", "hello"])
             assert result.exit_code == 0
             assert "queued" in result.output.lower()
+            mock_send.assert_not_called()  # no transport for queued tasks
 
 
 # ---------------------------------------------------------------------------

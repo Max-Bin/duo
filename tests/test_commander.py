@@ -1769,6 +1769,46 @@ class TestMonitor:
         mock_send.assert_called_once()
 
     @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.RESULT_READY)
+    @patch("duo.commander.send_task_prompt")
+    @patch("duo.commander.start_session")
+    @patch("duo.scheduler.promote_queued")
+    @patch("duo.commander.list_tasks")
+    def test_monitor_promoted_uses_persisted_prompt(
+        self,
+        mock_list,
+        mock_promote,
+        mock_start,
+        mock_send,
+        mock_poll,
+        mock_sleep,
+    ):
+        """Monitor uses user-persisted prompt file over synthesized one."""
+        task = _make_task()
+        transition(task, TaskStatus.SESSION_STARTING)
+        # Persist a user prompt before promotion
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text("user custom prompt")
+
+        mock_list.return_value = [task]
+        mock_promote.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        mock_start.assert_called_once_with(task)
+        # Should have sent the persisted prompt, not synthesized
+        sent_prompt = mock_send.call_args[0][1]
+        assert sent_prompt == "user custom prompt"
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
     @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
     @patch("duo.commander.send_task_prompt")
     @patch(
