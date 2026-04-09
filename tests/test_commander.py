@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1508,7 +1509,7 @@ class TestPollTask:
     @patch("duo.commander.verify_and_advance")
     @patch("duo.commander.read_result_for_step")
     def test_poll_result_ready_wrong_incarnation(self, mock_read_result, mock_verify):
-        """RESULT_READY with stale incarnation does not verify."""
+        """RESULT_READY with stale incarnation does not verify but logs event."""
         task = _make_task()
         _advance_to_prompt_sent(task)
         poller = self._make_poller(PollResult.RESULT_READY)
@@ -1519,6 +1520,13 @@ class TestPollTask:
         poll_task(task, poller)
 
         mock_verify.assert_not_called()
+        # Verify journal records the incarnation mismatch
+        journal = task.journal_path.read_text().strip().split("\n")
+        events = [json.loads(line) for line in journal]
+        mismatch = [e for e in events if e.get("event") == "result_incarnation_mismatch"]
+        assert len(mismatch) == 1
+        assert mismatch[0]["data"]["got"] == "stale-inc"
+        assert mismatch[0]["data"]["expected"] == task.incarnation_id
 
     @patch("duo.commander.verify_and_advance")
     @patch("duo.commander.read_result_for_step")

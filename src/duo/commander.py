@@ -825,6 +825,23 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
         result = read_result_for_step(task, step, attempt)
         if result and result.incarnation == inc:
             verify_and_advance(task)
+        elif result:
+            logger.warning(
+                "Result incarnation mismatch for %s: got %s, expected %s",
+                task.id,
+                result.incarnation,
+                inc,
+            )
+            append_event(
+                task,
+                "result_incarnation_mismatch",
+                {
+                    "got": result.incarnation,
+                    "expected": inc,
+                    "step": step,
+                    "attempt": attempt,
+                },
+            )
 
     elif poll_result == PollResult.HEARTBEAT_TIMEOUT:
         if not is_process_alive(task.pane_label):
