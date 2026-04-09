@@ -42,6 +42,8 @@ from duo.cli import (
     _emit_restart_signal,
     _find_idle_children,
     _fmt_ts,
+    _gather_budget_info,
+    _gather_pane_info,
     _gather_session_health,
     _get_pid_child_count,
     _get_pid_fd_count,
@@ -5998,6 +6000,177 @@ class TestCeoRestart:
         assert result.exit_code != 0
         assert "Failed to re-launch" in result.output
 
+    def test_restart_kill_oserror(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """OSError from os.kill on idle child is silently ignored."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [5555, 6666])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+
+        def kill_raises(pid, sig):
+            raise OSError("No such process")
+
+        monkeypatch.setattr("os.kill", kill_raises)
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        assert "Cleaned 2 idle" in result.output
+
+    def test_restart_cancel_and_exit_errors(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """cancel_current and exit command failures are silently ignored."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+
+        def cancel_raises(label):
+            raise RuntimeError("fail")
+
+        monkeypatch.setattr("duo.transport.cancel_current", cancel_raises)
+
+        call_count = {"n": 0}
+
+        def send_cmd(label, cmd):
+            call_count["n"] += 1
+            if cmd == "exit":
+                raise subprocess.CalledProcessError(1, "exit")
+
+        monkeypatch.setattr("duo.transport.send_shell_command", send_cmd)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+        monkeypatch.setattr("os.kill", lambda pid, sig: None)
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+
+    def test_restart_read_pane_error_during_wait(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """read_pane errors during shell wait are silently retried."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        monkeypatch.setattr("os.kill", lambda pid, sig: None)
+
+        read_count = {"n": 0}
+
+        def read_pane_flaky(label, lines):
+            read_count["n"] += 1
+            if read_count["n"] <= 2:
+                raise RuntimeError("pane not ready")
+            return "user@host$"
+
+        monkeypatch.setattr("duo.transport.read_pane", read_pane_flaky)
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+
+    def test_restart_wait_for_idle_not_ready(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Warning when Copilot may not be fully started."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+        monkeypatch.setattr("duo.transport.send_shell_command", lambda label, cmd: None)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: False
+        )
+        monkeypatch.setattr("os.kill", lambda pid, sig: None)
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        assert "may not be fully started" in result.output
+
+    def test_restart_allow_all_error(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """/allow-all failure produces warning but doesn't fail."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 1234)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._find_idle_children", lambda pid: [])
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+
+        def send_cmd(label, cmd):
+            if cmd == "/allow-all":
+                raise RuntimeError("send failed")
+
+        monkeypatch.setattr("duo.transport.send_shell_command", send_cmd)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+        monkeypatch.setattr("os.kill", lambda pid, sig: None)
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        assert "/allow-all may not have been sent" in result.output
+
 
 # ── Bare array batch file auto-wrapping ──────────────────────────────
 
@@ -9167,8 +9340,64 @@ class TestCeoNow:
         data = json.loads(result.output)
         assert data["git"] is None
 
+    def test_ceo_now_read_pane_error(
+        self,
+        runner: CliRunner,
+        make_task,
+    ) -> None:
+        """read_pane raising inside _gather_pane_info returns empty recent_lines."""
+        make_task("rp-err")
+        from duo.ceo_state import save_ceo_focus
 
-class TestGatherSessionHealth:
+        save_ceo_focus("rp-err")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch(
+                "duo.transport.read_pane",
+                side_effect=RuntimeError("pane gone"),
+            ),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["pane"]["alive"] is True
+        assert data["pane"]["recent_lines"] == []
+
+    def test_ceo_now_with_health_display(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Health section is rendered when health data is populated."""
+        make_task("now-health")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("now-health", session_id="s1")
+
+        monkeypatch.setattr("duo.transport.resolve_label", lambda label: "%1")
+        monkeypatch.setattr("duo.transport.is_in_dialog", lambda label: False)
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 60)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 3)
+
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+        ):
+            result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "Health:" in result.output
+        assert "degraded" in result.output
+        assert "fds=600" in result.output
+        assert "kqueue=60" in result.output
+
     """Tests for _gather_session_health()."""
 
     def test_pid_unavailable(self, make_task, monkeypatch: pytest.MonkeyPatch):
@@ -9278,8 +9507,58 @@ class TestGatherSessionHealth:
         assert result["status"] == "healthy"
         assert result["est_remaining_hours"] is None
 
+    def test_bad_created_at(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """Unparseable created_at → age_seconds stays 0."""
+        task = make_task("health-bad-date")
+        task.created_at = "not-a-date"
+        save_task(task)
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result is not None
+        assert result["age_seconds"] == 0.0
+        assert result["est_remaining_hours"] is None
 
-class TestIsAutoSelectable:
+
+class TestGatherBudgetInfo:
+    """Tests for _gather_budget_info() PR burn rate calculations."""
+
+    def test_gather_budget_with_pr_events(self, make_task):
+        """Recent and old pr_consumed events → correct burn rate."""
+        from datetime import UTC, datetime, timedelta
+
+        task = make_task("budget-burn")
+        now = datetime.now(UTC)
+        # Write journal entries directly (append_event adds its own ts, so write raw)
+        import json as _json
+
+        task.journal_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(task.journal_path, "a") as f:
+            # Recent event (within last hour)
+            f.write(_json.dumps({"event": "pr_consumed", "ts": now.isoformat()}) + "\n")
+            # Old event (2 hours ago)
+            old = (now - timedelta(hours=2)).isoformat()
+            f.write(_json.dumps({"event": "pr_consumed", "ts": old}) + "\n")
+
+        result = _gather_budget_info(task)
+        assert result["used"] == 2
+        assert result["burn_rate_per_hour"] == 1.0  # only 1 in last hour
+
+    def test_gather_budget_pr_event_bad_timestamp(self, make_task):
+        """Malformed timestamp in pr_consumed event doesn't crash."""
+        import json as _json
+
+        task = make_task("budget-bad-ts")
+        task.journal_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(task.journal_path, "a") as f:
+            f.write(_json.dumps({"event": "pr_consumed", "ts": "not-a-date"}) + "\n")
+
+        result = _gather_budget_info(task)
+        assert result["used"] == 1
+        assert result["burn_rate_per_hour"] == 0.0
+
     """Tests for _is_auto_selectable helper."""
 
     def test_continue(self) -> None:
