@@ -56,6 +56,7 @@ __all__ = [
     "get_pane_pid",
     "get_pane_size",
     "get_pr_log",
+    "get_tmux_session_target",
     "is_in_dialog",
     "is_in_dialog_stable",
     "is_likely_stuck",
@@ -571,6 +572,63 @@ def get_pane_id() -> str:
     which pane it is executing in (e.g. to avoid sending commands to itself).
     """
     return bridge(["id"]).strip()
+
+
+def get_tmux_session_target() -> str:
+    """Return a tmux session target (``$N``) for the caller's session.
+
+    Reads the ``$TMUX`` environment variable (format:
+    ``<socket_path>,<server_pid>,<session_id>``) and extracts the session
+    ID.  When ``$TMUX`` is not set, falls back to using the sole active
+    session (raises if 0 or 2+ sessions exist).
+
+    The returned value (e.g. ``"$0"``) can be passed as ``-t`` target to
+    ``tmux split-window`` and ``tmux select-layout`` to guarantee pane
+    creation happens in the caller's session, preventing cross-session
+    pollution.
+
+    Raises:
+        RuntimeError: If the tmux session cannot be determined.
+    """
+    tmux_env = os.environ.get("TMUX", "")
+    if tmux_env:
+        # Parse from right — socket path may theoretically contain commas
+        parts = tmux_env.rsplit(",", 2)
+        if len(parts) >= 3 and parts[2].strip().isdigit():
+            return f"${parts[2].strip()}"
+        # Malformed $TMUX — fall through to list-sessions
+
+    # Fallback: if exactly one session exists, use it
+    try:
+        result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_id}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(
+            "tmux is not running. Start a session first:\n  tmux new -s duo"
+        ) from exc
+
+    if result.returncode == 0:
+        sessions = [s.strip() for s in result.stdout.strip().splitlines() if s.strip()]
+        if len(sessions) == 1:
+            return f"${sessions[0]}"
+        if len(sessions) == 0:
+            raise RuntimeError(
+                "No tmux sessions found. Start one first:\n  tmux new -s duo"
+            )
+        raise RuntimeError(
+            f"Multiple tmux sessions found ({len(sessions)}). "
+            "Run duo inside a tmux session so $TMUX is set.\n"
+            "  Example: tmux attach -t duo && duo start my-task"
+        )
+
+    raise RuntimeError(
+        "Cannot determine tmux session. Run duo inside a tmux session.\n"
+        "  Start one with: tmux new -s duo"
+    )
 
 
 # Minimum pane dimensions for reliable Copilot Ink input handling.

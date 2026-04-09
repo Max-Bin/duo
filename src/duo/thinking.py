@@ -170,10 +170,18 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
     Returns the raw tmux pane ID (e.g. ``%42``).
     Raises ``RuntimeError`` on failure.
     """
-    from duo.transport import name_pane, send_shell_command, wait_for_idle
+    from duo.transport import (
+        get_tmux_session_target,
+        name_pane,
+        send_shell_command,
+        wait_for_idle,
+    )
+
+    # Target the caller's session to prevent cross-session pollution
+    session_target = get_tmux_session_target()
 
     result = subprocess.run(
-        ["tmux", "split-window", "-v", "-P", "-F", "#{pane_id}"],
+        ["tmux", "split-window", "-v", "-P", "-F", "#{pane_id}", "-t", session_target],
         capture_output=True,
         text=True,
         timeout=10,
@@ -186,8 +194,9 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
     pane_id = result.stdout.strip()
     name_pane(pane_id, label)
 
+    # Tile layout — target the new pane to resolve correct window
     subprocess.run(
-        ["tmux", "select-layout", "tiled"],
+        ["tmux", "select-layout", "-t", pane_id, "tiled"],
         capture_output=True,
         text=True,
         timeout=10,

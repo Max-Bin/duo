@@ -51,6 +51,7 @@ from duo.transport import (
     approve_permission,
     clear_bootstrap_done,
     diagnose_pane,
+    get_tmux_session_target,
     is_process_alive,
     name_pane,
     read_pane,
@@ -313,8 +314,15 @@ def start_claude_commander(task: Task) -> str | None:
     # Write CLAUDE.md so Claude Code auto-discovers its role
     write_commander_claude_md(task)
 
+    # Target the caller's session to prevent cross-session pollution
+    try:
+        session_target = get_tmux_session_target()
+    except RuntimeError:
+        logger.warning("Cannot determine tmux session for commander pane")
+        return None
+
     result = subprocess.run(
-        ["tmux", "split-window", "-v", "-P", "-F", "#{pane_id}"],
+        ["tmux", "split-window", "-v", "-P", "-F", "#{pane_id}", "-t", session_target],
         capture_output=True,
         text=True,
         timeout=10,
@@ -327,9 +335,12 @@ def start_claude_commander(task: Task) -> str | None:
     commander_label = f"duo-commander-{task.id}"
     name_pane(pane_id, commander_label)
 
-    # Tile layout
+    # Tile layout — target the new pane to resolve correct window
     subprocess.run(
-        ["tmux", "select-layout", "tiled"], capture_output=True, text=True, timeout=10
+        ["tmux", "select-layout", "-t", pane_id, "tiled"],
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
 
     time.sleep(_SESSION_SPLIT_WAIT)
@@ -450,11 +461,13 @@ def start_session(task: Task) -> None:
     if task.status != TaskStatus.SESSION_STARTING:
         transition(task, TaskStatus.SESSION_STARTING)
 
+    # Target the caller's session to prevent cross-session pollution
+    session_target = get_tmux_session_target()
+
     # Create tmux pane and start copilot
     # Note: tmux must already be running (user starts duo inside tmux)
-    # Create a new window in the current tmux session
     result = subprocess.run(
-        ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+        ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}", "-t", session_target],
         capture_output=True,
         text=True,
         timeout=10,
@@ -469,9 +482,12 @@ def start_session(task: Task) -> None:
     # Label the pane
     name_pane(pane_id, task.pane_label)
 
-    # Tile layout for balance
+    # Tile layout — target the new pane to resolve correct window
     _layout = subprocess.run(
-        ["tmux", "select-layout", "tiled"], capture_output=True, text=True, timeout=10
+        ["tmux", "select-layout", "-t", pane_id, "tiled"],
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     if _layout.returncode != 0:
         logger.warning("select-layout failed: %s", _layout.stderr.strip())

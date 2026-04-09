@@ -237,6 +237,94 @@ class TestGetPaneId:
         assert get_pane_id() == "%3"
 
 
+class TestGetTmuxSessionTarget:
+    """Tests for get_tmux_session_target()."""
+
+    def test_reads_tmux_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """$TMUX set → extracts session ID."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-501/default,12345,0")
+        from duo.transport import get_tmux_session_target
+
+        assert get_tmux_session_target() == "$0"
+
+    def test_tmux_env_session_id_1(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Different session ID."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-501/default,99999,3")
+        from duo.transport import get_tmux_session_target
+
+        assert get_tmux_session_target() == "$3"
+
+    def test_tmux_env_socket_with_commas(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Socket path containing commas — rsplit handles it."""
+        monkeypatch.setenv("TMUX", "/tmp/path,with,commas,12345,2")
+        from duo.transport import get_tmux_session_target
+
+        assert get_tmux_session_target() == "$2"
+
+    def test_malformed_tmux_env_falls_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Malformed $TMUX with non-digit session → falls through to list-sessions."""
+        monkeypatch.setenv("TMUX", "badvalue")
+        mock_result = MagicMock(returncode=0, stdout="5\n")
+        with patch("subprocess.run", return_value=mock_result):
+            from duo.transport import get_tmux_session_target
+
+            assert get_tmux_session_target() == "$5"
+
+    def test_no_tmux_env_single_session(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """$TMUX not set, exactly 1 session → uses it."""
+        monkeypatch.delenv("TMUX", raising=False)
+        mock_result = MagicMock(returncode=0, stdout="0\n")
+        with patch("subprocess.run", return_value=mock_result):
+            from duo.transport import get_tmux_session_target
+
+            assert get_tmux_session_target() == "$0"
+
+    def test_no_tmux_env_no_sessions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """$TMUX not set, 0 sessions → RuntimeError."""
+        monkeypatch.delenv("TMUX", raising=False)
+        mock_result = MagicMock(returncode=0, stdout="\n")
+        with patch("subprocess.run", return_value=mock_result):
+            from duo.transport import get_tmux_session_target
+
+            with pytest.raises(RuntimeError, match="No tmux sessions"):
+                get_tmux_session_target()
+
+    def test_no_tmux_env_multiple_sessions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """$TMUX not set, 2+ sessions → RuntimeError."""
+        monkeypatch.delenv("TMUX", raising=False)
+        mock_result = MagicMock(returncode=0, stdout="0\n1\n")
+        with patch("subprocess.run", return_value=mock_result):
+            from duo.transport import get_tmux_session_target
+
+            with pytest.raises(RuntimeError, match="Multiple tmux sessions"):
+                get_tmux_session_target()
+
+    def test_tmux_not_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """tmux binary not found → RuntimeError."""
+        monkeypatch.delenv("TMUX", raising=False)
+        with patch("subprocess.run", side_effect=FileNotFoundError("tmux")):
+            from duo.transport import get_tmux_session_target
+
+            with pytest.raises(RuntimeError, match="tmux is not running"):
+                get_tmux_session_target()
+
+    def test_list_sessions_nonzero_returncode(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """list-sessions returns non-zero → RuntimeError."""
+        monkeypatch.delenv("TMUX", raising=False)
+        mock_result = MagicMock(returncode=1, stdout="", stderr="error")
+        with patch("subprocess.run", return_value=mock_result):
+            from duo.transport import get_tmux_session_target
+
+            with pytest.raises(RuntimeError, match="Cannot determine tmux session"):
+                get_tmux_session_target()
+
+
 # ── list_panes ────────────────────────────────────────────────────────
 
 LIST_OUTPUT = """\

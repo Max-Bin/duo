@@ -824,6 +824,20 @@ class TestClaudeCommander:
                 result = start_claude_commander(task)
                 assert result is None
 
+    def test_start_claude_commander_no_tmux_session(self) -> None:
+        """start_claude_commander returns None when session target fails."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with patch(
+                "duo.commander.get_tmux_session_target",
+                side_effect=RuntimeError("no session"),
+            ):
+                result = start_claude_commander(task)
+                assert result is None
+
     def test_start_session_with_claude_commander(self) -> None:
         """start_session also launches Claude commander when config enabled."""
         task = _make_task()
