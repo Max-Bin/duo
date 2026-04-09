@@ -103,10 +103,10 @@ def _build_events_panel(tasks: list[Task], max_events: int = 8) -> Panel:
     all_events: list[tuple[str, str, str]] = []
     for task in tasks:
         try:
-            events = read_jsonl(task.journal_path)
+            events = read_jsonl(task.journal_path, tail=5)
         except (FileNotFoundError, OSError):
             continue
-        for ev in events[-5:]:
+        for ev in events:
             ts = ev.get("ts", "")
             event_type = ev.get("event", "")
             all_events.append((ts, task.id, event_type))
