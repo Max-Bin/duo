@@ -1910,10 +1910,9 @@ def ceo_select(
         DialogKind,
         get_dialog_kind,
         is_in_dialog_stable,
-        safe_enter,
         select_dialog_option,
         select_other_option,
-        type_text,
+        send_text_dialog_message,
     )
 
     if option is not None and other_text is not None:
@@ -1936,9 +1935,11 @@ def ceo_select(
                 "Use --other TEXT to type a response."
             )
         assert other_text is not None
-        type_text(t.pane_label, other_text)
-        safe_enter(t.pane_label)
-        click.echo(f"Typed text: {other_text}")
+        success = send_text_dialog_message(t.pane_label, other_text)
+        if success:
+            click.echo(f"Typed text: {other_text}")
+        else:
+            click.echo(f"Typed text: {other_text} (dialog may still be active — check manually)")
     elif other_text is not None:
         select_other_option(t.pane_label, other_text)
         click.echo(f"Selected 'Other' with text: {other_text}")

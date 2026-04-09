@@ -39,6 +39,7 @@ from duo.transport import (
     send_message,
     send_prompt,
     send_shell_command,
+    send_text_dialog_message,
     type_text,
     wait_for_dialog,
     wait_for_idle,
@@ -1195,3 +1196,87 @@ class TestSelectOtherOption:
         select_other_option("test", "my text")
         # Only 2 options inside box; cursor at 1, navigate to 2
         assert mock_keys.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# send_text_dialog_message
+# ---------------------------------------------------------------------------
+
+
+class TestSendTextDialogMessage:
+    """Tests for send_text_dialog_message — reliable Enter for text dialogs."""
+
+    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_success_first_try(self, mock_type, mock_read, mock_keys, mock_detect):
+        """Text visible, Enter dismisses dialog on first try."""
+        mock_read.return_value = "input: my answer"
+        result = send_text_dialog_message("test", "my answer")
+        assert result is True
+        mock_type.assert_called_once_with("test", "my answer")
+        # Enter sent once
+        mock_keys.assert_called_once_with("test", "Enter")
+
+    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_retry_enter_once(self, mock_type, mock_read, mock_keys, mock_detect):
+        """Dialog persists after first Enter, dismissed after retry."""
+        mock_read.return_value = "input: my answer"
+        # First check: still in dialog. Second check: dismissed.
+        mock_detect.side_effect = [DialogKind.TEXT, DialogKind.NONE]
+        result = send_text_dialog_message("test", "my answer")
+        assert result is True
+        # Enter sent twice (initial + 1 retry)
+        assert mock_keys.call_count == 2
+
+    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.TEXT)
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_exhausts_retries(self, mock_type, mock_read, mock_keys, mock_detect):
+        """All retries exhausted — dialog still showing."""
+        mock_read.return_value = "input: stuck answer"
+        result = send_text_dialog_message("test", "stuck answer")
+        assert result is False
+        # Enter sent 3 times: initial + 2 retries
+        assert mock_keys.call_count == 3
+
+    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.resolve_label", return_value="%42")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_sigwinch_on_invisible_text(self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect):
+        """When typed text is not visible, sends SIGWINCH to refresh."""
+        call_count = {"n": 0}
+
+        def fake_read(label, lines):
+            call_count["n"] += 1
+            if call_count["n"] <= 2:
+                return "no text here"
+            return "my answer is visible"
+
+        mock_read.side_effect = fake_read
+        pid_run = MagicMock(returncode=0, stdout="12345\n")
+        with patch("subprocess.run", return_value=pid_run), \
+             patch("os.kill") as mock_kill:
+            result = send_text_dialog_message("test", "my answer")
+        assert result is True
+        # os.kill should have been called with SIGWINCH
+        assert mock_kill.call_count >= 1
+
+    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.resolve_label", side_effect=RuntimeError("no pane"))
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_sigwinch_failure_ignored(self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect):
+        """SIGWINCH failure is silently ignored."""
+        # read_pane calls: verify text (x3 retries) + after Enter (x1) = 4+
+        mock_read.side_effect = ["no text", "no text", "my answer", "dismissed"]
+        result = send_text_dialog_message("test", "my answer")
+        assert result is True

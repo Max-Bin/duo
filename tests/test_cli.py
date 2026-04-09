@@ -4585,19 +4585,29 @@ class TestCeoSelect:
         assert "text-input dialog" in result.output
 
     def test_text_dialog_other_works(self, runner: CliRunner, make_task) -> None:
-        """--other in a TEXT dialog types directly + Enter."""
+        """--other in a TEXT dialog uses send_text_dialog_message."""
         task = make_task("sel-text-ok")
         with patch("duo.transport.is_in_dialog_stable", return_value=True), \
              patch("duo.transport._is_at_main_prompt", return_value=False), \
              patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
              patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT), \
-             patch("duo.transport.type_text") as mock_type, \
-             patch("duo.transport.safe_enter") as mock_enter:
+             patch("duo.transport.send_text_dialog_message", return_value=True) as mock_send:
             result = runner.invoke(main, ["ceo-select", task.id, "--other", "my answer"])
         assert result.exit_code == 0
         assert "Typed text" in result.output
-        mock_type.assert_called_once_with(task.pane_label, "my answer")
-        mock_enter.assert_called_once_with(task.pane_label)
+        mock_send.assert_called_once_with(task.pane_label, "my answer")
+
+    def test_text_dialog_other_retry_warning(self, runner: CliRunner, make_task) -> None:
+        """--other shows warning when dialog persists after retries."""
+        task = make_task("sel-text-retry")
+        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
+             patch("duo.transport._is_at_main_prompt", return_value=False), \
+             patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT), \
+             patch("duo.transport.send_text_dialog_message", return_value=False):
+            result = runner.invoke(main, ["ceo-select", task.id, "--other", "my answer"])
+        assert result.exit_code == 0
+        assert "may still be active" in result.output
     """Tests for duo ceo-approve."""
 
     def test_task_not_found(self, runner: CliRunner) -> None:

@@ -552,6 +552,60 @@ def select_other_option(label: str, text: str) -> None:
     _record_pr(label, "dialog_other", text[:80])
 
 
+def send_text_dialog_message(label: str, text: str) -> bool:
+    """Type text into a dialog input field and submit with reliable Enter.
+
+    After typing, verifies the text is visible in the pane before sending
+    Enter. After Enter, verifies the dialog was dismissed. Retries Enter
+    up to 2 times if the dialog persists.
+
+    Returns True if the dialog was successfully dismissed, False if
+    retries were exhausted and the dialog is still showing.
+    """
+    type_text(label, text)
+    _time.sleep(0.3)
+
+    # Verify text is visible before sending Enter
+    for _attempt in range(3):
+        content = read_pane(label, 20)
+        if text in content:
+            break
+        # Text not visible — send SIGWINCH to force Ink TUI refresh
+        try:
+            pane_id = resolve_label(label)
+            pid_result = subprocess.run(
+                ["tmux", "display-message", "-t", pane_id, "-p", "#{pane_pid}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if pid_result.returncode == 0 and pid_result.stdout.strip():
+                import signal
+
+                os.kill(int(pid_result.stdout.strip()), signal.SIGWINCH)
+        except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
+            pass
+        _time.sleep(0.3)
+
+    # Send Enter
+    send_keys(label, "Enter")
+    _time.sleep(0.5)
+
+    # Verify dialog was dismissed; retry Enter up to 2 times
+    for _retry in range(2):
+        content = read_pane(label, 20)
+        dialog_kind = _detect_dialog_kind(content)
+        if dialog_kind == DialogKind.NONE:
+            return True
+        # Dialog still showing — retry Enter
+        send_keys(label, "Enter")
+        _time.sleep(0.5)
+
+    # Final check
+    content = read_pane(label, 20)
+    return _detect_dialog_kind(content) == DialogKind.NONE
+
+
 # === Composite operations ===
 
 
