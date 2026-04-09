@@ -4785,6 +4785,69 @@ class TestCeoStatus:
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 0
 
+    def test_dialog_options_not_counted_outside_box(self, runner: CliRunner, make_task) -> None:
+        """Options in scrollback ABOVE the dialog box are not counted."""
+        task = make_task("stat-box-above")
+        # Scrollback has "1. foo", "2. bar" before the dialog box
+        pane_content = (
+            "Here are some steps:\n"
+            "1. Install deps\n"
+            "2. Run tests\n"
+            "3. Deploy\n"
+            "\n"
+            "╭─ Permission ─╮\n"
+            "│ ❯ 1. Yes\n"
+            "│   2. No\n"
+            "╰──────────────╯"
+        )
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["options"] == 2  # only 2 inside box, not 5
+
+    def test_dialog_options_not_counted_below_box(self, runner: CliRunner, make_task) -> None:
+        """Options BELOW the dialog box are not counted."""
+        task = make_task("stat-box-below")
+        pane_content = (
+            "╭─ Run? ─╮\n"
+            "│ ❯ 1. Yes\n"
+            "│   2. No\n"
+            "│   3. Other\n"
+            "╰─────────╯\n"
+            "4. Some other numbered text\n"
+            "5. More numbered text\n"
+        )
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["options"] == 3  # only 3 inside box
+
+    def test_dialog_options_only_box(self, runner: CliRunner, make_task) -> None:
+        """Pure dialog box with no surrounding noise."""
+        task = make_task("stat-box-only")
+        pane_content = (
+            "╭─ Allow? ─╮\n"
+            "│ ❯ 1. Allow once\n"
+            "│   2. Allow for session\n"
+            "│   3. Allow + add to allowed\n"
+            "│   4. Deny\n"
+            "│   5. Tell differently\n"
+            "╰───────────╯"
+        )
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.read_pane", return_value=pane_content), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+            result = runner.invoke(main, ["ceo-status", task.id])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["options"] == 5
+
 
 # ---------------------------------------------------------------------------
 # duo think — pre-start brainstorming tests

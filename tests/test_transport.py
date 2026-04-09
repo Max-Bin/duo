@@ -1003,7 +1003,7 @@ class TestApprovePermission:
     @patch("duo.transport.read_pane")
     def test_picks_yes_when_no_approve(self, mock_read, mock_select):
         """Falls back to 'Yes' when no approve option."""
-        mock_read.return_value = "  1. Yes\n  2. No\n"
+        mock_read.return_value = "╭──\n  1. Yes\n  2. No\n╰──"
         approve_permission("test")
         mock_select.assert_called_once_with("test", "1")
 
@@ -1011,7 +1011,7 @@ class TestApprovePermission:
     @patch("duo.transport.read_pane")
     def test_skips_no_options(self, mock_read, mock_select):
         """Skips options starting with 'No'."""
-        mock_read.return_value = "  1. No\n  2. Yes\n"
+        mock_read.return_value = "╭──\n  1. No\n  2. Yes\n╰──"
         approve_permission("test")
         mock_select.assert_called_once_with("test", "2")
 
@@ -1019,7 +1019,7 @@ class TestApprovePermission:
     @patch("duo.transport.read_pane")
     def test_fallback_to_option_1(self, mock_read, mock_select):
         """Falls back to option 1 when no clear yes/approve."""
-        mock_read.return_value = "  1. Continue\n  2. Cancel\n"
+        mock_read.return_value = "╭──\n  1. Continue\n  2. Cancel\n╰──"
         approve_permission("test")
         mock_select.assert_called_once_with("test", "1")
 
@@ -1027,7 +1027,7 @@ class TestApprovePermission:
     @patch("duo.transport.read_pane")
     def test_no_options_falls_back_to_1(self, mock_read, mock_select):
         """Empty pane with no numbered options falls back to 1."""
-        mock_read.return_value = "some random text"
+        mock_read.return_value = "╭──\nsome random text\n╰──"
         approve_permission("test")
         mock_select.assert_called_once_with("test", "1")
 
@@ -1036,9 +1036,11 @@ class TestApprovePermission:
     def test_add_to_allowed_list(self, mock_read, mock_select):
         """Picks 'Add to allowed list' option."""
         mock_read.return_value = (
+            "╭──\n"
             "  1. Yes\n"
             "  2. Add to allowed list\n"
             "  3. No\n"
+            "╰──"
         )
         approve_permission("test")
         mock_select.assert_called_once_with("test", "2")
@@ -1048,9 +1050,11 @@ class TestApprovePermission:
     def test_skips_tell_differently(self, mock_read, mock_select):
         """Skips options containing 'no' with 'tell differently' or 'esc'."""
         mock_read.return_value = (
+            "╭──\n"
             "Do you want to proceed?\n"
             "  1. I'd say no, tell me differently\n"
             "  2. Yes\n"
+            "╰──"
         )
         approve_permission("test")
         mock_select.assert_called_once_with("test", "2")
@@ -1060,11 +1064,31 @@ class TestApprovePermission:
     def test_add_without_allowed_not_preferred(self, mock_read, mock_select):
         """'add' without 'allowed' should not be preferred over plain 'Yes'."""
         mock_read.return_value = (
+            "╭──\n"
             "Choose:\n"
             "  1. Yes\n"
             "  2. Add something else\n"
+            "╰──"
         )
         approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_ignores_options_outside_box(self, mock_read, mock_select):
+        """Options in scrollback before the dialog box are ignored."""
+        mock_read.return_value = (
+            "Steps:\n"
+            "  1. Install\n"
+            "  2. Build\n"
+            "  3. Deploy\n"
+            "╭──\n"
+            "  1. Yes, approve\n"
+            "  2. No\n"
+            "╰──"
+        )
+        approve_permission("test")
+        # Should pick "Yes, approve" (option 1 inside box), not be confused by scrollback
         mock_select.assert_called_once_with("test", "1")
 
 
@@ -1087,7 +1111,7 @@ class TestSelectOtherOption:
     ):
         """Navigates to last option, types text, and submits."""
         mock_read.return_value = (
-            "Choose an action:\n"
+            "╭─ Choose an action: ─╮\n"
             "  ❯ 1. Run command\n"
             "  2. Edit file\n"
             "  3. Other\n"
@@ -1121,7 +1145,7 @@ class TestSelectOtherOption:
     def test_too_few_options(self, mock_dialog, mock_read):
         """Refuses when dialog has fewer than 2 options."""
         mock_read.return_value = (
-            "Choose:\n"
+            "╭─ Choose: ─╮\n"
             "  ❯ 1. Only option\n"
             "╰─\n"
         )
@@ -1139,7 +1163,7 @@ class TestSelectOtherOption:
     ):
         """No navigation needed when cursor is already at last option."""
         mock_read.return_value = (
-            "Choose:\n"
+            "╭─ Choose: ─╮\n"
             "  1. Run\n"
             "  ❯ 2. Other\n"
             "╰─\n"
@@ -1148,3 +1172,26 @@ class TestSelectOtherOption:
         # Should not navigate at all (already at position 2 of 2)
         mock_keys.assert_not_called()
         mock_type.assert_called_once_with("test", "custom")
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.safe_enter")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_ignores_options_above_box(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
+    ):
+        """Numbered lines in scrollback above the dialog box are ignored."""
+        mock_read.return_value = (
+            "Steps:\n"
+            "  1. Install\n"
+            "  2. Build\n"
+            "╭─ Action ─╮\n"
+            "  ❯ 1. Run\n"
+            "  2. Other\n"
+            "╰─\n"
+        )
+        select_other_option("test", "my text")
+        # Only 2 options inside box; cursor at 1, navigate to 2
+        assert mock_keys.call_count == 1

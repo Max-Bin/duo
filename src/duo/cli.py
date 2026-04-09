@@ -2017,10 +2017,17 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
 
     # Check dialog first (most specific)
     if kind == DialogKind.OPTION:
-        # Count options
+        # Count options only within the dialog box boundaries (╭─ … ╰─)
+        lines = content.split("\n")
+        in_box = False
         opt_count = 0
-        for line in content.split("\n"):
-            if re.match(r"\s*[│]?\s*(❯\s*)?\d+\.\s", line):
+        for line in lines:
+            if "╭─" in line:
+                in_box = True
+                continue
+            if "╰─" in line:
+                break
+            if in_box and re.match(r"\s*[│]?\s*(❯\s*)?\d+\.\s", line):
                 opt_count += 1
         click.echo(json.dumps({"task": task, "state": "dialog", "options": opt_count}))
         return

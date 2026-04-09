@@ -440,10 +440,19 @@ def approve_permission(label: str) -> None:
     content = read_pane(label, 20)
     lines = content.strip().split("\n")
 
-    # Find all numbered options and their text
+    # Find all numbered options within dialog box boundaries (╭─ … ╰─)
     import re
+
+    in_box = False
     options: dict[str, str] = {}
     for line in lines:
+        if "╭─" in line:
+            in_box = True
+            continue
+        if "╰─" in line:
+            break
+        if not in_box:
+            continue
         m = re.search(r"[❯\s]+(\d+)\.\s+(.+)", line)
         if m:
             options[m.group(1)] = m.group(2).strip()
@@ -505,13 +514,20 @@ def select_other_option(label: str, text: str) -> None:
     if not is_in_dialog(label):
         raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
 
-    # Count options via regex that tolerates box chars (│), spaces, and cursor (❯)
+    # Count options only within dialog box boundaries (╭─ … ╰─)
     lines = content.strip().split("\n")
+    in_box = False
     option_count = 0
     current_pos = 0
-    # Match: optional box char, whitespace, optional cursor, digit, dot, space
     opt_re = re.compile(r"^\s*[│]?\s*(❯\s*)?(\d+)\.\s")
     for line in lines:
+        if "╭─" in line:
+            in_box = True
+            continue
+        if "╰─" in line:
+            break
+        if not in_box:
+            continue
         m = opt_re.match(line)
         if m:
             n = int(m.group(2))
