@@ -93,13 +93,16 @@ The Commander never touches code directly. It writes prompts, polls for results,
 | `duo status <task>` | Show task FSM state |
 | `duo watch` | Detect dialog → print → write signal file → exit |
 | `duo ceo-approve <task>` | Smart-approve a permission dialog |
+| `duo ceo-select <task> N` | Select option N in a dialog |
 | `duo ceo-status <task>` | JSON state: `{"state":"dialog","options":5}` |
+| `duo ceo-loop <task>` | Automated dialog handling with policy files |
+| `duo ceo-resume <task>` | Resume a paused ceo-loop with instruction |
 | `duo monitor` | Adaptive polling with auto-correction |
 | `duo merge <task>` | Fast-forward merge to main branch |
 | `duo dashboard` | Live Rich terminal dashboard |
 | `duo cleanup --force` | Remove completed/failed tasks |
 
-Run `duo --help` for the full command list (32 commands in 9 groups).
+Run `duo --help` for the full command list (35 commands in 9 groups).
 
 ## More Resources
 

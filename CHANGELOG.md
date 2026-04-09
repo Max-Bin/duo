@@ -10,6 +10,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
   - `--ask` sends questions, `--finalize` generates plan.md, `--close`/`--delete` manage lifecycle
   - `duo think list` shows all thinking sessions with status
 - `duo start --from-thinking` reads plan.md from a thinking session as the task description
+- `duo ceo-loop <task>` — automated dialog handling with YAML policy files
+  - Permission auto-approve, option pattern matching, text dialog auto-respond
+  - Pause/resume workflow with `duo ceo-resume <task> "instruction"`
+  - State persistence in `~/.duo/ceo-loops/{task}.json`
+- `duo ceo-select <task> N` — select dialog option by number, with `--other TEXT` for free-text
+- `send_text_dialog_message()` in transport — reliable text dialog submission with retry logic
+- ANSI escape code stripping in `read_pane()` — dialog detection works with colored tmux output
 - New module `src/duo/thinking.py` with thinking session management, pane lifecycle, response extraction
 - Concurrent duplicate start protection via file-based locking (fcntl)
 - Journal rotation when journal exceeds 10MB (keeps last half)
@@ -47,6 +54,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Operator precedence bug in `approve_permission` option matching
 - `verify_and_advance` catches exceptions from `verify_step` → FAILED state
 - `write_json` fsyncs tmp file before rename (was after)
+- Dialog option counting now bounded to `╭─`…`╰─` dialog box (ignores scrollback above)
+- Replaced `assert` statements in CLI with proper `ClickException` (safe under `python -O`)
+- Config float validation uses `_FLOAT_MINIMUMS` dict values instead of hardcoded 0
 
 ## [0.6.0] — 2026-04-08
 

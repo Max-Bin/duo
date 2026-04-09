@@ -93,13 +93,16 @@ Commander 不直接碰代码。它写 prompt、轮询结果、跑验证门禁、
 | `duo status <task>` | 查看任务 FSM 状态 |
 | `duo watch` | 检测弹窗 → 打印 → 写信号文件 → 退出 |
 | `duo ceo-approve <task>` | 智能批准权限弹窗 |
+| `duo ceo-select <task> N` | 在弹窗中选择第 N 个选项 |
 | `duo ceo-status <task>` | JSON 状态：`{"state":"dialog","options":5}` |
+| `duo ceo-loop <task>` | 按策略文件自动处理弹窗 |
+| `duo ceo-resume <task>` | 恢复暂停的 ceo-loop 并附加指令 |
 | `duo monitor` | 自适应轮询 + 自动纠错 |
 | `duo merge <task>` | Fast-forward 合并到主分支 |
 | `duo dashboard` | Rich 实时终端面板 |
 | `duo cleanup --force` | 清理已完成/失败的任务 |
 
-运行 `duo --help` 查看完整命令列表（9 组 32 个命令）。
+运行 `duo --help` 查看完整命令列表（9 组 35 个命令）。
 
 ## 更多资源
 
