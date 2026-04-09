@@ -446,3 +446,15 @@ a prompt, wasting 60s per task on a dead pane. Fixed: status check guard.
 `duo resume` called `restart_session()` on tasks with alive panes, but
 `restart_session()` never killed the old pane — creating two executors
 sharing the same label. Fixed: old pane explicitly terminated before restart.
+
+### start_session ignores wait_for_idle return (Round CO, commit `71e89d4`)
+`start_session()` called `wait_for_idle()` for both Copilot startup and
+`/allow-all` but never checked return values. If Copilot failed to stabilize,
+no diagnostic was logged. Fixed: startup timeout now logs a warning and
+appends a `startup_timeout` journal event.
+
+### task_timeout counts queue wait time (Round CP, commit `79752a9`)
+Monitor timeout check used `task.created_at` which includes queue wait time.
+Tasks queued for long periods could time out immediately upon promotion.
+Fixed: added `session_started_at` field to Task, set on `start_session()`,
+used preferentially in timeout calculation.

@@ -2618,6 +2618,12 @@ def ceo_select(
     if option is None and other_text is None:
         raise click.UsageError("Must specify OPTION or --other TEXT.")
 
+    if option is not None and not option.isdigit():
+        raise DuoUserError(
+            f"OPTION must be a number (1-9), got '{option}'",
+            fix="Run 'duo ceo-select TASK 1' to select the first option.",
+        )
+
     t = _load_task_or_fail(task)
     _enforce_not_at_main_prompt(t.pane_label, force_new_session)
     if not is_in_dialog_stable(t.pane_label):

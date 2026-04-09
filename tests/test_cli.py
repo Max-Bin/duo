@@ -6787,6 +6787,11 @@ class TestCeoSelect:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    def test_non_numeric_option_rejected(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-select", "any-task", "abc"])
+        assert result.exit_code != 0
+        assert "must be a number" in result.output
+
     def test_not_in_dialog(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-nodlg")
         with (
