@@ -1,6 +1,6 @@
 # Duo — Architecture Specification
 
-> **Duo** is a lightweight agent-orchestration runtime (≈ 5 400 lines of Python)
+> **Duo** is a lightweight agent-orchestration runtime (≈ 10 000 lines of Python)
 > that coordinates coding tasks across isolated git worktrees.  A **Commander**
 > (Python CLI) directs an **Executor** (Copilot CLI / Claude Code) through a
 > durable, file-based protocol.
@@ -27,7 +27,7 @@ file protocol and reads results back from disk.
 
 All persistent state lives in append-only journals and atomically-written JSON
 files.  On restart, `replay_state()` walks the journal to recover the exact FSM
-state.  Incarnation IDs (8-char hex UUIDs) prevent stale heartbeats or results
+state.  Incarnation IDs (16-char hex) prevent stale heartbeats or results
 from a previous session from corrupting current state.
 
 ### Security by default
@@ -45,7 +45,7 @@ from a previous session from corrupting current state.
 ```
 ┌─────────────────────────────────────────────────────┐
 │                      CLI (cli.py)                   │
-│           Click entry point · 30 commands           │
+│           Click entry point · 51 commands           │
 │              + config / events subgroups             │
 └──────┬───────────────┬──────────────┬───────────────┘
        │               │              │
@@ -88,15 +88,19 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~1 169 | Click CLI entry point — 30 commands + `config` (4 sub) / `events` (4 sub) subgroups |
-| `protocol.py` | ~287 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
-| `commander.py` | ~483 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
-| `transport.py` | ~279 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
-| `verifier.py` | ~118 | Quality gates — security scope, secret-leak detection, acceptance tests |
-| `poller.py` | ~62 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
-| `scheduler.py` | ~50 | FIFO queue, `max_parallel` throttling, auto-dequeue on slot availability |
-| `config.py` | ~77 | Persistent JSON config with type coercion and validated ranges |
-| `dashboard.py` | ~86 | Rich live terminal dashboard — task table, queue panel, event stream |
+| `cli.py` | ~2 555 | Click CLI entry point — 51 commands + `config` (4 sub) / `events` (4 sub) subgroups |
+| `protocol.py` | ~315 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
+| `commander.py` | ~499 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
+| `transport.py` | ~717 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
+| `thinking.py` | ~174 | Pre-start brainstorming with Claude Code — problem decomposition and analysis |
+| `verifier.py` | ~149 | Quality gates — security scope, secret-leak detection, symlink defense, acceptance tests |
+| `poller.py` | ~69 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
+| `scheduler.py` | ~60 | FIFO queue, `max_parallel` throttling, auto-dequeue on slot availability |
+| `config.py` | ~81 | Persistent JSON config with type coercion and validated ranges |
+| `dashboard.py` | ~94 | Rich live terminal dashboard — task table, queue panel, event stream |
+| `ceo_log.py` | ~62 | CEO session event logging — structured JSONL with categories |
+| `ceo_state.py` | ~22 | CEO session state persistence |
+| `errors.py` | ~22 | Domain-specific exception hierarchy |
 
 ---
 
@@ -346,7 +350,7 @@ COMPLETED        → { }   ← terminal, no outgoing transitions
 
 ### Incarnation IDs
 
-Each session generates a fresh 8-character hex UUID.  All heartbeats, acks, and
+Each session generates a fresh 16-character hex ID (64-bit).  All heartbeats, acks, and
 results carry this incarnation ID.  Readers reject data whose incarnation does
 not match `task.incarnation_id`, preventing stale files from a crashed session
 from corrupting the current run.

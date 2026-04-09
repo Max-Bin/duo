@@ -28,7 +28,7 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — thin Click CLI entry point (27 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion)
+└── cli.py         — thin Click CLI entry point (51 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion + CEO workflow commands)
 ```
 
 ### transport.py — Protocol Classes
@@ -74,7 +74,7 @@ Legal transitions are defined in `protocol.TRANSITIONS` dict. All transitions ar
 - FSM transitions are validated — check `TRANSITIONS` dict before adding new states
 - Journal is append-only JSONL — never modify existing entries
 - Atomic writes: `write_json` uses tmp+rename pattern for crash safety
-- Incarnation ID (8-char hex) isolates sessions — ack/heartbeat/result must match current incarnation
+- Incarnation ID (16-char hex) isolates sessions — ack/heartbeat/result must match current incarnation
 - Tests use `monkeypatch` to isolate `TASKS_DIR` to `tmp_path`
 - Prompts sent to executor are in Chinese (the executor agents understand Chinese)
 
