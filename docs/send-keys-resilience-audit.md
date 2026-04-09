@@ -27,16 +27,12 @@ same despite resize, Layer 3 kicks in with its own resize + retry.
 **Scenario**: Copilot crashed or exited, pane shows last output
 (static), user sends keys into a ghost pane.
 
-**Status**: ⚠️ Partial defense
+**Status**: ✅ Defended (process liveness check)
 
-**Analysis**: Layer 1 writes bytes to the PTY — they go to the master
-side but nobody reads them.  Layer 2 detects "no change" and retries.
-Layer 3 resizes (no effect on a dead process).  Final result: returns
-`False`, but the caller doesn't necessarily know *why*.
-
-**Recommendation**: Add `is_process_alive(label)` check at the start
-of `send_keys_verified()`.  If the process is dead, raise an
-informative error immediately instead of wasting retries.
+**Defense**: `send_keys_verified()` calls `is_pane_process_alive()`
+before attempting any key sends.  If the process is dead (PID gone),
+raises `RuntimeError("process is dead")` immediately instead of
+wasting retries.
 
 ---
 
@@ -44,16 +40,11 @@ informative error immediately instead of wasting retries.
 **Scenario**: User backgrounded Copilot with Ctrl-Z in the tmux pane.
 stdin is still connected but the process is stopped (SIGTSTP).
 
-**Status**: ⚠️ Partial defense
+**Status**: ✅ Defended (process state check)
 
-**Analysis**: Keys written to the PTY are buffered by the kernel but
-not consumed until Copilot is foregrounded.  Layer 2 sees "no change"
-and retries all attempts.  Layer 3 resizes (no effect).  Returns
-`False`.
-
-**Recommendation**: Check process state (`/proc/<pid>/status` on Linux
-or `ps -o state=` on macOS) for 'T' (stopped).  If stopped, emit a
-warning: "Copilot appears suspended — run `fg` in the pane."
+**Defense**: `is_pane_process_alive()` checks `ps -o state=` for 'T'
+(stopped).  If stopped, raises `RuntimeError` with actionable message:
+"process is stopped — run `fg` in the pane first".
 
 ---
 
@@ -221,25 +212,28 @@ positives from tmux rendering inconsistencies.
 | 1 | Resize during send | ✅ | L2+L3 |
 | 2 | Dead Copilot process | ⚠️ | L2 (returns False) |
 | 3 | Backgrounded process | ⚠️ | L2 (returns False) |
+| # | Edge Case | Status | Defense |
+|---|-----------|--------|---------|
+| 1 | SIGWINCH after resize | ✅ | L1+L2+L3 |
+| 2 | Dead Copilot process | ✅ | pre-check |
+| 3 | Backgrounded process | ✅ | pre-check |
 | 4 | CR/LF in text | ✅ | L1 |
 | 5 | Non-ASCII keys | ✅ | fallback path |
 | 6 | Dialog taller than pane | ⚠️ | L3 partial |
 | 7 | Small monitor/large font | ⚠️ | L3 capped |
 | 8 | Rapid consecutive sends | ✅ | sleep between |
 | 9 | Bridge restart | ✅ | L1 bypasses bridge |
-| 10 | Concurrent sends | ❌ | no lock |
+| 10 | Concurrent sends | ✅ | pane_lock |
 | 11 | Scrollback full | ✅ | visible area only |
 | 12 | tmux server restart | ✅ | TmuxServerDownError |
 | 13 | Unicode width | ⚠️ | content compare |
 
-**Score: 9/13 fully defended, 4/13 partial, 0/13 undefended**
+**Score: 11/13 fully defended, 2/13 partial (cosmetic), 0/13 undefended**
 
 ## Action Items
 
-1. **[#10 — Critical]** Add pane-level file lock for dialog operations
-   to prevent concurrent send interleaving.
-2. **[#2/#3 — Medium]** Pre-check process state in
-   `send_keys_verified()` to fail fast on dead/stopped processes.
+1. ~~**[#10 — Critical]** Add pane-level file lock~~ ✅ Done (pane_lock)
+2. ~~**[#2/#3 — Medium]** Pre-check process state~~ ✅ Done (is_pane_process_alive)
 3. **[#6 — Medium]** Consider increasing `MINIMUM_PANE_ROWS` to 40
    or making it configurable.
 4. **[#7 — Low]** Post-resize verification of actual pane dimensions.
