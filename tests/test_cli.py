@@ -879,14 +879,14 @@ class TestBatchEdgeCases:
         assert result.exit_code != 0
 
     def test_batch_invalid_yaml_file(self, runner: CliRunner, tmp_path: Path):
-        """batch with malformed YAML shows error (if pyyaml available)."""
+        """batch with non-mapping YAML shows error (if pyyaml available)."""
         try:
             import yaml  # noqa: F401
         except ImportError:
             pytest.skip("PyYAML not installed")
         bad = tmp_path / "bad.yaml"
-        # Write content that parses as a string, not a dict with 'tasks'
-        bad.write_text("- this: is\n  just: a list\n")
+        # Write content that parses as a plain string, not a dict or list
+        bad.write_text("just a plain string\n")
         result = runner.invoke(main, ["batch", str(bad)])
         assert result.exit_code != 0
         assert "tasks" in result.output.lower()
@@ -4857,6 +4857,361 @@ class TestCeoStatus:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["options"] == 5
+
+
+# ---------------------------------------------------------------------------
+# duo ceo-loop / ceo-resume
+# ---------------------------------------------------------------------------
+
+
+class TestLoadPolicy:
+    """Tests for policy loading."""
+
+    def test_default_policy(self, runner: CliRunner) -> None:
+        from duo.cli import _load_policy
+        p = _load_policy(None)
+        assert p["permission_dialogs"] == {"auto_approve": True}
+
+    def test_policy_file_not_found(self, runner: CliRunner) -> None:
+        from duo.cli import _load_policy
+        with pytest.raises(click.ClickException, match="not found"):
+            _load_policy("/nonexistent/policy.yaml")
+
+    def test_invalid_policy_yaml(self, runner: CliRunner, tmp_path: Path) -> None:
+        from duo.cli import _load_policy
+        bad = tmp_path / "bad.yaml"
+        bad.write_text(":\n  :\n  - [broken", encoding="utf-8")
+        with pytest.raises(click.ClickException, match="Invalid policy"):
+            _load_policy(str(bad))
+
+    def test_policy_not_mapping(self, runner: CliRunner, tmp_path: Path) -> None:
+        from duo.cli import _load_policy
+        bad = tmp_path / "list.yaml"
+        bad.write_text("- item1\n- item2\n", encoding="utf-8")
+        with pytest.raises(click.ClickException, match="YAML mapping"):
+            _load_policy(str(bad))
+
+    def test_valid_policy(self, runner: CliRunner, tmp_path: Path) -> None:
+        from duo.cli import _load_policy
+        good = tmp_path / "policy.yaml"
+        good.write_text(
+            "permission_dialogs:\n"
+            "  auto_approve: false\n"
+            "option_dialogs:\n"
+            "  default: select_first\n"
+            "  rules:\n"
+            "    - match: 'Do you want to run'\n"
+            "      action: approve\n",
+            encoding="utf-8",
+        )
+        p = _load_policy(str(good))
+        assert p["permission_dialogs"] == {"auto_approve": False}
+
+
+class TestLoopState:
+    """Tests for ceo-loop state persistence."""
+
+    def test_write_and_read(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _read_loop_state, _write_loop_state
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        _write_loop_state("test-task", {"status": "paused"})
+        state = _read_loop_state("test-task")
+        assert state is not None
+        assert state["status"] == "paused"
+
+    def test_read_nonexistent(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _read_loop_state
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        assert _read_loop_state("nonexistent") is None
+
+    def test_read_corrupt(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _read_loop_state
+        loops = tmp_path / "loops"
+        loops.mkdir()
+        (loops / "bad.json").write_text("not json!", encoding="utf-8")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
+        assert _read_loop_state("bad") is None
+
+
+class TestMatchOptionRule:
+    """Tests for _match_option_rule."""
+
+    def test_match_found(self) -> None:
+        from duo.cli import _match_option_rule
+        rules = [
+            {"match": "Do you want to run", "action": "approve"},
+            {"match": "continue", "action": "select_option", "option": 1},
+        ]
+        result = _match_option_rule(rules, "Do you want to run this command?")
+        assert result is not None
+        assert result["action"] == "approve"
+
+    def test_no_match(self) -> None:
+        from duo.cli import _match_option_rule
+        rules = [{"match": "foo", "action": "approve"}]
+        result = _match_option_rule(rules, "bar baz")
+        assert result is None
+
+    def test_empty_rules(self) -> None:
+        from duo.cli import _match_option_rule
+        assert _match_option_rule([], "anything") is None
+
+
+class TestHandleDialog:
+    """Tests for _handle_dialog."""
+
+    def test_permission_auto_approve(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _DEFAULT_POLICY, _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = dict(_DEFAULT_POLICY)
+        with patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport.approve_permission") as mock_approve:
+            action = _handle_dialog("t1", "lbl", policy, "content", "option")
+        assert action == "approved"
+        mock_approve.assert_called_once()
+
+    def test_option_rule_approve(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {
+                "default": "pause",
+                "rules": [{"match": "run command", "action": "approve"}],
+            },
+            "text_dialogs": {"action": "pause"},
+        }
+        with patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("duo.transport.approve_permission") as mock_approve:
+            action = _handle_dialog("t1", "lbl", policy, "Do you want to run command?", "option")
+        assert action == "rule_approved"
+        mock_approve.assert_called_once()
+
+    def test_option_rule_select(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {
+                "default": "pause",
+                "rules": [{"match": "continue", "action": "select_option", "option": 2}],
+            },
+            "text_dialogs": {"action": "pause"},
+        }
+        with patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("duo.transport.select_dialog_option") as mock_select:
+            action = _handle_dialog("t1", "lbl", policy, "continue?", "option")
+        assert action == "rule_selected_2"
+        mock_select.assert_called_once_with("lbl", "2")
+
+    def test_option_default_select_first(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {"default": "select_first", "rules": []},
+            "text_dialogs": {"action": "pause"},
+        }
+        with patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("duo.transport.select_dialog_option") as mock_select:
+            action = _handle_dialog("t1", "lbl", policy, "no match", "option")
+        assert action == "selected_first"
+        mock_select.assert_called_once_with("lbl", "1")
+
+    def test_option_default_select_last(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {"default": "select_last", "rules": []},
+            "text_dialogs": {"action": "pause"},
+        }
+        content = "╭──\n 1. Yes\n 2. No\n 3. Other\n╰──"
+        with patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("duo.transport.select_dialog_option") as mock_select:
+            action = _handle_dialog("t1", "lbl", policy, content, "option")
+        assert action == "selected_last_3"
+        mock_select.assert_called_once_with("lbl", "3")
+
+    def test_text_auto_respond(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": True},
+            "option_dialogs": {"default": "pause", "rules": []},
+            "text_dialogs": {"action": "auto_respond", "response": "yes please"},
+        }
+        with patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("duo.transport.send_text_dialog_message", return_value=True) as mock_send:
+            action = _handle_dialog("t1", "lbl", policy, "type answer", "text")
+        assert action == "auto_responded"
+        mock_send.assert_called_once_with("lbl", "yes please")
+
+    def test_pause_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _handle_dialog
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = {
+            "permission_dialogs": {"auto_approve": False},
+            "option_dialogs": {"default": "pause", "rules": []},
+            "text_dialogs": {"action": "pause"},
+        }
+        with patch("duo.transport.is_permission_dialog", return_value=False):
+            action = _handle_dialog("t1", "lbl", policy, "content", "text")
+        assert action == "paused"
+        # Check state was written
+        state_file = tmp_path / "loops" / "t1.json"
+        assert state_file.exists()
+
+
+class TestCeoLoop:
+    """Tests for duo ceo-loop."""
+
+    def test_pane_dead_exits(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        task = make_task("loop-dead")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        with patch("duo.transport.is_process_alive", return_value=False):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert result.exit_code == 0
+        assert "died" in result.output
+
+    def test_permission_auto_approved(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Loop detects permission dialog and auto-approves."""
+        task = make_task("loop-perm")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+
+        call_count = {"n": 0}
+
+        def fake_alive(label: str) -> bool:
+            call_count["n"] += 1
+            return call_count["n"] <= 3
+
+        with patch("duo.transport.is_process_alive", side_effect=fake_alive), \
+             patch("duo.transport.get_dialog_kind", side_effect=[DialogKind.OPTION, DialogKind.NONE, DialogKind.NONE]), \
+             patch("duo.transport.read_pane", return_value="╭── Allow? ──╮\n 1. Yes\n╰──"), \
+             patch("duo.transport.is_permission_dialog", return_value=True), \
+             patch("duo.transport.approve_permission") as mock_approve, \
+             patch("time.sleep"):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert "approved" in result.output
+        mock_approve.assert_called_once()
+
+    def test_pause_and_pane_dies(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Loop pauses on unknown dialog, then pane dies."""
+        task = make_task("loop-pause-die")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+
+        alive_count = {"n": 0}
+
+        def fake_alive(label: str) -> bool:
+            alive_count["n"] += 1
+            # Alive for first check (dialog detection), then dies during pause wait
+            return alive_count["n"] <= 2
+
+        with patch("duo.transport.is_process_alive", side_effect=fake_alive), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION), \
+             patch("duo.transport.read_pane", return_value="╭── Q ──╮\n 1. Opt\n╰──"), \
+             patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("time.sleep"):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert "paused" in result.output.lower() or "died" in result.output.lower()
+
+    def test_policy_file(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Loop with custom policy file."""
+        task = make_task("loop-policy")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        policy = tmp_path / "policy.yaml"
+        policy.write_text(
+            "permission_dialogs:\n  auto_approve: true\n",
+            encoding="utf-8",
+        )
+
+        with patch("duo.transport.is_process_alive", side_effect=[True, False]), \
+             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE), \
+             patch("time.sleep"):
+            result = runner.invoke(main, ["ceo-loop", task.id, "--policy", str(policy)])
+        assert result.exit_code == 0
+
+    def test_invalid_policy_file(self, runner: CliRunner, make_task, tmp_path: Path) -> None:
+        task = make_task("loop-bad-policy")
+        result = runner.invoke(main, ["ceo-loop", task.id, "--policy", "/nonexistent.yaml"])
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_keyboard_interrupt(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        task = make_task("loop-ctrl-c")
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        with patch("duo.transport.is_process_alive", return_value=True), \
+             patch("duo.transport.get_dialog_kind", side_effect=KeyboardInterrupt), \
+             patch("time.sleep"):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert "stopped" in result.output.lower()
+
+    def test_pause_then_resume(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Loop pauses on dialog, then resumes when state file changes."""
+        from duo.cli import _write_loop_state
+
+        task = make_task("loop-resume")
+        loops = tmp_path / "loops"
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
+
+        alive_count = {"n": 0}
+        dialog_count = {"n": 0}
+        sleep_count = {"n": 0}
+
+        def fake_alive(label: str) -> bool:
+            alive_count["n"] += 1
+            return alive_count["n"] <= 10
+
+        def fake_dialog(label: str) -> DialogKind:
+            dialog_count["n"] += 1
+            if dialog_count["n"] == 1:
+                return DialogKind.OPTION
+            return DialogKind.NONE
+
+        def fake_sleep(secs: float) -> None:
+            sleep_count["n"] += 1
+            if sleep_count["n"] == 2:
+                _write_loop_state("loop-resume", {"status": "resumed", "instruction": "go!"})
+
+        with patch("duo.transport.is_process_alive", side_effect=fake_alive), \
+             patch("duo.transport.get_dialog_kind", side_effect=fake_dialog), \
+             patch("duo.transport.read_pane", return_value="╭── Q ──╮\n 1. Opt\n╰──"), \
+             patch("duo.transport.is_permission_dialog", return_value=False), \
+             patch("time.sleep", side_effect=fake_sleep):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert "Resumed with: go!" in result.output
+
+    def test_task_not_found(self, runner: CliRunner) -> None:
+        result = runner.invoke(main, ["ceo-loop", "nonexistent"])
+        assert result.exit_code != 0
+
+
+class TestCeoResume:
+    """Tests for duo ceo-resume."""
+
+    def test_resume_paused(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _write_loop_state
+        loops = tmp_path / "loops"
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
+        _write_loop_state("my-task", {"status": "paused"})
+        result = runner.invoke(main, ["ceo-resume", "my-task", "go ahead"])
+        assert result.exit_code == 0
+        assert "Resumed" in result.output
+
+    def test_resume_not_paused(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from duo.cli import _write_loop_state
+        loops = tmp_path / "loops"
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
+        _write_loop_state("my-task", {"status": "running"})
+        result = runner.invoke(main, ["ceo-resume", "my-task"])
+        assert result.exit_code != 0
+        assert "not paused" in result.output
+
+    def test_resume_no_state(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
+        result = runner.invoke(main, ["ceo-resume", "nonexistent"])
+        assert result.exit_code != 0
+        assert "No ceo-loop state" in result.output
 
 
 # ---------------------------------------------------------------------------

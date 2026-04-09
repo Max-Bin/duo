@@ -35,7 +35,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Thinking": ["think"],
     "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
-    "CEO Workflow": ["ceo-wait", "ceo-select", "ceo-approve", "ceo-status"],
+    "CEO Workflow": ["ceo-wait", "ceo-select", "ceo-approve", "ceo-status", "ceo-loop", "ceo-resume"],
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
@@ -2048,6 +2048,233 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
     click.echo(json.dumps({"task": task, "state": "idle"}))
     if assert_in_dialog:
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# duo ceo-loop / ceo-resume — automated CEO workflow
+# ---------------------------------------------------------------------------
+
+_DEFAULT_POLICY: dict[str, object] = {
+    "permission_dialogs": {"auto_approve": True},
+    "option_dialogs": {"default": "pause", "rules": []},
+    "text_dialogs": {"action": "pause"},
+}
+
+CEO_LOOPS_DIR = DUO_DIR / "ceo-loops"
+
+
+def _load_policy(policy_path: str | None) -> dict[str, object]:
+    """Load a policy file (YAML or JSON) or return the default policy."""
+    if policy_path is None:
+        return dict(_DEFAULT_POLICY)
+    import yaml
+
+    path = Path(policy_path)
+    if not path.exists():
+        raise click.ClickException(f"Policy file not found: {policy_path}")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise click.ClickException(f"Invalid policy file: {exc}") from exc
+    if not isinstance(data, dict):
+        raise click.ClickException("Policy file must be a YAML mapping at top level.")
+    # Merge with defaults for missing keys
+    result = dict(_DEFAULT_POLICY)
+    result.update(data)
+    return result
+
+
+def _write_loop_state(task_id: str, state: dict[str, object]) -> None:
+    """Write ceo-loop state to ~/.duo/ceo-loops/{task}.json."""
+    CEO_LOOPS_DIR.mkdir(parents=True, exist_ok=True)
+    state_path = CEO_LOOPS_DIR / f"{task_id}.json"
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def _read_loop_state(task_id: str) -> dict[str, object] | None:
+    """Read ceo-loop state, or None if not present."""
+    state_path = CEO_LOOPS_DIR / f"{task_id}.json"
+    if not state_path.exists():
+        return None
+    try:
+        return json.loads(state_path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _match_option_rule(
+    rules: list[dict[str, str]], content: str
+) -> dict[str, str] | None:
+    """Find the first matching rule for option dialog content."""
+    for rule in rules:
+        pattern = rule.get("match", "")
+        if pattern and pattern in content:
+            return rule
+    return None
+
+
+def _handle_dialog(
+    task_id: str,
+    label: str,
+    policy: dict[str, object],
+    content: str,
+    kind: str,
+) -> str:
+    """Handle a dialog according to policy. Returns action taken."""
+    from duo.transport import (
+        approve_permission,
+        is_permission_dialog,
+        select_dialog_option,
+        send_text_dialog_message,
+    )
+
+    # Permission dialogs
+    if is_permission_dialog(label):
+        perm_policy = policy.get("permission_dialogs", {})
+        if isinstance(perm_policy, dict) and perm_policy.get("auto_approve", True):
+            approve_permission(label)
+            return "approved"
+
+    if kind == "option":
+        opt_policy = policy.get("option_dialogs", {})
+        rules = []
+        default_action = "pause"
+        if isinstance(opt_policy, dict):
+            rules = opt_policy.get("rules", [])
+            default_action = opt_policy.get("default", "pause")
+
+        # Check rules
+        rule = _match_option_rule(rules, content) if isinstance(rules, list) else None
+        if rule is not None:
+            action = rule.get("action", "pause")
+            if action == "approve":
+                approve_permission(label)
+                return "rule_approved"
+            if action == "select_option":
+                opt = rule.get("option", "1")
+                select_dialog_option(label, str(opt))
+                return f"rule_selected_{opt}"
+            # fall through to pause
+        elif default_action == "select_first":
+            select_dialog_option(label, "1")
+            return "selected_first"
+        elif default_action == "select_last":
+            # Count options from content
+            import re
+
+            max_opt = 1
+            for line in content.split("\n"):
+                m = re.match(r"\s*[│]?\s*(❯\s*)?(\d+)\.\s", line)
+                if m:
+                    max_opt = max(max_opt, int(m.group(2)))
+            select_dialog_option(label, str(max_opt))
+            return f"selected_last_{max_opt}"
+
+    if kind == "text":
+        txt_policy = policy.get("text_dialogs", {})
+        if isinstance(txt_policy, dict) and txt_policy.get("action") == "auto_respond":
+            resp = txt_policy.get("response", "")
+            if isinstance(resp, str) and resp:
+                send_text_dialog_message(label, resp)
+                return "auto_responded"
+
+    # Pause — wait for CEO to resume
+    _write_loop_state(task_id, {
+        "status": "paused",
+        "dialog_kind": kind,
+        "content_preview": content[:500],
+    })
+    return "paused"
+
+
+@main.command("ceo-loop")
+@click.argument("task")
+@click.option("--policy", "policy_path", default=None, help="YAML policy file for auto-handling dialogs")
+@click.option("--interval", default=5.0, type=float, help="Poll interval in seconds")
+def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
+    """Automated CEO workflow loop.
+
+    Polls for dialogs and handles them according to the policy file.
+    Permissions are auto-approved by default. Other dialogs pause
+    and wait for ``duo ceo-resume`` from another terminal.
+
+    Press Ctrl+C to stop the loop.
+    """
+    import time as _time
+
+    from duo.transport import (
+        DialogKind,
+        get_dialog_kind,
+        is_process_alive,
+        read_pane,
+    )
+
+    t = _load_task_or_fail(task)
+    policy = _load_policy(policy_path)
+    click.echo(f"CEO loop started for '{task}'. Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            if not is_process_alive(t.pane_label):
+                click.echo(f"Pane '{t.pane_label}' died. Exiting loop.")
+                _write_loop_state(task, {"status": "stopped", "reason": "pane_died"})
+                break
+
+            kind = get_dialog_kind(t.pane_label)
+            if kind == DialogKind.NONE:
+                _time.sleep(interval)
+                continue
+
+            content = read_pane(t.pane_label, 40)
+            kind_str = "option" if kind == DialogKind.OPTION else "text"
+            click.echo(f"Dialog detected ({kind_str}):")
+            click.echo(content[:200])
+
+            action = _handle_dialog(task, t.pane_label, policy, content, kind_str)
+            click.echo(f"  → Action: {action}")
+
+            if action == "paused":
+                click.echo(f"  Paused. Run 'duo ceo-resume {task}' from another terminal.")
+                # Wait for resume signal
+                while True:
+                    state = _read_loop_state(task)
+                    if state is not None and state.get("status") == "resumed":
+                        resume_text = state.get("instruction", "")
+                        click.echo(f"  Resumed with: {resume_text}")
+                        # Clear resume state
+                        _write_loop_state(task, {"status": "running"})
+                        break
+                    if not is_process_alive(t.pane_label):
+                        click.echo(f"Pane '{t.pane_label}' died while paused. Exiting.")
+                        _write_loop_state(task, {"status": "stopped", "reason": "pane_died"})
+                        return
+                    _time.sleep(2)
+
+            _time.sleep(interval)
+
+    except KeyboardInterrupt:
+        click.echo("\nCEO loop stopped by user.")
+        _write_loop_state(task, {"status": "stopped", "reason": "user_interrupt"})
+
+
+@main.command("ceo-resume")
+@click.argument("task")
+@click.argument("instruction", default="")
+def ceo_resume(task: str, instruction: str) -> None:
+    """Resume a paused ceo-loop for a task.
+
+    Signals the ceo-loop (running in another terminal) to continue.
+    Optional INSTRUCTION text is passed to the loop for context.
+    """
+    state = _read_loop_state(task)
+    if state is None:
+        raise click.ClickException(f"No ceo-loop state found for '{task}'. Is ceo-loop running?")
+    if state.get("status") != "paused":
+        raise click.ClickException(
+            f"ceo-loop for '{task}' is not paused (status: {state.get('status')}). Nothing to resume."
+        )
+    _write_loop_state(task, {"status": "resumed", "instruction": instruction})
+    click.echo(f"Resumed ceo-loop for '{task}'.")
 
 
 @main.command()
