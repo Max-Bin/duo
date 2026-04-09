@@ -1934,7 +1934,8 @@ def ceo_select(
                 "This is a text-input dialog with no numbered options. "
                 "Use --other TEXT to type a response."
             )
-        assert other_text is not None
+        if other_text is None:  # pragma: no cover — guarded by mutual-exclusion above
+            raise click.ClickException("Internal error: expected --other TEXT for text dialog.")
         success = send_text_dialog_message(t.pane_label, other_text)
         if success:
             click.echo(f"Typed text: {other_text}")
@@ -1944,7 +1945,8 @@ def ceo_select(
         select_other_option(t.pane_label, other_text)
         click.echo(f"Selected 'Other' with text: {other_text}")
     else:
-        assert option is not None
+        if option is None:  # pragma: no cover — guarded by mutual-exclusion above
+            raise click.ClickException("Internal error: expected OPTION number.")
         select_dialog_option(t.pane_label, option)
         click.echo(f"Selected option {option}")
 

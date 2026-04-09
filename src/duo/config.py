@@ -124,9 +124,10 @@ def set_config(key: str, value: str) -> bool | int | float | str:
                     f"'{key}' must be an integer <= {maximum}, got {coerced!r}"
                 )
         if key in _FLOAT_MINIMUMS:
-            if not isinstance(coerced, (int, float)) or coerced <= 0:
+            minimum_f = _FLOAT_MINIMUMS[key]
+            if not isinstance(coerced, (int, float)) or coerced <= minimum_f:
                 raise ValueError(
-                    f"'{key}' must be a number > 0, got {coerced!r}"
+                    f"'{key}' must be a number > {minimum_f}, got {coerced!r}"
                 )
         if key in _FLOAT_MAXIMUMS:
             maximum_f = _FLOAT_MAXIMUMS[key]

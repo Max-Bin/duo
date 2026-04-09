@@ -4,14 +4,14 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.5.x   | :white_check_mark: |
+| 0.7.x   | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do NOT** open a public issue
-2. Email: [security contact TBD]
+2. Email: vborisw@gmail.com
 3. Include: description, reproduction steps, impact assessment
 
 We will acknowledge within 48 hours and provide a fix timeline within 7 days.
