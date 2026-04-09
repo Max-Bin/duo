@@ -94,10 +94,10 @@ class TestNowIso:
 
 
 class TestNewIncarnation:
-    def test_returns_8_char_hex(self):
+    def test_returns_16_char_hex(self):
         inc = new_incarnation()
-        assert len(inc) == 8
-        assert re.fullmatch(r"[0-9a-f]{8}", inc)
+        assert len(inc) == 16
+        assert re.fullmatch(r"[0-9a-f]{16}", inc)
 
     def test_successive_calls_unique(self):
         results = {new_incarnation() for _ in range(50)}
@@ -232,12 +232,12 @@ class TestTaskStatusTransitions:
     def test_transition_function_applies_valid(self, tmp_path: Path):
         task = create_task("fsm-ok", "desc", "/w", "b", "abc", [_make_subtask()])
         assert task.status == TaskStatus.CREATED
-        transition(task, TaskStatus.SESSION_STARTING)
+        assert transition(task, TaskStatus.SESSION_STARTING) is True
         assert task.status == TaskStatus.SESSION_STARTING
 
     def test_transition_function_rejects_invalid(self, tmp_path: Path):
         task = create_task("fsm-bad", "desc", "/w", "b", "abc", [_make_subtask()])
-        transition(task, TaskStatus.COMPLETED)  # CREATED→COMPLETED is illegal
+        assert transition(task, TaskStatus.COMPLETED) is False  # CREATED→COMPLETED illegal
         assert task.status == TaskStatus.CREATED  # unchanged
 
         events = read_jsonl(task.journal_path)
@@ -1407,3 +1407,106 @@ class TestTaskIsolation:
         assert loaded.description == "Second"
         assert loaded.worktree == "/w2"
         assert loaded.incarnation_id == inc2
+
+
+# ---------------------------------------------------------------------------
+# Round BJ: Rubber-duck audit regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionReturnValue:
+    """transition() now returns bool: True on success, False on invalid."""
+
+    def test_valid_transition_returns_true(self, tmp_path: Path):
+        task = create_task("ret-ok", "d", "/w", "b", "c", [_make_subtask()])
+        assert transition(task, TaskStatus.SESSION_STARTING) is True
+
+    def test_invalid_transition_returns_false(self, tmp_path: Path):
+        task = create_task("ret-bad", "d", "/w", "b", "c", [_make_subtask()])
+        assert transition(task, TaskStatus.COMPLETED) is False
+
+    def test_return_false_does_not_mutate_status(self, tmp_path: Path):
+        task = create_task("ret-nomut", "d", "/w", "b", "c", [_make_subtask()])
+        original = task.status
+        transition(task, TaskStatus.COMPLETED)
+        assert task.status == original
+
+
+class TestIncarnationLength:
+    """new_incarnation() now returns 16-char hex (64-bit)."""
+
+    def test_length_is_16(self):
+        inc = new_incarnation()
+        assert len(inc) == 16
+
+    def test_is_hex(self):
+        inc = new_incarnation()
+        int(inc, 16)  # Raises ValueError if not valid hex
+
+
+class TestReadJsonlMalformed:
+    """read_jsonl() logs warnings for malformed lines instead of crashing."""
+
+    def test_malformed_line_skipped(self, tmp_path: Path):
+        journal = tmp_path / "journal.jsonl"
+        journal.write_text(
+            '{"event":"ok","data":{}}\n'
+            "not valid json\n"
+            '{"event":"also_ok","data":{}}\n'
+        )
+        entries = read_jsonl(journal)
+        assert len(entries) == 2
+        assert entries[0]["event"] == "ok"
+        assert entries[1]["event"] == "also_ok"
+
+    def test_empty_line_skipped(self, tmp_path: Path):
+        journal = tmp_path / "journal.jsonl"
+        journal.write_text('{"event":"a","data":{}}\n\n{"event":"b","data":{}}\n')
+        entries = read_jsonl(journal)
+        assert len(entries) == 2
+
+
+class TestAppendEventFlock:
+    """append_event() uses flock for concurrent-safe journal writes."""
+
+    def test_append_event_writes_with_flock(self, tmp_path: Path):
+        """Verify flock is called during append_event."""
+        import fcntl
+
+        task = create_task("flock-test", "d", "/w", "b", "c", [_make_subtask()])
+        flock_calls: list[tuple[int, int]] = []
+        original_flock = fcntl.flock
+
+        def tracking_flock(fd: int, op: int) -> None:
+            flock_calls.append((fd, op))
+            return original_flock(fd, op)
+
+        with patch("duo.protocol.fcntl.flock", side_effect=tracking_flock):
+            append_event(task, "test_event", {"key": "value"})
+
+        # Should have LOCK_EX and LOCK_UN
+        ops = [op for _, op in flock_calls]
+        assert fcntl.LOCK_EX in ops
+        assert fcntl.LOCK_UN in ops
+
+        # Verify event was written
+        entries = read_jsonl(task.journal_path)
+        test_entries = [e for e in entries if e["event"] == "test_event"]
+        assert len(test_entries) == 1
+        assert test_entries[0]["data"]["key"] == "value"
+
+
+class TestAtomicWriteTextUUID:
+    """atomic_write_text() uses full UUID for tmp filename uniqueness."""
+
+    def test_write_succeeds(self, tmp_path: Path):
+        target = tmp_path / "test.txt"
+        atomic_write_text(target, "hello world")
+        assert target.read_text() == "hello world"
+
+    def test_no_leftover_tmp_files(self, tmp_path: Path):
+        target = tmp_path / "test.txt"
+        atomic_write_text(target, "content")
+        # No tmp files should remain
+        files = list(tmp_path.iterdir())
+        assert files == [target]

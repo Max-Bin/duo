@@ -7,6 +7,7 @@ Sessions are disposable executors; this module is the durable state.
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -255,8 +256,8 @@ def now_iso() -> str:
 
 
 def new_incarnation() -> str:
-    """Generate a unique 8-character hex session incarnation ID."""
-    return uuid.uuid4().hex[:8]
+    """Generate a unique 16-character hex session incarnation ID."""
+    return uuid.uuid4().hex[:16]
 
 
 def prompt_hash(prompt: str) -> str:
@@ -302,9 +303,14 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def atomic_write_text(path: Path, content: str) -> None:
-    """Write text atomically: tmp file → fsync → rename."""
+    """Write text atomically: tmp file → fsync → rename.
+
+    The temp file is created in the same directory as *path* to
+    guarantee rename is atomic (same filesystem).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    # Full UUID hex (128-bit) prevents collision even under high concurrency
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(content)
@@ -339,6 +345,9 @@ def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
                 try:
                     result.append(json.loads(stripped))
                 except json.JSONDecodeError:
+                    logger.warning(
+                        "Malformed journal line in %s: %s", path, stripped[:120]
+                    )
                     continue
     return list(result)
 
@@ -365,16 +374,23 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
         logger.warning("Journal rotation failed for task %r — skipping", task.id)
     entry = {"ts": now_iso(), "event": event, "data": data or {}}
     with open(task.journal_path, "a", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         f.flush()
         os.fsync(f.fileno())
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 # === State transitions ===
 
 
-def transition(task: Task, new_status: TaskStatus) -> None:
-    """Transition task to new status. Logs invalid transitions but doesn't crash."""
+def transition(task: Task, new_status: TaskStatus) -> bool:
+    """Transition task to new status.
+
+    Returns *True* if the transition succeeded, *False* if the
+    transition was illegal.  Invalid transitions are logged to the
+    journal for post-mortem analysis.
+    """
     old = task.status
     if new_status not in TRANSITIONS.get(old, set()):
         append_event(
@@ -386,7 +402,13 @@ def transition(task: Task, new_status: TaskStatus) -> None:
                 "incarnation": task.incarnation_id,
             },
         )
-        return
+        logger.warning(
+            "Invalid transition %s → %s for task %s",
+            old.value,
+            new_status.value,
+            task.id,
+        )
+        return False
     task.status = new_status
     append_event(
         task,
@@ -398,6 +420,7 @@ def transition(task: Task, new_status: TaskStatus) -> None:
         },
     )
     save_task(task)
+    return True
 
 
 # === Task CRUD ===
