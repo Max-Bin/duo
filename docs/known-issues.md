@@ -101,3 +101,36 @@ to instrument Ink's stdin event loop directly.
 
 **First observed:** During the CEO session around the "big-dialog detection"
 and "parallel sub-agents" failures (see commit `dab818f` onwards).
+
+---
+
+## Concurrent dialog operations have no pane-level locking
+
+**Status: Open** (discovered during resilience audit)
+
+**Scenario:**
+If two `duo ceo-select` (or `ceo-approve`, `ceo-dispatch`, etc.)
+commands run simultaneously targeting the same pane, their key
+sequences can interleave.  For example, process A sends "1", process B
+sends "2", process A sends Enter — option 2 is selected instead of 1.
+
+**Current defense:** None.  The 3-layer send_keys defense does not
+address logical concurrency — it only defends against key-name
+translation and pane-size issues.
+
+**Recommended fix:**
+Add a file-based advisory lock per pane label:
+```python
+lock_path = DUO_DIR / "locks" / f"{label}.lock"
+with open(lock_path, "w") as lock_fd:
+    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    # ... perform dialog operation ...
+```
+This should wrap each dialog operation (select, approve, text send)
+end-to-end, not individual key sends.
+
+**Priority:** Medium.  In practice, the CEO orchestration loop is
+single-threaded per task, so concurrent sends are unlikely but not
+impossible (e.g., manual `duo ceo-select` during active `ceo-loop`).
+
+**See also:** `docs/send-keys-resilience-audit.md`, edge case #10.
