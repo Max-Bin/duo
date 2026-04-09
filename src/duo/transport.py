@@ -191,9 +191,10 @@ def is_tmux_server_alive() -> bool:
             text=True,
             timeout=5,
         )
-        return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
+    else:
+        return result.returncode == 0
 
 
 _TMUX_DOWN_INDICATORS = (
@@ -305,15 +306,15 @@ def send_keys(label: str, *keys: str) -> None:
     """
     target = resolve_label(label)
     # Ensure the target pane receives focus before sending keys
-    try:
+    with contextlib.suppress(
+        OSError, subprocess.TimeoutExpired, subprocess.SubprocessError
+    ):
         subprocess.run(
             ["tmux", "select-pane", "-t", target],
             capture_output=True,
             text=True,
             timeout=5,
         )
-    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
-        pass  # best-effort; send_keys still works without focus
     for key in keys:
         hex_code = _KEY_TO_HEX.get(key)
         if hex_code is not None:
@@ -365,9 +366,10 @@ def is_pane_process_alive(label: str) -> bool:
                 pid,
             )
             return False
-        return True
     except (OSError, subprocess.TimeoutExpired):
         return False
+    else:
+        return True
 
 
 def _normalize_pane_content(content: str) -> str:

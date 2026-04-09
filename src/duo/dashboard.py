@@ -8,7 +8,7 @@ from __future__ import annotations
 __all__ = ["run_dashboard"]
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 from rich.console import Console
 from rich.layout import Layout
@@ -149,7 +149,7 @@ def run_dashboard(task_ids: list[str] | None = None, refresh_rate: float = 2.0) 
                     Layout(name="footer", size=max(10, min(12, len(tasks) + 4))),
                 )
 
-                now = datetime.now().strftime("%H:%M:%S")
+                now = datetime.now(tz=UTC).strftime("%H:%M:%S")
                 layout["header"].update(
                     Text(
                         f" Duo Dashboard — {now}  (Ctrl+C to exit)",

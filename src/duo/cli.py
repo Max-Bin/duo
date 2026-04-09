@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import logging
@@ -1114,7 +1115,7 @@ def cost(
             click.echo(json.dumps({"tasks": [], "total_pr": 0}, indent=2))
         else:
             click.echo("No tasks.")
-        if budget is not None and 0 > budget:
+        if budget is not None and budget < 0:
             sys.exit(1)
         return
 
@@ -1901,7 +1902,7 @@ def _doctor_check_copilot_health() -> list[CheckResult]:
     terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     try:
         tasks = list_tasks()
-    except Exception:
+    except (FileNotFoundError, OSError, ValueError):
         return []
 
     active = [t for t in tasks if t.status not in terminal and t.pane_label]
@@ -1964,13 +1965,11 @@ def _emit_restart_signal(task_id: str) -> None:
     CEO automation can check for this file and initiate orderly restart.
     """
     signal_path = TASKS_DIR / task_id / "restart-recommended"
-    try:
+    with contextlib.suppress(OSError):
         signal_path.write_text(
             f"Restart recommended — health check detected critical thresholds.\n"
             f"Time: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
         )
-    except OSError:
-        pass
 
 
 _DOCTOR_CHECKS: list[Any] = [
@@ -2950,9 +2949,10 @@ def _gather_git_info() -> dict[str, Any] | None:
         )
         if git_info:
             git_info["clean"] = git_status.stdout.strip() == ""
-        return git_info
     except (subprocess.SubprocessError, OSError):
         return None
+    else:
+        return git_info
 
 
 def _gather_recent_decisions(focus: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3740,7 +3740,7 @@ def _find_idle_children(parent_pid: int) -> list[int]:
             if len(parts) >= 2:
                 comm = parts[0].lower()
                 state = parts[1]
-                if ("bash" in comm or "sh" == comm) and state.startswith("S"):
+                if ("bash" in comm or comm == "sh") and state.startswith("S"):
                     idle.append(cpid)
         except (OSError, subprocess.TimeoutExpired):
             continue
@@ -3793,10 +3793,8 @@ def ceo_restart(task: str, timeout: float) -> None:
         children = _find_idle_children(old_pid)
         if children:
             for cpid in children:
-                try:
+                with contextlib.suppress(OSError):
                     os.kill(cpid, 9)
-                except OSError:
-                    pass
             click.echo(f"  Cleaned {len(children)} idle child process(es)")
 
     # --- Step 2: Exit Copilot gracefully ---

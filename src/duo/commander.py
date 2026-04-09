@@ -6,6 +6,7 @@ verify output, correct or advance, and manage session recovery.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import subprocess
@@ -338,15 +339,13 @@ def start_claude_commander(task: Task) -> str | None:
         send_shell_command(commander_label, "claude")
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         logger.warning("Failed to start Claude commander: %s", exc)
-        try:
+        with contextlib.suppress(subprocess.CalledProcessError, OSError):
             subprocess.run(
                 ["tmux", "kill-pane", "-t", pane_id],
                 capture_output=True,
                 check=False,
                 timeout=10,
             )
-        except (subprocess.CalledProcessError, OSError):
-            pass
         return None
 
     append_event(
@@ -395,7 +394,7 @@ incarnation: {task.incarnation_id}  step: {step}  attempt: {attempt}
 
 #hash:{prompt_hash(subtask.description)}"""
 
-    return prompt
+    return prompt  # noqa: RET504
 
 
 def build_continue_prompt(task: Task) -> str:
@@ -486,15 +485,13 @@ def start_session(task: Task) -> None:
         send_shell_command(task.pane_label, copilot_cmd)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         # Kill orphaned pane if it was created
-        try:
+        with contextlib.suppress(subprocess.CalledProcessError, OSError):
             subprocess.run(
                 ["tmux", "kill-pane", "-t", pane_id],
                 capture_output=True,
                 check=False,
                 timeout=10,
             )
-        except (subprocess.CalledProcessError, OSError):
-            pass
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_start_failed", {"error": str(exc)})
@@ -843,9 +840,12 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
     elif poll_result == PollResult.UNKNOWN:
         # Check if ack is missing
         ack = read_ack_for_step(task, step, attempt)
-        if ack is None and task.last_prompt_sent_at:
-            if age(task.last_prompt_sent_at) > _IDLE_GRACE_SECONDS:
-                resend_last_prompt(task)
+        if (
+            ack is None
+            and task.last_prompt_sent_at
+            and age(task.last_prompt_sent_at) > _IDLE_GRACE_SECONDS
+        ):
+            resend_last_prompt(task)
 
     return poll_result
 
@@ -855,9 +855,9 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
 
 def _log_monitor(symbol: str, task_id: str, message: str) -> None:
     """Format a monitor log line with timestamp.  Thread-safe."""
-    from datetime import datetime
+    from datetime import UTC, datetime
 
-    ts = datetime.now().strftime("%H:%M:%S")
+    ts = datetime.now(tz=UTC).strftime("%H:%M:%S")
     line = f"[duo] {ts} {symbol} {task_id:<20} {message}"
     with _LOG_LOCK:
         click.echo(line)
@@ -1039,10 +1039,8 @@ def _watch_loop(
         # Dialog detected — read pane content for signal file
         _log_monitor("⚡", task.id, "dialog detected")
         pane_content = ""
-        try:
+        with contextlib.suppress(RuntimeError, OSError):
             pane_content = read_pane(label, 40)
-        except (RuntimeError, OSError):
-            pass
         if auto_approve:
             # Legacy mode: auto-approve the permission dialog
             try:

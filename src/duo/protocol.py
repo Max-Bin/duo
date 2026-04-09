@@ -6,6 +6,7 @@ Sessions are disposable executors; this module is the durable state.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -254,9 +255,10 @@ def read_json(path: Path) -> dict[str, Any] | None:
     """Read a JSON file, return None if missing or invalid."""
     try:
         data: dict[str, Any] = json.loads(path.read_text())
-        return data
     except (FileNotFoundError, json.JSONDecodeError):
         return None
+    else:
+        return data
 
 
 _MAX_JSON_BYTES = 10 * 1024 * 1024  # 10 MB safety limit
@@ -313,10 +315,7 @@ def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     result: deque[dict[str, Any]] | list[dict[str, Any]]
-    if tail is not None:
-        result = deque(maxlen=tail)
-    else:
-        result = []
+    result = deque(maxlen=tail) if tail is not None else []
     with open(path, encoding="utf-8") as f:
         for raw in f:
             stripped = raw.strip()
@@ -701,9 +700,7 @@ def replay_state(task: Task) -> TaskStatus:
     for ev in events:
         event_type = ev.get("event", "")
         if event_type == "status_changed":
-            try:
+            with contextlib.suppress(KeyError, ValueError):
                 status = TaskStatus(ev["data"]["to"])
-            except (KeyError, ValueError):
-                pass
 
     return status

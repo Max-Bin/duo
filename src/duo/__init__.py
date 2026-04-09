@@ -6,7 +6,7 @@ from importlib.metadata import version as _pkg_version
 
 try:
     __version__: str = _pkg_version("duo")
-except Exception:  # pragma: no cover – editable install may not have metadata yet
+except Exception:  # noqa: BLE001  # pragma: no cover – editable install may not have metadata yet
     __version__ = "0.0.0-dev"
 
 from duo.config import get_config, load_config, set_config

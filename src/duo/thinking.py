@@ -6,6 +6,7 @@ No Copilot pane, no Premium Request consumed.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import subprocess
@@ -150,9 +151,10 @@ def _pane_exists(label: str) -> bool:
 
     try:
         resolve_label(label)
-        return True
     except (RuntimeError, ValueError):
         return False
+    else:
+        return True
 
 
 def _pane_alive(label: str) -> bool:
@@ -198,15 +200,13 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
         send_shell_command(label, "claude")
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         # Clean up orphaned pane
-        try:
+        with contextlib.suppress(subprocess.CalledProcessError, OSError):
             subprocess.run(
                 ["tmux", "kill-pane", "-t", pane_id],
                 capture_output=True,
                 check=False,
                 timeout=10,
             )
-        except (subprocess.CalledProcessError, OSError):
-            pass
         raise RuntimeError(f"Failed to start Claude Code in pane: {exc}") from exc
 
     wait_for_idle(label, timeout=30)
