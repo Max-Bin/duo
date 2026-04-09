@@ -2720,7 +2720,7 @@ def _gather_task_info(task: Task, focus: dict[str, Any]) -> dict[str, Any]:
 
 
 def _gather_pane_info(task: Task) -> dict[str, Any]:
-    """Collect tmux pane liveness and dialog state for a task."""
+    """Collect tmux pane liveness, dialog state, and recent output for a task."""
     pane_alive = False
     try:
         from duo.transport import (
@@ -2736,11 +2736,23 @@ def _gather_pane_info(task: Task) -> dict[str, Any]:
 
     in_dialog = False
     dialog_kind = ""
+    recent_lines: list[str] = []
     if pane_alive:
         try:
             in_dialog = is_in_dialog(task.pane_label)
             if in_dialog:
                 dialog_kind = get_dialog_kind(task.pane_label).value
+        except (subprocess.SubprocessError, OSError, RuntimeError):
+            pass
+        try:
+            from duo.transport import read_pane
+
+            content = read_pane(task.pane_label, 5)
+            recent_lines = [
+                line.strip()
+                for line in content.strip().splitlines()
+                if line.strip()
+            ][-5:]
         except (subprocess.SubprocessError, OSError, RuntimeError):
             pass
 
@@ -2749,11 +2761,12 @@ def _gather_pane_info(task: Task) -> dict[str, Any]:
         "alive": pane_alive,
         "in_dialog": in_dialog,
         "dialog_kind": dialog_kind,
+        "recent_lines": recent_lines,
     }
 
 
 def _gather_git_info() -> dict[str, Any] | None:
-    """Collect git HEAD commit and working-tree cleanliness."""
+    """Collect git HEAD commit, working-tree cleanliness, and last commit time."""
     try:
         result = subprocess.run(
             ["git", "--no-pager", "log", "-1", "--format=%h %s"],
@@ -2765,6 +2778,15 @@ def _gather_git_info() -> dict[str, Any] | None:
         git_info: dict[str, Any] | None = None
         if result.returncode == 0:
             git_info = {"head": result.stdout.strip()}
+        time_result = subprocess.run(
+            ["git", "--no-pager", "log", "-1", "--format=%ci"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if git_info and time_result.returncode == 0:
+            git_info["last_commit_time"] = time_result.stdout.strip()
         git_status = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True,
@@ -2792,11 +2814,31 @@ def _gather_recent_decisions(focus: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _gather_budget_info(task: Task) -> dict[str, Any]:
-    """Collect PR budget usage for a task."""
+    """Collect PR budget usage and burn rate for a task."""
     events = read_jsonl(task.journal_path)
-    pr_count = sum(1 for e in events if e.get("event") == "pr_consumed")
+    pr_events = [e for e in events if e.get("event") == "pr_consumed"]
+    pr_count = len(pr_events)
     budget_setting = int(get_config("pr_budget") or 0)
-    return {"used": pr_count, "limit": budget_setting}
+
+    # Burn rate: PRs per hour over the last hour
+    burn_rate = 0.0
+    if pr_events:
+        from datetime import UTC, datetime, timedelta
+
+        now = datetime.now(UTC)
+        one_hour_ago = now - timedelta(hours=1)
+        recent_prs = 0
+        for e in pr_events:
+            try:
+                ts_str = e.get("ts", "")
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts >= one_hour_ago:
+                    recent_prs += 1
+            except (ValueError, TypeError):
+                pass
+        burn_rate = float(recent_prs)
+
+    return {"used": pr_count, "limit": budget_setting, "burn_rate_per_hour": burn_rate}
 
 
 @main.command("ceo-now")
@@ -2850,19 +2892,28 @@ def ceo_now(json_output: bool) -> None:
         if p["in_dialog"]:
             status_parts.append(f"dialog: {p['dialog_kind']}")
         click.echo(f"Pane:      {p['label']} ({', '.join(status_parts)})")
+        if p.get("recent_lines"):
+            click.echo("  Recent output:")
+            for line in p["recent_lines"]:
+                click.echo(f"    {line[:60]}")
 
     if data["budget"]:
         b = data["budget"]
         limit_str = f"limit: {b['limit']}" if b["limit"] > 0 else "unlimited"
-        click.echo(f"Budget:    {b['used']} PRs used ({limit_str})")
+        burn = b.get("burn_rate_per_hour", 0)
+        burn_str = f", {burn:.0f}/hr" if burn > 0 else ""
+        click.echo(f"Budget:    {b['used']} PRs used ({limit_str}{burn_str})")
 
     if data["git"]:
         g = data["git"]
         clean_str = "clean" if g.get("clean") else "dirty"
-        click.echo(f"Git:       {g['head']} ({clean_str})")
+        commit_time = g.get("last_commit_time", "")
+        time_part = f" @ {commit_time[:19]}" if commit_time else ""
+        click.echo(f"Git:       {g['head']} ({clean_str}{time_part})")
 
     if data["recent_decisions"]:
-        click.echo("")
+        last_ts = data["recent_decisions"][-1].get("ts", "")
+        click.echo(f"\nLast decision: {last_ts[:19] if last_ts else 'unknown'}")
         click.echo("Recent events (last 5):")
         for ev in data["recent_decisions"]:
             ts = ev.get("ts", "?")[11:16]
