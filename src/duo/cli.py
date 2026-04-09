@@ -1948,12 +1948,29 @@ def _doctor_check_copilot_health() -> list[CheckResult]:
         fix = ""
         if worst == "fail":
             fix = "Critical — restart session: duo stop + duo start"
+            _emit_restart_signal(task.id)
         elif worst == "warn":
             fix = "Run: duo ceo-cleanup"
 
         results.append(CheckResult(f"pane:{task.pane_label}", worst, msg, fix))
 
     return results
+
+
+def _emit_restart_signal(task_id: str) -> None:
+    """Write a restart-recommended signal file for a task.
+
+    The file is placed at ~/.duo/tasks/{id}/restart-recommended.
+    CEO automation can check for this file and initiate orderly restart.
+    """
+    signal_path = TASKS_DIR / task_id / "restart-recommended"
+    try:
+        signal_path.write_text(
+            f"Restart recommended — health check detected critical thresholds.\n"
+            f"Time: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        )
+    except OSError:
+        pass
 
 
 _DOCTOR_CHECKS: list[Any] = [

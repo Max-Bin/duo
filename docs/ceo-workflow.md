@@ -28,12 +28,13 @@ for easy scripting.
 | `ceo-loop <task>` | Automated dialog handling loop | `duo ceo-loop e2e --policy smart` |
 | `ceo-resume <task>` | Resume a paused ceo-loop | `duo ceo-resume e2e` |
 
-### Monitoring
+### Monitoring & Health
 
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `ceo-status <task>` | Pane state as JSON | `duo ceo-status e2e` |
 | `ceo-now` | One-screen CEO dashboard | `duo ceo-now` |
+| `ceo-cleanup <task>` | Reclaim leaked fds from idle children | `duo ceo-cleanup e2e` |
 
 ### Focus Management
 
@@ -327,3 +328,91 @@ duo ceo-status my-task --assert-in-dialog || echo "Not in dialog!"
 
 This is useful in CEO loops to detect when Copilot has left the dialog
 without consuming a new PR.
+
+---
+
+## Session Lifetime Management
+
+### The Problem
+
+Copilot CLI (v1.0.12) has an upstream bug that leaks kqueue file
+descriptors and idle bash child processes during long sessions. After ~4
+hours of heavy use (~100+ tool calls/hour), the process accumulates
+thousands of leaked fds, causing increasing unresponsiveness and
+eventually a full hang.
+
+See `docs/known-issues.md` for detailed observations.
+
+### Recommended Limits
+
+| Session Type | Max Duration | Max Tool Calls |
+|-------------|-------------|----------------|
+| Light (occasional dialogs) | ~8 hours | ~400 |
+| Heavy (continuous CEO loop) | ~4 hours | ~300 |
+| Intensive (parallel sub-agents) | ~2 hours | ~200 |
+
+### Health Monitoring
+
+Use `duo doctor` and `duo ceo-now` to monitor session health:
+
+```bash
+# Check all pane health metrics
+duo doctor
+
+# Dashboard shows session age, fd count, capacity estimate
+duo ceo-now
+```
+
+**Threshold reference:**
+
+| Metric | Healthy | Warning | Critical |
+|--------|---------|---------|----------|
+| Open fds | < 500 | 500–2000 | > 2000 |
+| kqueue fds | < 50 | ≥ 50 | — |
+| Child processes | < 10 | ≥ 10 | — |
+
+### Cleanup During Sessions
+
+Run `ceo-cleanup` periodically to reclaim leaked idle child processes:
+
+```bash
+# See what would be cleaned up
+duo ceo-cleanup my-task --dry-run
+
+# Actually clean up
+duo ceo-cleanup my-task
+```
+
+This typically recovers ~1 fd per idle child. It does **not** fix the
+kqueue leak (which is in the main Node.js process), so it only buys
+partial relief.
+
+### Auto-Restart Signal
+
+When `duo doctor` detects critical health thresholds, it writes a signal
+file that CEO automation can check:
+
+```
+~/.duo/ceo-sessions/{session-id}/restart-recommended
+```
+
+The CEO loop or automation scripts should check for this file and
+initiate an orderly session restart when present:
+
+```bash
+if [ -f ~/.duo/ceo-sessions/$SESSION_ID/restart-recommended ]; then
+    echo "Session degraded — initiating restart"
+    duo stop my-task
+    duo start my-task
+fi
+```
+
+### Orderly Restart Procedure
+
+1. Commit any in-progress work
+2. `duo stop <task>` to cleanly shut down the session
+3. `duo start <task>` to bootstrap a fresh Copilot process
+4. The fresh process costs 1 PR for re-bootstrapping
+
+Plan for orderly restart as a first-class operation, not an emergency
+recovery.

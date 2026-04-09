@@ -39,6 +39,7 @@ from duo.cli import (
     _doctor_check_tmux,
     _doctor_check_tmux_bridge,
     _doctor_check_tmux_session,
+    _emit_restart_signal,
     _find_idle_children,
     _fmt_ts,
     _gather_session_health,
@@ -5537,6 +5538,58 @@ class TestDoctorCheckCopilotHealth:
         result = runner.invoke(main, ["doctor"])
         assert "pane:test-pane" in result.output
         assert "fds=600" in result.output
+
+
+# ── Auto-restart signal ──────────────────────────────────────────────
+
+
+class TestEmitRestartSignal:
+    """Tests for _emit_restart_signal()."""
+
+    def test_writes_signal_file(self, make_task):
+        """Should create restart-recommended file in task dir."""
+        task = make_task("restart-test")
+        _emit_restart_signal(task.id)
+        signal_path = task.dir / "restart-recommended"
+        assert signal_path.exists()
+        content = signal_path.read_text()
+        assert "Restart recommended" in content
+
+    def test_nonexistent_task_dir_ignored(self, tmp_path: Path):
+        """Missing task dir → no crash (OSError caught)."""
+        _emit_restart_signal("nonexistent-task-xyz")
+
+    def test_critical_health_emits_signal(
+        self, make_task, monkeypatch: pytest.MonkeyPatch
+    ):
+        """doctor health check with critical fds should emit restart signal."""
+        task = make_task("signal-test")
+        task.pane_label = "sig-pane"
+        save_task(task)
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 3000)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "fail"
+        signal_path = task.dir / "restart-recommended"
+        assert signal_path.exists()
+
+    def test_warn_health_no_signal(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """doctor health check with warn (not critical) should NOT emit signal."""
+        task = make_task("no-signal-test")
+        task.pane_label = "nosig-pane"
+        save_task(task)
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        results = _doctor_check_copilot_health()
+        assert results[0].status == "warn"
+        signal_path = task.dir / "restart-recommended"
+        assert not signal_path.exists()
 
 
 # ── CEO cleanup command ──────────────────────────────────────────────
