@@ -1140,6 +1140,123 @@ class TestCost:
         assert data["tasks"][0]["task"] == "json-single"
         assert data["total_pr"] == 1
 
+    def test_cost_task_with_no_journal_file(self, runner: CliRunner, make_task) -> None:
+        task = make_task("no-journal")
+        save_task(task)
+        # Ensure journal file does not exist
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+
+        result = runner.invoke(main, ["cost"])
+        assert result.exit_code == 0
+        assert "no-journal" in result.output
+
+    def test_cost_since_zero_days(self, runner: CliRunner, make_task) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        task = make_task("since-zero")
+        save_task(task)
+        two_hours_ago = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        task.journal_path.write_text(
+            json.dumps(
+                {
+                    "ts": two_hours_ago,
+                    "event": "pr_consumed",
+                    "data": {"action": "bootstrap", "step": 1, "attempt": 1},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(main, ["cost", "--since", "0"])
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        total_line = [l for l in lines if "Total" in l][0]
+        assert "0" in total_line
+
+    def test_cost_since_negative(self, runner: CliRunner, make_task) -> None:
+        from datetime import UTC, datetime
+
+        task = make_task("since-neg")
+        save_task(task)
+        now_ts = datetime.now(UTC).isoformat()
+        task.journal_path.write_text(
+            json.dumps(
+                {
+                    "ts": now_ts,
+                    "event": "pr_consumed",
+                    "data": {"action": "bootstrap", "step": 1, "attempt": 1},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(main, ["cost", "--since", "-1"])
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        total_line = [l for l in lines if "Total" in l][0]
+        assert "0" in total_line
+
+    def test_cost_multiple_actions_same_task(
+        self, runner: CliRunner, make_task
+    ) -> None:
+        task = make_task("multi-action")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "task_prompt", "step": 2, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "resend_prompt", "step": 1, "attempt": 1}
+        )
+        append_event(
+            task, "pr_consumed", {"action": "error_retry", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost"])
+        assert result.exit_code == 0
+        assert "multi-action" in result.output
+        assert "task_prompt (2)" in result.output
+        lines = result.output.strip().splitlines()
+        total_line = [l for l in lines if "Total" in l][0]
+        assert "5" in total_line
+
+    def test_cost_json_output_structure(self, runner: CliRunner, make_task) -> None:
+        task = make_task("json-struct")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "tasks" in data
+        assert "total_pr" in data
+        assert isinstance(data["tasks"], list)
+        assert isinstance(data["total_pr"], int)
+        assert len(data["tasks"]) >= 1
+        task_row = data["tasks"][0]
+        for key in ("task", "prs", "first", "last", "top_action"):
+            assert key in task_row, f"Missing key {key!r} in task row"
+
+    def test_cost_budget_zero(self, runner: CliRunner, make_task) -> None:
+        task = make_task("budget-zero")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+
+        result = runner.invoke(main, ["cost", "--budget", "0"])
+        assert result.exit_code == 1
+
 
 # ---------------------------------------------------------------------------
 # config set pr_budget

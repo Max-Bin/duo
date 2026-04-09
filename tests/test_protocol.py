@@ -7,6 +7,7 @@ import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -1315,6 +1316,37 @@ class TestAtomicWriteText:
         content = "🚀 日本語 中文 한국어"
         atomic_write_text(path, content)
         assert path.read_text() == content
+
+    def test_atomic_write_text_parent_dir_missing(self) -> None:
+        path = Path("/dev/null/a/b.txt")
+        with pytest.raises(OSError):
+            atomic_write_text(path, "should fail")
+
+    def test_atomic_write_text_permission_denied(self, tmp_path: Path) -> None:
+        path = tmp_path / "denied.txt"
+        with patch("builtins.open", side_effect=PermissionError("denied")):
+            with pytest.raises(PermissionError):
+                atomic_write_text(path, "no access")
+        tmp_files = [f for f in tmp_path.iterdir() if ".tmp" in f.name]
+        assert len(tmp_files) == 0
+
+    def test_atomic_write_text_unicode_content(self, tmp_path: Path) -> None:
+        path = tmp_path / "full_unicode.txt"
+        content = "👨‍👩‍👧‍👦 مرحبا \u0000 𠀀 ñ café \U0001f600"
+        atomic_write_text(path, content)
+        assert path.read_text() == content
+
+    def test_atomic_write_text_very_long_content(self, tmp_path: Path) -> None:
+        path = tmp_path / "large.txt"
+        content = "x" * (1024 * 1024)
+        atomic_write_text(path, content)
+        assert path.read_text() == content
+
+    def test_atomic_write_text_concurrent_writes(self, tmp_path: Path) -> None:
+        path = tmp_path / "sequential.txt"
+        atomic_write_text(path, "first")
+        atomic_write_text(path, "second")
+        assert path.read_text() == "second"
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,12 @@ class TestDuoError:
         assert issubclass(DuoSystemError, DuoError)
         assert issubclass(DuoDataError, DuoError)
 
+    def test_error_inheritance(self) -> None:
+        assert isinstance(DuoUserError("x"), click.ClickException)
+        assert not isinstance(DuoUserError("x"), DuoError)
+        assert isinstance(DuoSystemError("x"), DuoError)
+        assert isinstance(DuoDataError("x"), DuoError)
+
 
 class TestDuoUserError:
     def test_is_click_exception(self) -> None:
@@ -52,11 +58,37 @@ class TestDuoUserError:
         err = DuoUserError("bad")
         assert err.exit_code == 1
 
+    def test_duo_user_error_no_fix(self) -> None:
+        err = DuoUserError("missing file")
+        assert err.fix == ""
+        result = err.format_message()
+        assert result == "missing file"
+        assert "\n" not in result
+
+    def test_duo_user_error_with_fix(self) -> None:
+        err = DuoUserError("config invalid", fix="Check ~/.duo/config.toml")
+        result = err.format_message()
+        assert "config invalid" in result
+        assert result.endswith("Check ~/.duo/config.toml")
+        assert "  Fix:" in result
+
+    def test_duo_user_error_empty_fix(self) -> None:
+        err = DuoUserError("unknown command", fix="")
+        result = err.format_message()
+        assert "Fix:" not in result
+        assert result == "unknown command"
+
 
 class TestDuoSystemError:
     def test_basic(self) -> None:
         err = DuoSystemError("tmux crashed")
         assert str(err) == "tmux crashed"
+        assert isinstance(err, DuoError)
+        assert isinstance(err, Exception)
+
+    def test_duo_system_error_basic(self) -> None:
+        err = DuoSystemError("subprocess failed")
+        assert str(err) == "subprocess failed"
         assert isinstance(err, DuoError)
         assert isinstance(err, Exception)
 
@@ -77,4 +109,13 @@ class TestDuoDataError:
 
     def test_path_default_empty(self) -> None:
         err = DuoDataError("bad data")
+        assert err.path == ""
+
+    def test_duo_data_error_with_path(self) -> None:
+        err = DuoDataError("parse error", path="/etc/duo/data.json")
+        assert err.path == "/etc/duo/data.json"
+        assert isinstance(err.path, str)
+
+    def test_duo_data_error_no_path(self) -> None:
+        err = DuoDataError("invalid format")
         assert err.path == ""

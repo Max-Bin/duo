@@ -1354,6 +1354,34 @@ class TestStripAnsi:
 
         assert strip_ansi("") == ""
 
+    def test_strip_ansi_empty_string(self) -> None:
+        from duo.transport import strip_ansi
+
+        assert strip_ansi("") == ""
+
+    def test_strip_ansi_no_ansi(self) -> None:
+        from duo.transport import strip_ansi
+
+        assert strip_ansi("plain text unchanged") == "plain text unchanged"
+
+    def test_strip_ansi_only_ansi(self) -> None:
+        from duo.transport import strip_ansi
+
+        assert strip_ansi("\x1b[31m\x1b[1m\x1b[0m") == ""
+
+    def test_strip_ansi_nested_sequences(self) -> None:
+        from duo.transport import strip_ansi
+
+        assert (
+            strip_ansi("\x1b[1m\x1b[31mhello\x1b[0m \x1b[32mworld\x1b[0m")
+            == "hello world"
+        )
+
+    def test_strip_ansi_partial_sequence(self) -> None:
+        from duo.transport import strip_ansi
+
+        assert strip_ansi("text\x1b[") == "text\x1b["
+
 
 class TestAnsiInDialogDetection:
     """Ensure dialog detection works with ANSI-colored pane output."""
