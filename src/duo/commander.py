@@ -524,6 +524,10 @@ def start_session(task: Task) -> None:
         },
     )
 
+    # Record when the session actually started (for accurate timeout calculation)
+    task.session_started_at = now_iso()
+    save_task(task)
+
     # Wait for copilot to start (adaptive instead of hardcoded sleep)
     click.echo("Waiting for Copilot to start...")
     if not wait_for_idle(
@@ -986,7 +990,8 @@ def monitor(task_ids: list[str] | None = None) -> None:
             # Enforce task_timeout before polling
             task_timeout = get_config("task_timeout")
             if task_timeout and task_timeout > 0:
-                elapsed = age(task.created_at)
+                ref_time = task.session_started_at or task.created_at
+                elapsed = age(ref_time)
                 if elapsed > task_timeout:
                     logger.warning(
                         "Task %s exceeded timeout (%ds > %ds)",

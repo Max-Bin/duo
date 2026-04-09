@@ -2168,6 +2168,35 @@ class TestMonitorTaskTimeout:
         mock_poll.assert_called_once()
         assert task.status == TaskStatus.PROMPT_SENT
 
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_timeout_uses_session_started_at(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        """Timeout uses session_started_at instead of created_at when available."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        # created_at is old, but session_started_at is recent
+        task.created_at = "2020-01-01T00:00:00+00:00"
+        task.session_started_at = now_iso()
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch("duo.commander.get_config", return_value=99999),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # poll_task was called (session_started_at is recent, not timed out)
+        mock_poll.assert_called_once()
+        assert task.status == TaskStatus.PROMPT_SENT
+
 
 # ---------------------------------------------------------------------------
 # start_session — orphaned pane cleanup

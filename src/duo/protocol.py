@@ -234,6 +234,7 @@ class Task:
     created_at: str
     security_policy: SecurityPolicy = field(default_factory=SecurityPolicy)
     last_prompt_sent_at: str | None = None
+    session_started_at: str | None = None
 
     @property
     def dir(self) -> Path:
@@ -504,6 +505,7 @@ def save_task(task: Task) -> None:
         "current_attempt": task.current_attempt,
         "created_at": task.created_at,
         "last_prompt_sent_at": task.last_prompt_sent_at,
+        "session_started_at": task.session_started_at,
         "subtasks": [
             {
                 "step_id": s.step_id,
@@ -586,6 +588,7 @@ def load_task(task_id: str) -> Task | None:
             created_at=data["created_at"],
             security_policy=security_policy,
             last_prompt_sent_at=data.get("last_prompt_sent_at"),
+            session_started_at=data.get("session_started_at"),
         )
     except (KeyError, ValueError, TypeError) as exc:
         logger.warning("Failed to load task '%s': %s", task_id, exc)

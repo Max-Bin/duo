@@ -693,6 +693,7 @@ class TestSaveTaskRoundtrip:
         task.current_step = 2
         task.current_attempt = 3
         task.last_prompt_sent_at = now_iso()
+        task.session_started_at = now_iso()
         task.pane_label = "custom-pane"
         save_task(task)
 
@@ -709,6 +710,7 @@ class TestSaveTaskRoundtrip:
         assert loaded.current_step == 2
         assert loaded.current_attempt == 3
         assert loaded.last_prompt_sent_at == task.last_prompt_sent_at
+        assert loaded.session_started_at == task.session_started_at
         assert loaded.created_at == task.created_at
         assert len(loaded.subtasks) == 2
         assert loaded.subtasks[0].step_id == 1
