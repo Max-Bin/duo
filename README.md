@@ -84,7 +84,7 @@ duo merge fix-auth       # fast-forward merge when done
 ## Full Command Reference
 
 ```bash
-duo --help               # 37 commands in 10 groups
+duo --help               # 49 commands in 10 groups
 ```
 
 ## Examples

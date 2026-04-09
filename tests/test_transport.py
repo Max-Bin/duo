@@ -1624,7 +1624,6 @@ class TestDialogBoundaryDetection:
         assert len(result) == 2
 
 
-
 class TestTmuxServerDownError:
     """Tests for TmuxServerDownError detection."""
 
@@ -1702,3 +1701,73 @@ class TestIsTmuxServerAlive:
 
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("tmux", 5)):
             assert is_tmux_server_alive() is False
+
+
+class TestSendKeysVerified:
+    """Tests for send_keys_verified()."""
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    def test_key_consumed_first_try(self, mock_read, mock_send, mock_time):
+        """Returns True when pane content changes on first attempt."""
+        mock_read.side_effect = ["before content", "after content"]
+        mock_time.sleep = MagicMock()
+        from duo.transport import send_keys_verified
+
+        result = send_keys_verified("test-pane", "Enter", settle=0.1, retries=1)
+        assert result is True
+        mock_send.assert_called_once_with("test-pane", "Enter")
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    def test_key_not_consumed(self, mock_read, mock_send, mock_time):
+        """Returns False when pane content never changes after all retries."""
+        mock_read.return_value = "same content"
+        mock_time.sleep = MagicMock()
+        from duo.transport import send_keys_verified
+
+        result = send_keys_verified("test-pane", "Enter", settle=0.1, retries=2)
+        assert result is False
+        assert mock_send.call_count == 2
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    def test_key_consumed_second_try(self, mock_read, mock_send, mock_time):
+        """Returns True when pane content changes on second attempt."""
+        mock_read.side_effect = ["before", "before", "changed"]
+        mock_time.sleep = MagicMock()
+        from duo.transport import send_keys_verified
+
+        result = send_keys_verified("test-pane", "x", settle=0.1, retries=3)
+        assert result is True
+        assert mock_send.call_count == 2
+
+
+class TestIsLikelyStuck:
+    """Tests for is_likely_stuck()."""
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.read_pane")
+    def test_stuck_when_content_unchanged(self, mock_read, mock_time):
+        """Returns True when content is identical across two reads."""
+        mock_read.return_value = "frozen content"
+        mock_time.sleep = MagicMock()
+        from duo.transport import is_likely_stuck
+
+        result = is_likely_stuck("test-pane", poll_ms=100)
+        assert result is True
+        assert mock_read.call_count == 2
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.read_pane")
+    def test_not_stuck_when_content_changes(self, mock_read, mock_time):
+        """Returns False when content changes between reads."""
+        mock_read.side_effect = ["first state", "second state"]
+        mock_time.sleep = MagicMock()
+        from duo.transport import is_likely_stuck
+
+        result = is_likely_stuck("test-pane", poll_ms=100)
+        assert result is False

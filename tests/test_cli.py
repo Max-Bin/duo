@@ -3618,6 +3618,7 @@ class TestDoctor:
 
     def _setup_all_pass(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Configure monkeypatches for all checks to pass."""
+        monkeypatch.setattr("duo.cli.DUO_DIR", tmp_path)
         config_path = tmp_path / "config.json"
         config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
 
@@ -8508,7 +8509,6 @@ class TestCeoSmart:
         )
 
 
-
 # ---------------------------------------------------------------------------
 # duo ceo-metrics — CEO aggregate analytics
 # ---------------------------------------------------------------------------
@@ -8545,13 +8545,18 @@ class TestCeoMetrics:
         assert data["error"] == "No CEO sessions found."
 
     def test_single_session_text(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision, log_dialog_detected
+
         log_dialog_detected(sid, "t1", "Choose option", "option")
         log_decision(sid, "t1", "approved", "yes", elapsed_ms=100)
         result = runner.invoke(main, ["ceo-metrics", "--session", sid])
@@ -8563,13 +8568,18 @@ class TestCeoMetrics:
         assert "Approval rate: 100.0%" in result.output
 
     def test_single_session_json(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision, log_dialog_detected
+
         log_dialog_detected(sid, "t1", "content", "TEXT")
         log_decision(sid, "t1", "approved", "ok", elapsed_ms=50)
         result = runner.invoke(main, ["ceo-metrics", "--session", sid, "--json-output"])
@@ -8581,14 +8591,19 @@ class TestCeoMetrics:
         assert data["approval_rate"] == 100.0
 
     def test_multiple_sessions(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid1 = start_ceo_session()
         sid2 = start_ceo_session()
         from duo.ceo_log import log_decision, log_dialog_detected
+
         log_dialog_detected(sid1, "t1", "opt A", "OPTION")
         log_decision(sid1, "t1", "approved", "yes", elapsed_ms=100)
         log_dialog_detected(sid2, "t2", "text Q", "TEXT")
@@ -8601,44 +8616,63 @@ class TestCeoMetrics:
         assert data["total_decisions"] == 2
 
     def test_since_filter_excludes_all(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision, log_dialog_detected
+
         log_dialog_detected(sid, "t1", "c1", "OPTION")
         log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
-        result = runner.invoke(main, ["ceo-metrics", "--since", "2099-01-01T00:00:00", "--json-output"])
+        result = runner.invoke(
+            main, ["ceo-metrics", "--since", "2099-01-01T00:00:00", "--json-output"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["error"] == "No CEO sessions found."
 
     def test_since_filter_includes(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision, log_dialog_detected
+
         log_dialog_detected(sid, "t1", "c1", "OPTION")
         log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
-        result = runner.invoke(main, ["ceo-metrics", "--since", "2000-01-01T00:00:00", "--json-output"])
+        result = runner.invoke(
+            main, ["ceo-metrics", "--since", "2000-01-01T00:00:00", "--json-output"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["sessions"] == 1
         assert data["total_decisions"] == 1
 
     def test_dialog_kind_distribution(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_dialog_detected
+
         log_dialog_detected(sid, "t1", "c1", "option")
         log_dialog_detected(sid, "t1", "c2", "option")
         log_dialog_detected(sid, "t1", "c3", "text")
@@ -8651,13 +8685,18 @@ class TestCeoMetrics:
         assert data["dialog_kinds"]["PERMISSION"] == 1
 
     def test_decision_type_distribution(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision
+
         log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
         log_decision(sid, "t1", "approved", "y", elapsed_ms=20)
         log_decision(sid, "t1", "selected", "opt", elapsed_ms=30)
@@ -8670,13 +8709,18 @@ class TestCeoMetrics:
         assert data["decision_types"]["deferred"] == 1
 
     def test_approval_rate(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision
+
         log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
         log_decision(sid, "t1", "approved", "y", elapsed_ms=20)
         log_decision(sid, "t1", "selected", "opt", elapsed_ms=30)
@@ -8687,9 +8731,13 @@ class TestCeoMetrics:
         assert data["approval_rate"] == 50.0
 
     def test_zero_decisions_no_division_error(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         start_ceo_session()
@@ -8702,9 +8750,13 @@ class TestCeoMetrics:
         assert data["avg_decisions_per_session"] == 0.0
 
     def test_empty_events_session(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         (sessions_dir / "fake-session").mkdir(parents=True)
@@ -8715,13 +8767,18 @@ class TestCeoMetrics:
         assert data["error"] == "No CEO sessions found."
 
     def test_text_output_formatting(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision, log_dialog_detected
+
         log_dialog_detected(sid, "t1", "Choose option", "option")
         log_decision(sid, "t1", "approved", "yes", elapsed_ms=100)
         result = runner.invoke(main, ["ceo-metrics"])
@@ -8734,14 +8791,19 @@ class TestCeoMetrics:
         assert "Avg session duration:" in result.output
 
     def test_avg_decisions_per_session(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid1 = start_ceo_session()
         sid2 = start_ceo_session()
         from duo.ceo_log import log_decision
+
         log_decision(sid1, "t1", "approved", "y", elapsed_ms=10)
         log_decision(sid1, "t1", "approved", "y", elapsed_ms=20)
         log_decision(sid2, "t2", "selected", "x", elapsed_ms=30)
@@ -8751,13 +8813,18 @@ class TestCeoMetrics:
         assert data["avg_decisions_per_session"] == 1.5
 
     def test_top_dialog_patterns(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_dialog_detected
+
         log_dialog_detected(sid, "t1", "pattern A", "option")
         log_dialog_detected(sid, "t1", "pattern A", "option")
         log_dialog_detected(sid, "t1", "pattern A", "option")
@@ -8775,13 +8842,18 @@ class TestCeoMetrics:
         assert patterns[1]["count"] == 2
 
     def test_top_patterns_text_output(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_dialog_detected
+
         log_dialog_detected(sid, "t1", "repeated", "option")
         log_dialog_detected(sid, "t1", "repeated", "option")
         result = runner.invoke(main, ["ceo-metrics"])
@@ -8790,17 +8862,24 @@ class TestCeoMetrics:
         assert "[2x] repeated" in result.output
 
     def test_session_filter_specific(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid1 = start_ceo_session()
         sid2 = start_ceo_session()
         from duo.ceo_log import log_decision
+
         log_decision(sid1, "t1", "approved", "y", elapsed_ms=10)
         log_decision(sid2, "t2", "selected", "x", elapsed_ms=20)
-        result = runner.invoke(main, ["ceo-metrics", "--session", sid1, "--json-output"])
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", sid1, "--json-output"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["sessions"] == 1
@@ -8809,13 +8888,18 @@ class TestCeoMetrics:
         assert "selected" not in data["decision_types"]
 
     def test_no_dialogs_no_patterns(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid = start_ceo_session()
         from duo.ceo_log import log_decision
+
         log_decision(sid, "t1", "approved", "y", elapsed_ms=10)
         result = runner.invoke(main, ["ceo-metrics"])
         assert result.exit_code == 0
@@ -8823,9 +8907,13 @@ class TestCeoMetrics:
         assert "Dialog kinds:" not in result.output
 
     def test_since_filter_text_output(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         start_ceo_session()
@@ -8834,11 +8922,15 @@ class TestCeoMetrics:
         assert "No CEO sessions found" in result.output
 
     def test_invalid_timestamp_in_events(
-        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         import json as _json
 
         import duo.ceo_log
+
         sessions_dir = tmp_path / "ceo-sessions"
         monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", sessions_dir)
         sid_dir = sessions_dir / "test-session"
@@ -8849,7 +8941,9 @@ class TestCeoMetrics:
         ]
         lines = "\n".join(_json.dumps(e) for e in events) + "\n"
         (sid_dir / "events.jsonl").write_text(lines)
-        result = runner.invoke(main, ["ceo-metrics", "--session", "test-session", "--json-output"])
+        result = runner.invoke(
+            main, ["ceo-metrics", "--session", "test-session", "--json-output"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["sessions"] == 1
@@ -8982,13 +9076,17 @@ class TestVerboseAutoSelect:
 class TestLoadSmartConfig:
     """Tests for _load_smart_config."""
 
-    def test_no_config_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_no_config_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         auto, defer = _load_smart_config()
         assert auto == []
         assert defer == []
 
-    def test_valid_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_valid_config(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         config = tmp_path / "ceo-smart.yaml"
         config.write_text(
@@ -8998,7 +9096,9 @@ class TestLoadSmartConfig:
         assert "custom-auto" in auto
         assert "custom-defer" in defer
 
-    def test_invalid_yaml(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_invalid_yaml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         config = tmp_path / "ceo-smart.yaml"
         config.write_bytes(b"\x80\x81\x82")  # truly invalid
@@ -9014,7 +9114,9 @@ class TestLoadSmartConfig:
         assert auto == []
         assert defer == []
 
-    def test_bad_field_types(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_bad_field_types(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         config = tmp_path / "ceo-smart.yaml"
         config.write_text("auto_select_patterns: not_a_list\ndefer_patterns: 42\n")
@@ -9023,7 +9125,9 @@ class TestLoadSmartConfig:
         assert defer == []
 
     def test_config_merged_with_builtins(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         config = tmp_path / "ceo-smart.yaml"
@@ -9068,7 +9172,10 @@ class TestCeoSmartConfig:
     """Tests for duo ceo-smart-config."""
 
     def test_text_output(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         result = runner.invoke(main, ["ceo-smart-config"])
@@ -9079,7 +9186,10 @@ class TestCeoSmartConfig:
         assert "which" in result.output
 
     def test_json_output(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         result = runner.invoke(main, ["ceo-smart-config", "--json-output"])
@@ -9091,7 +9201,10 @@ class TestCeoSmartConfig:
         assert "which" in data["defer_patterns"]
 
     def test_with_user_config(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         config = tmp_path / "ceo-smart.yaml"
@@ -9102,7 +9215,10 @@ class TestCeoSmartConfig:
         assert "(user)" in result.output
 
     def test_json_with_user_config(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         config = tmp_path / "ceo-smart.yaml"
@@ -9119,14 +9235,18 @@ class TestResolveDispatchAction:
 
     def test_option_auto_selectable(self) -> None:
         action, val = _resolve_dispatch_action(
-            DialogKind.OPTION, "  1. Continue\n  2. Cancel", None,
+            DialogKind.OPTION,
+            "  1. Continue\n  2. Cancel",
+            None,
         )
         assert action == "select"
         assert val == "1"
 
     def test_option_not_auto(self) -> None:
         action, _ = _resolve_dispatch_action(
-            DialogKind.OPTION, "  1. Create file\n  2. Delete", None,
+            DialogKind.OPTION,
+            "  1. Create file\n  2. Delete",
+            None,
         )
         assert action == "defer"
 
@@ -9144,7 +9264,9 @@ class TestResolveDispatchAction:
             "rules:\n  - match: option\n    action: select_last\ndefault: defer\n"
         )
         action, _ = _resolve_dispatch_action(
-            DialogKind.OPTION, "  1. Foo\n  2. Bar", str(policy),
+            DialogKind.OPTION,
+            "  1. Foo\n  2. Bar",
+            str(policy),
         )
         assert action == "select_last"
 
@@ -9182,7 +9304,9 @@ class TestMatchPolicy:
 
     def test_kind_mismatch(self, tmp_path: Path) -> None:
         policy = tmp_path / "p.yaml"
-        policy.write_text("rules:\n  - match: text\n    action: approve\ndefault: defer\n")
+        policy.write_text(
+            "rules:\n  - match: text\n    action: approve\ndefault: defer\n"
+        )
         action, _ = _match_policy(DialogKind.OPTION, "content", str(policy))
         assert action == "defer"
 
@@ -9206,7 +9330,9 @@ class TestMatchPolicy:
 
     def test_rule_with_value(self, tmp_path: Path) -> None:
         policy = tmp_path / "p.yaml"
-        policy.write_text("rules:\n  - match: text\n    action: type\n    value: hello\n")
+        policy.write_text(
+            "rules:\n  - match: text\n    action: type\n    value: hello\n"
+        )
         action, val = _match_policy(DialogKind.TEXT, "content", str(policy))
         assert action == "type"
         assert val == "hello"
@@ -9217,7 +9343,9 @@ class TestMatchPolicy:
 
     def test_non_dict_rule_skipped(self, tmp_path: Path) -> None:
         policy = tmp_path / "p.yaml"
-        policy.write_text("rules:\n  - just a string\n  - match: option\n    action: approve\n")
+        policy.write_text(
+            "rules:\n  - just a string\n  - match: option\n    action: approve\n"
+        )
         action, _ = _match_policy(DialogKind.OPTION, "x", str(policy))
         assert action == "approve"
 
@@ -9284,7 +9412,8 @@ class TestCeoDispatch:
             patch("duo.transport.select_dialog_option") as mock_sel,
         ):
             result = runner.invoke(
-                main, ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
             )
         assert result.exit_code == 0
         assert "[dry-run]" in result.output
@@ -9299,13 +9428,17 @@ class TestCeoDispatch:
             patch("duo.transport.is_permission_dialog", return_value=False),
         ):
             result = runner.invoke(
-                main, ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
             )
         assert result.exit_code == 1
         assert "[dry-run]" in result.output
 
     def test_dispatch_with_policy(
-        self, runner: CliRunner, make_task, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
     ) -> None:
         task = make_task("dispatch-pol")
         policy = tmp_path / "policy.yaml"
@@ -9328,7 +9461,10 @@ class TestCeoDispatch:
         mock_sel.assert_called_once_with(task.pane_label, "3")
 
     def test_dispatch_policy_type_action(
-        self, runner: CliRunner, make_task, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
     ) -> None:
         task = make_task("dispatch-type")
         policy = tmp_path / "policy.yaml"
@@ -9391,7 +9527,8 @@ class TestCeoDispatch:
             patch("duo.transport.approve_permission") as mock_ap,
         ):
             result = runner.invoke(
-                main, ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
+                main,
+                ["ceo-dispatch", task.id, "--timeout", "1", "--dry-run"],
             )
         assert result.exit_code == 0
         assert "[dry-run]" in result.output
@@ -9399,7 +9536,10 @@ class TestCeoDispatch:
         mock_ap.assert_not_called()
 
     def test_dispatch_select_number(
-        self, runner: CliRunner, make_task, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
     ) -> None:
         task = make_task("dispatch-num")
         policy = tmp_path / "policy.yaml"
@@ -9485,7 +9625,8 @@ class TestCeoMetrics:
         duo.ceo_log.log_dialog_detected(sid, "t1", "test", "option")
         duo.ceo_log.log_decision(sid, "t1", "approved", "auto", elapsed_ms=50)
         result = runner.invoke(
-            main, ["ceo-metrics", "--session", sid, "--json-output"],
+            main,
+            ["ceo-metrics", "--session", sid, "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9506,7 +9647,8 @@ class TestCeoMetrics:
         sid = start_ceo_session()
         duo.ceo_log.log_dialog_detected(sid, "t1", "test", "option")
         result = runner.invoke(
-            main, ["ceo-metrics", "--since", "9999-01-01T00:00:00"],
+            main,
+            ["ceo-metrics", "--since", "9999-01-01T00:00:00"],
         )
         assert result.exit_code == 0
         assert "No CEO sessions found" in result.output
@@ -9549,7 +9691,8 @@ class TestCeoMetrics:
         duo.ceo_log.log_decision(sid, "t1", "approved", "ok", elapsed_ms=10)
         duo.ceo_log.log_decision(sid, "t1", "deferred", "defer", elapsed_ms=10)
         result = runner.invoke(
-            main, ["ceo-metrics", "--session", sid, "--json-output"],
+            main,
+            ["ceo-metrics", "--session", sid, "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9570,7 +9713,8 @@ class TestCeoMetrics:
         duo.ceo_log.log_dialog_detected(sid, "t1", "d2", "text")
         duo.ceo_log.log_dialog_detected(sid, "t1", "d3", "option")
         result = runner.invoke(
-            main, ["ceo-metrics", "--session", sid, "--json-output"],
+            main,
+            ["ceo-metrics", "--session", sid, "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9592,7 +9736,8 @@ class TestCeoMetrics:
             duo.ceo_log.log_dialog_detected(sid, "t1", "repeated content", "option")
         duo.ceo_log.log_dialog_detected(sid, "t1", "unique content", "text")
         result = runner.invoke(
-            main, ["ceo-metrics", "--session", sid, "--json-output"],
+            main,
+            ["ceo-metrics", "--session", sid, "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9632,7 +9777,8 @@ class TestCeoMetrics:
         duo.ceo_log.log_dialog_detected(sid, "t1", "d1", "option")
         duo.ceo_log.log_decision(sid, "t1", "approved", "ok", elapsed_ms=10)
         result = runner.invoke(
-            main, ["ceo-metrics", "--session", sid, "--json-output"],
+            main,
+            ["ceo-metrics", "--session", sid, "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9642,7 +9788,9 @@ class TestCeoMetrics:
 class TestDispatchEdgeCases:
     """Edge case tests for ceo-dispatch coverage."""
 
-    def test_dispatch_waits_then_finds_dialog(self, runner: CliRunner, make_task) -> None:
+    def test_dispatch_waits_then_finds_dialog(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """Cover the time.sleep branch by having is_in_dialog return False then True."""
         task = make_task("dispatch-wait")
         call_count = {"n": 0}
@@ -9690,12 +9838,17 @@ class TestDispatchEdgeCases:
         assert any(e.get("decision_type") == "dispatch-defer" for e in events)
 
     def test_dispatch_unknown_action(
-        self, runner: CliRunner, make_task, tmp_path: Path,
+        self,
+        runner: CliRunner,
+        make_task,
+        tmp_path: Path,
     ) -> None:
         """Cover unknown action branch."""
         task = make_task("dispatch-unk")
         policy = tmp_path / "policy.yaml"
-        policy.write_text("rules:\n  - match: option\n    action: explode\ndefault: explode\n")
+        policy.write_text(
+            "rules:\n  - match: option\n    action: explode\ndefault: explode\n"
+        )
         pane = "  1. First\n  2. Second"
         with (
             patch("duo.transport.is_in_dialog", return_value=True),
@@ -9728,7 +9881,8 @@ class TestMetricsEdgeCases:
         sid = start_ceo_session()
         duo.ceo_log.log_dialog_detected(sid, "t1", "d1", "option")
         result = runner.invoke(
-            main, ["ceo-metrics", "--since", "9999-01-01T00:00:00", "--json-output"],
+            main,
+            ["ceo-metrics", "--since", "9999-01-01T00:00:00", "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9752,7 +9906,8 @@ class TestMetricsEdgeCases:
             '{"event":"dialog_detected","ts":"also-bad","task":"t1","dialog_kind":"option","content":"x"}\n'
         )
         result = runner.invoke(
-            main, ["ceo-metrics", "--session", sid, "--json-output"],
+            main,
+            ["ceo-metrics", "--session", sid, "--json-output"],
         )
         assert result.exit_code == 0
         data = json.loads(result.output)

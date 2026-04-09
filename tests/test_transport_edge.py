@@ -47,7 +47,9 @@ class TestTransportEdgeCasesNew:
         mock_dialog.return_value = True
         mock_time.sleep = MagicMock()
         mock_run.return_value = MagicMock(
-            returncode=0, stdout="some output", stderr="",
+            returncode=0,
+            stdout="some output",
+            stderr="",
         )
 
         from duo.transport import get_pr_log

@@ -2527,12 +2527,14 @@ def _load_smart_config() -> tuple[list[str], list[str]]:
         if not isinstance(defer, list):
             defer = []
         return [str(p) for p in auto], [str(p) for p in defer]
-    except Exception:
+    except (yaml.YAMLError, OSError, ValueError, ImportError):
         return [], []
 
 
 def _is_auto_selectable(
-    pane_content: str, *, verbose: bool = False,
+    pane_content: str,
+    *,
+    verbose: bool = False,
 ) -> tuple[bool, str]:
     """Check if the first option in a dialog is auto-selectable.
 
@@ -2747,7 +2749,7 @@ def ceo_now(json_output: bool) -> None:
 
                 resolve_label(task.pane_label)
                 pane_alive = True
-            except Exception:
+            except (subprocess.SubprocessError, OSError, RuntimeError):
                 pass
 
             in_dialog = False
@@ -2757,7 +2759,7 @@ def ceo_now(json_output: bool) -> None:
                     in_dialog = is_in_dialog(task.pane_label)
                     if in_dialog:
                         dialog_kind = get_dialog_kind(task.pane_label).value
-                except Exception:
+                except (subprocess.SubprocessError, OSError, RuntimeError):
                     pass
 
             data["pane"] = {
@@ -2795,7 +2797,7 @@ def ceo_now(json_output: bool) -> None:
         )
         if data["git"]:
             data["git"]["clean"] = git_status.stdout.strip() == ""
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         pass
 
     # Recent decisions from CEO session
@@ -2948,7 +2950,7 @@ def _load_policy(policy_path: str | None) -> dict[str, object]:
         )
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (yaml.YAMLError, OSError, ValueError) as exc:
         raise DuoUserError(
             f"Invalid policy file: {exc}",
             fix=f"Validate your YAML: python -c \"import yaml; yaml.safe_load(open('{policy_path}'))\"",
@@ -3300,11 +3302,18 @@ def ceo_smart_config(*, json_output: bool) -> None:
 @click.argument("task")
 @click.option("--timeout", default=30, help="Seconds to wait for dialog (default 30).")
 @click.option(
-    "--policy", type=click.Path(exists=True), default=None, help="YAML policy file.",
+    "--policy",
+    type=click.Path(exists=True),
+    default=None,
+    help="YAML policy file.",
 )
 @click.option("--dry-run", is_flag=True, help="Show decision without executing.")
 def ceo_dispatch(
-    task: str, timeout: int, policy: str | None, *, dry_run: bool,
+    task: str,
+    timeout: int,
+    policy: str | None,
+    *,
+    dry_run: bool,
 ) -> None:
     """Single-shot policy-driven dialog handler.
 
@@ -3378,7 +3387,11 @@ def ceo_dispatch(
             from duo.ceo_log import log_decision
 
             log_decision(
-                session_id, task, "dispatch-defer", "policy deferred", elapsed_ms=0,
+                session_id,
+                task,
+                "dispatch-defer",
+                "policy deferred",
+                elapsed_ms=0,
             )
         sys.exit(1)
     else:
@@ -3389,12 +3402,18 @@ def ceo_dispatch(
         from duo.ceo_log import log_decision
 
         log_decision(
-            session_id, task, f"dispatch-{action}", value or action, elapsed_ms=0,
+            session_id,
+            task,
+            f"dispatch-{action}",
+            value or action,
+            elapsed_ms=0,
         )
 
 
 def _resolve_dispatch_action(
-    kind: Any, content: str, policy_path: str | None,
+    kind: Any,
+    content: str,
+    policy_path: str | None,
 ) -> tuple[str, str]:
     """Resolve action from policy or smart defaults."""
     if policy_path:
@@ -3415,14 +3434,16 @@ def _resolve_dispatch_action(
 
 
 def _match_policy(
-    kind: Any, content: str, policy_path: str,
+    kind: Any,
+    content: str,
+    policy_path: str,
 ) -> tuple[str, str]:
     """Match dialog against YAML policy rules."""
     try:
         import yaml
 
         data = yaml.safe_load(Path(policy_path).read_text(encoding="utf-8"))
-    except Exception:
+    except (yaml.YAMLError, OSError, ValueError, ImportError):
         click.echo(f"Warning: could not load policy {policy_path}")
         return "", ""
 

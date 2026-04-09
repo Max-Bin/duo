@@ -157,7 +157,9 @@ class TestCostBudgetZeroEdgeCases:
         assert result.exit_code == 0
 
     def test_cost_budget_zero_no_pr_events(
-        self, runner: CliRunner, make_task  # type: ignore[no-untyped-def]
+        self,
+        runner: CliRunner,
+        make_task,  # type: ignore[no-untyped-def]
     ) -> None:
         """cost --budget 0 with task but 0 PR events should exit 0."""
         task = make_task("budget-zero-clean")
@@ -170,23 +172,21 @@ class TestCeoDispatchTimeoutZero:
     """Edge case tests for ceo-dispatch with --timeout 0."""
 
     def test_timeout_zero_dialog_present(
-        self, runner: CliRunner, make_task  # type: ignore[no-untyped-def]
+        self,
+        runner: CliRunner,
+        make_task,  # type: ignore[no-untyped-def]
     ) -> None:
         """ceo-dispatch --timeout 0 with dialog already present processes it."""
         task = make_task("dispatch-instant")
         pane = "  1. Continue\n  2. Cancel"
         with (
             patch("duo.transport.is_in_dialog", return_value=True),
-            patch(
-                "duo.transport.get_dialog_kind", return_value=DialogKind.OPTION
-            ),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
             patch("duo.transport.read_pane", return_value=pane),
             patch("duo.transport.is_permission_dialog", return_value=False),
             patch("duo.transport.select_dialog_option") as mock_sel,
         ):
-            result = runner.invoke(
-                main, ["ceo-dispatch", task.id, "--timeout", "0"]
-            )
+            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "0"])
         assert result.exit_code == 0
         assert "selected" in result.output.lower()
         mock_sel.assert_called_once()
