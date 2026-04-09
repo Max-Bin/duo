@@ -864,11 +864,18 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
             # Re-read task from disk — another process (e.g. duo stop) may
             # have transitioned it to BLOCKED/FAILED while we were polling.
             fresh = load_task(task.id)
-            if fresh and fresh.status in (
+            if fresh is None:
+                logger.warning(
+                    "Cannot reload task '%s' from disk; skipping restart",
+                    task.id,
+                )
+                return poll_result
+            if fresh.status in (
                 TaskStatus.BLOCKED,
                 TaskStatus.COMPLETED,
                 TaskStatus.FAILED,
                 TaskStatus.ESCALATED,
+                TaskStatus.QUEUED,
             ):
                 return poll_result
             append_event(task, "session_crashed", {"incarnation": inc})

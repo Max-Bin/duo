@@ -1632,6 +1632,45 @@ class TestPollTask:
         mock_restart.assert_not_called()
         assert result == PollResult.HEARTBEAT_TIMEOUT
 
+    @pytest.mark.parametrize(
+        "terminal_status",
+        [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED],
+    )
+    @patch("duo.commander.restart_session")
+    @patch("duo.commander.is_process_alive", return_value=False)
+    def test_poll_heartbeat_skips_restart_for_terminal_states(
+        self, mock_alive, mock_restart, terminal_status
+    ):
+        """HEARTBEAT_TIMEOUT skips restart for any terminal on-disk state."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        # Force task to terminal state on disk (bypass FSM for test)
+        task.status = terminal_status
+        save_task(task)
+
+        result = poll_task(task, poller)
+
+        mock_restart.assert_not_called()
+        assert result == PollResult.HEARTBEAT_TIMEOUT
+
+    @patch("duo.commander.restart_session")
+    @patch("duo.commander.is_process_alive", return_value=False)
+    def test_poll_heartbeat_skips_restart_when_load_task_fails(
+        self, mock_alive, mock_restart
+    ):
+        """HEARTBEAT_TIMEOUT skips restart if task.json is corrupt."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        with patch("duo.commander.load_task", return_value=None):
+            result = poll_task(task, poller)
+
+        mock_restart.assert_not_called()
+        assert result == PollResult.HEARTBEAT_TIMEOUT
+
     @patch("duo.commander.send_task_prompt")
     @patch("duo.commander.restart_session")
     @patch("duo.commander.is_process_alive", return_value=False)
