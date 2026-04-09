@@ -1361,3 +1361,70 @@ class TestAnsiInDialogDetection:
             result = read_pane("test", 10)
         assert result == "hello"
         assert "\x1b" not in result
+
+
+class TestTmuxServerDownError:
+    """Tests for TmuxServerDownError detection."""
+
+    def test_bridge_detects_server_down(self) -> None:
+        """Bridge raises TmuxServerDownError on 'no server running'."""
+        from duo.transport import TmuxServerDownError
+        result = MagicMock()
+        result.returncode = 1
+        result.stderr = "error: no server running on /tmp/tmux-1000/default"
+        result.stdout = ""
+        with patch("subprocess.run", return_value=result), \
+             patch("duo.transport._bridge_bin", return_value="tmux-bridge"):
+            with pytest.raises(TmuxServerDownError, match="tmux server is down"):
+                bridge(["read", "test", "10"])
+
+    def test_bridge_detects_lost_server(self) -> None:
+        """Bridge raises TmuxServerDownError on 'lost server'."""
+        from duo.transport import TmuxServerDownError
+        result = MagicMock()
+        result.returncode = 1
+        result.stderr = "lost server"
+        result.stdout = ""
+        with patch("subprocess.run", return_value=result), \
+             patch("duo.transport._bridge_bin", return_value="tmux-bridge"):
+            with pytest.raises(TmuxServerDownError, match="tmux server is down"):
+                bridge(["read", "test", "10"])
+
+    def test_bridge_normal_error_not_server_down(self) -> None:
+        """Normal errors don't raise TmuxServerDownError."""
+        result = MagicMock()
+        result.returncode = 1
+        result.stderr = "error: no pane found with label 'missing'"
+        result.stdout = ""
+        with patch("subprocess.run", return_value=result), \
+             patch("duo.transport._bridge_bin", return_value="tmux-bridge"):
+            with pytest.raises(RuntimeError, match="tmux-bridge read failed"):
+                bridge(["read", "missing", "10"])
+
+
+class TestIsTmuxServerAlive:
+    """Tests for is_tmux_server_alive."""
+
+    def test_alive_when_sessions_exist(self) -> None:
+        from duo.transport import is_tmux_server_alive
+        result = MagicMock()
+        result.returncode = 0
+        with patch("subprocess.run", return_value=result):
+            assert is_tmux_server_alive() is True
+
+    def test_dead_when_no_server(self) -> None:
+        from duo.transport import is_tmux_server_alive
+        result = MagicMock()
+        result.returncode = 1
+        with patch("subprocess.run", return_value=result):
+            assert is_tmux_server_alive() is False
+
+    def test_dead_when_tmux_missing(self) -> None:
+        from duo.transport import is_tmux_server_alive
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            assert is_tmux_server_alive() is False
+
+    def test_dead_when_timeout(self) -> None:
+        from duo.transport import is_tmux_server_alive
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("tmux", 5)):
+            assert is_tmux_server_alive() is False

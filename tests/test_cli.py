@@ -5586,6 +5586,23 @@ class TestCeoLoop:
         result = runner.invoke(main, ["ceo-loop", "nonexistent"])
         assert result.exit_code != 0
 
+    def test_tmux_server_down(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """ceo-loop handles TmuxServerDownError gracefully."""
+        from duo.transport import TmuxServerDownError
+
+        task = make_task("tmux-down")
+        loops = tmp_path / "loops"
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
+
+        with patch("duo.transport.is_process_alive", side_effect=TmuxServerDownError("no server")):
+            result = runner.invoke(main, ["ceo-loop", task.id])
+        assert "tmux server is down" in result.output
+        # State file should record the reason
+        from duo.cli import _read_loop_state
+        state = _read_loop_state(task.id)
+        assert state is not None
+        assert state["reason"] == "tmux_server_down"
+
 
 class TestCeoResume:
     """Tests for duo ceo-resume."""

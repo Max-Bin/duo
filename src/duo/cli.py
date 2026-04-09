@@ -2425,6 +2425,7 @@ def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
 
     from duo.transport import (
         DialogKind,
+        TmuxServerDownError,
         get_dialog_kind,
         is_process_alive,
         read_pane,
@@ -2473,6 +2474,12 @@ def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
 
             _time.sleep(interval)
 
+    except TmuxServerDownError:
+        click.echo(
+            "\ntmux server is down. Start a new session and retry:\n"
+            "  tmux new -s duo && duo ceo-loop " + task
+        )
+        _write_loop_state(task, {"status": "stopped", "reason": "tmux_server_down"})
     except KeyboardInterrupt:
         click.echo("\nCEO loop stopped by user.")
         _write_loop_state(task, {"status": "stopped", "reason": "user_interrupt"})

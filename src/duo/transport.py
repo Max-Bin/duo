@@ -30,9 +30,15 @@ class DialogKind(enum.Enum):
     OPTION = "option"  # Numbered options (1. 2. 3.)
     TEXT = "text"  # Free-text input ("Type your answer...")
 
+
+class TmuxServerDownError(RuntimeError):
+    """Raised when the tmux server is not running."""
+
+
 __all__ = [
     "DialogKind",
     "PaneInfo",
+    "TmuxServerDownError",
     "approve_permission",
     "bridge",
     "cancel_current",
@@ -46,6 +52,7 @@ __all__ = [
     "is_in_dialog_stable",
     "is_permission_dialog",
     "is_process_alive",
+    "is_tmux_server_alive",
     "list_panes",
     "name_pane",
     "read_pane",
@@ -59,7 +66,9 @@ __all__ = [
     "send_message",
     "send_prompt",
     "send_shell_command",
+    "send_text_dialog_message",
     "set_pr_callback",
+    "strip_ansi",
     "type_text",
     "wait_for_dialog",
     "wait_for_idle",
@@ -146,6 +155,29 @@ def _retry(
     return decorator
 
 
+def is_tmux_server_alive() -> bool:
+    """Check if the tmux server is running."""
+    try:
+        result = subprocess.run(
+            ["tmux", "list-sessions"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+_TMUX_DOWN_INDICATORS = (
+    "no server running",
+    "server not found",
+    "error connecting",
+    "lost server",
+    "session not found",
+)
+
+
 @_retry()
 def bridge(cmd: list[str], *, check: bool = True) -> str:
     """Execute a tmux-bridge sub-command and return its stdout.
@@ -169,7 +201,13 @@ def bridge(cmd: list[str], *, check: bool = True) -> str:
             f"tmux-bridge {cmd[0]} timed out after {_BRIDGE_TIMEOUT}s"
         ) from exc
     if check and result.returncode != 0:
-        raise RuntimeError(f"tmux-bridge {cmd[0]} failed: {result.stderr.strip()}")
+        stderr = result.stderr.strip()
+        if any(ind in stderr.lower() for ind in _TMUX_DOWN_INDICATORS):
+            raise TmuxServerDownError(
+                f"tmux server is down. Start a new session: tmux new -s duo\n"
+                f"  Detail: {stderr}"
+            )
+        raise RuntimeError(f"tmux-bridge {cmd[0]} failed: {stderr}")
     return result.stdout
 
 
