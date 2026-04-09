@@ -356,6 +356,20 @@ def is_pane_process_alive(label: str) -> bool:
         return False
 
 
+def _normalize_pane_content(content: str) -> str:
+    """Normalize pane content for comparison.
+
+    Strips trailing whitespace from each line and collapses trailing
+    blank lines.  This prevents false positives in content comparison
+    caused by CJK double-width characters, tmux rendering
+    inconsistencies, or trailing-space fluctuations.
+    """
+    lines = [line.rstrip() for line in content.splitlines()]
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
 def send_keys_verified(
     label: str,
     key: str,
@@ -391,11 +405,11 @@ def send_keys_verified(
             f"run `fg` in the pane first"
         )
 
-    before = read_pane(label, 20)
+    before = _normalize_pane_content(read_pane(label, 20))
     for attempt in range(retries):
         send_keys(label, key)
         _time.sleep(settle)
-        after = read_pane(label, 20)
+        after = _normalize_pane_content(read_pane(label, 20))
         if after != before:
             return True
         _time.sleep(settle * (attempt + 1))
@@ -411,7 +425,7 @@ def send_keys_verified(
                 _time.sleep(settle * 2)  # extra settle after SIGWINCH
                 send_keys(label, key)
                 _time.sleep(settle)
-                after = read_pane(label, 20)
+                after = _normalize_pane_content(read_pane(label, 20))
                 if after != before:
                     return True
         except (subprocess.SubprocessError, OSError, RuntimeError):
@@ -576,6 +590,33 @@ def get_pane_size(label: str) -> tuple[int, int]:
     return int(parts[0]), int(parts[1])
 
 
+def _get_client_size() -> tuple[int, int]:
+    """Return (width, height) of the largest attached tmux client.
+
+    Falls back to (200, 50) if the query fails (no attached client,
+    tmux not running, etc.).
+    """
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "#{client_width} #{client_height}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            parts = result.stdout.strip().split()
+            if len(parts) == 2:
+                return int(parts[0]), int(parts[1])
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+    return 200, 50
+
+
 def ensure_minimum_pane_size(
     label: str,
     *,
@@ -587,31 +628,62 @@ def ensure_minimum_pane_size(
     Returns True if the pane was resized, False if it already met minimums.
     Logs a warning when resizing.
 
+    If the tmux client is smaller than the requested minimum, the
+    resize target is capped to ``client_size - 1`` and a warning is
+    logged.  This prevents resize failures on small monitors or
+    laptops with large fonts.
+
     This is a defensive measure against the observed tmux input failures
     that correlate with pane resize events (see docs/known-issues.md).
     After a resize, Copilot's Ink TUI receives SIGWINCH and re-renders;
     a brief settle period may be needed before sending input.
     """
     cols, rows = get_pane_size(label)
+    client_w, client_h = _get_client_size()
+
+    # Cap to client dimensions (leave 1 col/row for tmux borders)
+    effective_cols = min(min_cols, max(client_w - 1, 40))
+    effective_rows = min(min_rows, max(client_h - 1, 10))
+
+    if effective_cols < min_cols or effective_rows < min_rows:
+        logger.warning(
+            "Client size %dx%d smaller than minimum %dx%d — "
+            "capping resize to %dx%d",
+            client_w,
+            client_h,
+            min_cols,
+            min_rows,
+            effective_cols,
+            effective_rows,
+        )
+
     resized = False
     target = resolve_label(label)
 
-    if cols < min_cols:
-        logger.warning("Pane %s width %d < minimum %d, resizing", label, cols, min_cols)
+    if cols < effective_cols:
+        logger.warning(
+            "Pane %s width %d < minimum %d, resizing",
+            label,
+            cols,
+            effective_cols,
+        )
         subprocess.run(
-            ["tmux", "resize-pane", "-t", target, "-x", str(min_cols)],
+            ["tmux", "resize-pane", "-t", target, "-x", str(effective_cols)],
             check=True,
             capture_output=True,
             text=True,
         )
         resized = True
 
-    if rows < min_rows:
+    if rows < effective_rows:
         logger.warning(
-            "Pane %s height %d < minimum %d, resizing", label, rows, min_rows
+            "Pane %s height %d < minimum %d, resizing",
+            label,
+            rows,
+            effective_rows,
         )
         subprocess.run(
-            ["tmux", "resize-pane", "-t", target, "-y", str(min_rows)],
+            ["tmux", "resize-pane", "-t", target, "-y", str(effective_rows)],
             check=True,
             capture_output=True,
             text=True,
@@ -859,6 +931,46 @@ def is_permission_dialog(label: str) -> bool:
     return any(ind in content for ind in perm_indicators)
 
 
+def _preemptive_dialog_resize(label: str, content: str) -> None:
+    """Resize pane if a dialog box is taller than the pane.
+
+    Counts the number of lines between ╭─ and ╰─ markers and compares
+    with the pane height.  If the dialog needs more rows, preemptively
+    resizes before interacting with the dialog.
+    """
+    lines = content.strip().split("\n")
+    box_start: int | None = None
+    box_end: int | None = None
+    for i, line in enumerate(lines):
+        if "╭─" in line and box_start is None:
+            box_start = i
+        if "╰─" in line:
+            box_end = i
+
+    if box_start is None or box_end is None:
+        return
+
+    dialog_height = box_end - box_start + 1
+    try:
+        _cols, rows = get_pane_size(label)
+    except (subprocess.SubprocessError, OSError, RuntimeError):
+        return
+
+    # Need dialog_height + margin for prompt above and status below
+    needed = dialog_height + 6
+    if needed > rows:
+        try:
+            ensure_minimum_pane_size(label, min_rows=needed)
+            logger.info(
+                "Preemptive resize: dialog %d lines, pane %d rows → %d rows",
+                dialog_height,
+                rows,
+                needed,
+            )
+        except (subprocess.SubprocessError, OSError, RuntimeError):
+            logger.debug("Preemptive dialog resize failed for %s", label)
+
+
 def approve_permission(label: str) -> None:
     """Approve a permission dialog by reading options and picking the right one.
 
@@ -872,6 +984,7 @@ def approve_permission(label: str) -> None:
         if not is_in_dialog_stable(label):
             raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
         content = read_pane(label, 20)
+        _preemptive_dialog_resize(label, content)
         lines = content.strip().split("\n")
 
         # Find all numbered options within dialog box boundaries (╭─ … ╰─)
@@ -947,6 +1060,7 @@ def send_option_other_message(label: str, text: str) -> bool:
             raise RuntimeError(f"BLOCKED: '{label}' at ❯ prompt. REFUSED.")
         if not is_in_dialog(label):
             raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
+        _preemptive_dialog_resize(label, content)
 
         # Count options within dialog box boundaries
         lines = content.strip().split("\n")

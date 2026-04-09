@@ -1815,6 +1815,10 @@ class TestGetPaneSize:
 class TestEnsureMinimumPaneSize:
     """Tests for ensure_minimum_pane_size()."""
 
+    @pytest.fixture(autouse=True)
+    def _large_client(self, monkeypatch):
+        monkeypatch.setattr("duo.transport._get_client_size", lambda: (300, 100))
+
     @patch("duo.transport.resolve_label", return_value="%1")
     @patch("subprocess.run")
     @patch("duo.transport.get_pane_size")
@@ -2069,3 +2073,189 @@ class TestSendKeysVerifiedProcessCheck:
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda _: 12345)
         with pytest.raises(RuntimeError, match="stopped"):
             send_keys_verified("test", "Enter")
+
+
+class TestNormalizePaneContent:
+    """Tests for _normalize_pane_content."""
+
+    def test_strips_trailing_whitespace(self):
+        from duo.transport import _normalize_pane_content
+
+        result = _normalize_pane_content("hello   \nworld  \n")
+        assert result == "hello\nworld"
+
+    def test_collapses_trailing_blank_lines(self):
+        from duo.transport import _normalize_pane_content
+
+        result = _normalize_pane_content("hello\nworld\n\n\n\n")
+        assert result == "hello\nworld"
+
+    def test_preserves_internal_blank_lines(self):
+        from duo.transport import _normalize_pane_content
+
+        result = _normalize_pane_content("hello\n\nworld\n")
+        assert result == "hello\n\nworld"
+
+    def test_empty_input(self):
+        from duo.transport import _normalize_pane_content
+
+        assert _normalize_pane_content("") == ""
+        assert _normalize_pane_content("\n\n\n") == ""
+
+    def test_cjk_content_preserved(self):
+        from duo.transport import _normalize_pane_content
+
+        result = _normalize_pane_content("你好世界   \n测试\n")
+        assert result == "你好世界\n测试"
+
+
+class TestGetClientSize:
+    """Tests for _get_client_size."""
+
+    def test_returns_dimensions(self, monkeypatch):
+        from duo.transport import _get_client_size
+
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="200 50\n"),
+        )
+        assert _get_client_size() == (200, 50)
+
+    def test_returns_fallback_on_failure(self, monkeypatch):
+        from duo.transport import _get_client_size
+
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=1, stdout=""),
+        )
+        assert _get_client_size() == (200, 50)
+
+    def test_returns_fallback_on_timeout(self, monkeypatch):
+        from duo.transport import _get_client_size
+
+        def _raise(*a, **kw):
+            raise subprocess.TimeoutExpired("tmux", 5)
+
+        monkeypatch.setattr("duo.transport.subprocess.run", _raise)
+        assert _get_client_size() == (200, 50)
+
+    def test_returns_fallback_on_oserror(self, monkeypatch):
+        from duo.transport import _get_client_size
+
+        def _raise(*a, **kw):
+            raise OSError("no tmux")
+
+        monkeypatch.setattr("duo.transport.subprocess.run", _raise)
+        assert _get_client_size() == (200, 50)
+
+    def test_returns_fallback_on_bad_output(self, monkeypatch):
+        from duo.transport import _get_client_size
+
+        monkeypatch.setattr(
+            "duo.transport.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="invalid\n"),
+        )
+        assert _get_client_size() == (200, 50)
+
+
+class TestEnsureMinimumPaneSizeClientCap:
+    """Tests for client-dimension capping in ensure_minimum_pane_size."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_deps(self, monkeypatch):
+        self._resized = []
+        monkeypatch.setattr(
+            "duo.transport.resolve_label", lambda _: "%1"
+        )
+
+        def mock_run(cmd, **kw):
+            if "resize-pane" in cmd:
+                self._resized.append(cmd)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr("duo.transport.subprocess.run", mock_run)
+
+    def test_caps_to_client_when_small(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_size", lambda _: (60, 20))
+        monkeypatch.setattr("duo.transport._get_client_size", lambda: (80, 22))
+
+        result = ensure_minimum_pane_size("test")
+        assert result is True
+        # Should cap cols to 79 (80-1), rows to 21 (22-1)
+        col_resize = [c for c in self._resized if "-x" in c]
+        row_resize = [c for c in self._resized if "-y" in c]
+        assert col_resize
+        assert "79" in col_resize[0]
+        assert row_resize
+        assert "21" in row_resize[0]
+
+    def test_no_resize_when_already_meets_capped_minimum(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.get_pane_size", lambda _: (79, 21))
+        monkeypatch.setattr("duo.transport._get_client_size", lambda: (80, 22))
+
+        result = ensure_minimum_pane_size("test")
+        assert result is False
+
+
+class TestPreemptiveDialogResize:
+    """Tests for _preemptive_dialog_resize."""
+
+    def test_no_resize_when_pane_big_enough(self, monkeypatch):
+        from duo.transport import _preemptive_dialog_resize
+
+        monkeypatch.setattr("duo.transport.get_pane_size", lambda _: (100, 40))
+        resized = []
+        monkeypatch.setattr(
+            "duo.transport.ensure_minimum_pane_size",
+            lambda *a, **kw: resized.append(kw) or False,
+        )
+        content = "some text\n╭─ dialog ─╮\n  option 1\n  option 2\n╰─────────╯\n"
+        _preemptive_dialog_resize("test", content)
+        assert not resized
+
+    def test_resize_when_dialog_taller_than_pane(self, monkeypatch):
+        from duo.transport import _preemptive_dialog_resize
+
+        monkeypatch.setattr("duo.transport.get_pane_size", lambda _: (100, 10))
+        resize_args = []
+        monkeypatch.setattr(
+            "duo.transport.ensure_minimum_pane_size",
+            lambda label, **kw: resize_args.append(kw) or True,
+        )
+        # 8-line dialog box
+        dialog_lines = "\n".join(
+            ["╭─ dialog ─╮"] + [f"  option {i}" for i in range(6)] + ["╰─────────╯"]
+        )
+        content = f"prompt\n{dialog_lines}\n"
+        _preemptive_dialog_resize("test", content)
+        assert resize_args
+        assert resize_args[0]["min_rows"] == 14  # 8 + 6 margin
+
+    def test_no_resize_when_no_dialog_box(self, monkeypatch):
+        from duo.transport import _preemptive_dialog_resize
+
+        monkeypatch.setattr("duo.transport.get_pane_size", lambda _: (100, 10))
+        _preemptive_dialog_resize("test", "just plain text")
+        # No error — gracefully does nothing
+
+    def test_handles_pane_size_error(self, monkeypatch):
+        from duo.transport import _preemptive_dialog_resize
+
+        def _raise(_label):
+            raise RuntimeError("no pane")
+
+        monkeypatch.setattr("duo.transport.get_pane_size", _raise)
+        content = "╭─ dialog ─╮\n  option 1\n╰─────────╯\n"
+        _preemptive_dialog_resize("test", content)  # No error
+
+    def test_handles_resize_error(self, monkeypatch):
+        from duo.transport import _preemptive_dialog_resize
+
+        monkeypatch.setattr("duo.transport.get_pane_size", lambda _: (100, 10))
+
+        def _raise(*a, **kw):
+            raise subprocess.SubprocessError("resize failed")
+
+        monkeypatch.setattr("duo.transport.ensure_minimum_pane_size", _raise)
+        content = "╭─ dialog ─╮\n  opt 1\n  opt 2\n  opt 3\n  opt 4\n  opt 5\n  opt 6\n╰─────────╯\n"
+        _preemptive_dialog_resize("test", content)  # No error raised

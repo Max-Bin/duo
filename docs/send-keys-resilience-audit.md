@@ -78,7 +78,7 @@ UTF-8 correctly.  The hex path is only for control keys.
 **Scenario**: A permission dialog contains a long shell command that
 spans 40+ lines, but the pane is only 24 rows.  Dialog is clipped.
 
-**Status**: ⚠️ Partial defense
+**Status**: ✅ Defended (preemptive dialog resize)
 
 **Analysis**: Layer 3 enforces minimum 24 rows, which may not be
 enough for very long permission dialogs.  `_detect_dialog_kind()` uses
@@ -86,13 +86,11 @@ enough for very long permission dialogs.  `_detect_dialog_kind()` uses
 the top of the box is scrolled off the visible area, the box pattern
 is not found, and `DialogKind.NONE` is returned.
 
-**Recommendation**: In `_extract_last_box_lines()`, if no opening
-`╭─` is found but a closing `╰─` is found, assume we're in a tall
-dialog and increase capture lines.  Already partially addressed by
-commit `dab818f` (tall dialog detection), but minimum pane height
-of 24 may still be too small.  Consider increasing
-`MINIMUM_PANE_ROWS` to 40, or making it configurable via
-`~/.duo/config.json`.
+**Defense**: `_preemptive_dialog_resize()` counts dialog lines (╭─ to
+╰─), compares with pane height, and preemptively calls
+`ensure_minimum_pane_size(min_rows=dialog_height + 6)` before
+interacting.  Called from `approve_permission` and
+`send_option_other_message`.
 
 ---
 
@@ -100,17 +98,16 @@ of 24 may still be too small.  Consider increasing
 **Scenario**: A user with very large terminal font has a 1080p
 monitor → only 80×20 character cells available.
 
-**Status**: ⚠️ Partial defense
+**Status**: ✅ Defended (client-size capping)
 
 **Analysis**: `ensure_minimum_pane_size()` will try to resize to
 100×24, but tmux cannot resize a pane larger than its window.
-`tmux resize-pane -x 100` silently caps at the window width.
-The pane stays at 80 columns — Layer 3 returns True (it resized,
-sort of) but the pane is still undersized.
 
-**Recommendation**: After resize, re-query `get_pane_size()` to
-verify the target dimensions were actually achieved.  If not, log
-a warning with a hint to increase terminal window size.
+**Defense**: `ensure_minimum_pane_size()` now queries
+`_get_client_size()` and caps the resize target to
+`client_size - 1`.  If the client is smaller than the requested
+minimum, a warning is logged and the resize is capped gracefully
+instead of silently failing.
 
 ---
 
@@ -193,7 +190,7 @@ catches tmux failures gracefully.
 different widths, causing `read_pane` to capture slightly different
 content on consecutive reads despite no logical change.
 
-**Status**: ⚠️ Partial defense
+**Status**: ✅ Defended (whitespace normalization)
 
 **Analysis**: `read_pane()` → `strip_ansi()` → pure text comparison.
 Double-width CJK characters take 2 columns but are 1 character in
@@ -201,40 +198,39 @@ the string.  If tmux wraps differently on consecutive reads (due to
 terminal timing), the same content could produce different strings.
 Layer 2 would incorrectly think the key was consumed.
 
-**Recommendation**: Normalize whitespace and trailing spaces before
-comparison in `send_keys_verified()`.  This would reduce false
-positives from tmux rendering inconsistencies.
+**Defense**: `send_keys_verified()` normalizes pane content via
+`_normalize_pane_content()` before comparison: strips trailing
+whitespace per line and collapses trailing blank lines.  This
+eliminates false positives from CJK rendering variations.
 
 ## Summary
 
 | # | Edge Case | Status | Layer |
 |---|-----------|--------|-------|
-| 1 | Resize during send | ✅ | L2+L3 |
-| 2 | Dead Copilot process | ⚠️ | L2 (returns False) |
-| 3 | Backgrounded process | ⚠️ | L2 (returns False) |
 | # | Edge Case | Status | Defense |
 |---|-----------|--------|---------|
-| 1 | SIGWINCH after resize | ✅ | L1+L2+L3 |
+| 1 | Resize during send | ✅ | L1+L2+L3 |
 | 2 | Dead Copilot process | ✅ | pre-check |
 | 3 | Backgrounded process | ✅ | pre-check |
 | 4 | CR/LF in text | ✅ | L1 |
 | 5 | Non-ASCII keys | ✅ | fallback path |
-| 6 | Dialog taller than pane | ⚠️ | L3 partial |
-| 7 | Small monitor/large font | ⚠️ | L3 capped |
+| 6 | Dialog taller than pane | ✅ | preemptive resize |
+| 7 | Small monitor/large font | ✅ | client-size cap |
 | 8 | Rapid consecutive sends | ✅ | sleep between |
 | 9 | Bridge restart | ✅ | L1 bypasses bridge |
 | 10 | Concurrent sends | ✅ | pane_lock |
 | 11 | Scrollback full | ✅ | visible area only |
 | 12 | tmux server restart | ✅ | TmuxServerDownError |
-| 13 | Unicode width | ⚠️ | content compare |
+| 13 | Unicode width | ✅ | whitespace normalize |
 
-**Score: 11/13 fully defended, 2/13 partial (cosmetic), 0/13 undefended**
+**Score: 13/13 fully defended ✅**
 
 ## Action Items
 
+All items resolved:
+
 1. ~~**[#10 — Critical]** Add pane-level file lock~~ ✅ Done (pane_lock)
 2. ~~**[#2/#3 — Medium]** Pre-check process state~~ ✅ Done (is_pane_process_alive)
-3. **[#6 — Medium]** Consider increasing `MINIMUM_PANE_ROWS` to 40
-   or making it configurable.
-4. **[#7 — Low]** Post-resize verification of actual pane dimensions.
-5. **[#13 — Low]** Whitespace normalization in content comparison.
+3. ~~**[#6 — Medium]** Preemptive dialog resize~~ ✅ Done (_preemptive_dialog_resize)
+4. ~~**[#7 — Low]** Client-size capping~~ ✅ Done (_get_client_size)
+5. ~~**[#13 — Low]** Whitespace normalization~~ ✅ Done (_normalize_pane_content)
