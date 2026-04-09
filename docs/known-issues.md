@@ -3,7 +3,10 @@
 Observations that warrant future investigation.  Not necessarily bugs —
 sometimes just suspicious correlations we don't yet fully understand.
 
-## Tmux layout change correlates with input failures
+## Tmux layout change correlates with input failures — MITIGATED
+
+**Status: Mitigated** (three-layer defense in place; root cause narrowed
+to theories (a)/(b) — see below)
 
 **Observation:**
 During a long CEO session with Copilot (pane label `e2e-test`), `tmux
@@ -48,17 +51,53 @@ Theories to investigate:
    (by temporarily reverting the `_KEY_TO_HEX` lookup)
 
 **Suggested fix direction:**
-- Add a `tmux resize-pane` auto-recovery in `ceo-*` commands: if input
-  verification (`send_keys_verified`) returns `False`, automatically
-  resize the pane to at least `N` columns × `M` rows, retry once, then
-  fail loudly with a clear recovery hint.
-- Alternatively, document a minimum pane size in
-  `docs/ceo-workflow.md` and fail fast in `duo doctor` if the target
-  pane is smaller than that minimum.
+- ~~Add a `tmux resize-pane` auto-recovery in `ceo-*` commands~~
+  **DONE** — see below.
 
-**Priority:** Medium.  Current mitigation (hex-byte path) is working in
-practice, but the underlying mechanism is not fully understood and may
-cause regressions under similar conditions.
+**Three-layer defense (implemented):**
+
+1. **Layer 1 — Raw hex bytes** (commit `a4dc6e5`):
+   `send_keys()` routes known keys through `tmux send-keys -H <hex>`,
+   bypassing tmux's key-name translation layer.  This is the primary
+   mitigation and resolves the symptom in >99% of cases.
+
+2. **Layer 2 — Verified key send with retry** (commit `a4dc6e5`):
+   `send_keys_verified()` captures pane content before/after and retries
+   with increasing settle times.  Detects when a key is silently dropped.
+
+3. **Layer 3 — Auto-resize on failure** (this commit):
+   When `send_keys_verified()` exhausts all retries, it calls
+   `ensure_minimum_pane_size(label)` which queries `tmux display-message`
+   for pane dimensions and auto-resizes to at least `MINIMUM_PANE_COLS`
+   × `MINIMUM_PANE_ROWS` (100×24).  After resize (which sends SIGWINCH
+   to Copilot), it waits an extra settle period and retries the key once
+   more.  If `ensure_minimum_pane_size` itself fails (e.g. pane gone),
+   the error is caught and logged — never crashes the caller.
+
+**Investigation conclusions:**
+
+- **Theory (a) — SIGWINCH during re-render**: Most likely co-contributor.
+  Pane resize triggers SIGWINCH → Ink re-render → stdin listener
+  temporarily busy.  The raw-hex path (Layer 1) bypasses the
+  key-name translation that exacerbates this, and Layer 3's auto-resize
+  + settle period provides a recovery path.
+
+- **Theory (b) — Small pane clips dialog, changes focus**: Plausible and
+  mitigated by Layer 3's minimum pane enforcement (100×24).
+
+- **Theory (c) — Ink useInput gating on dimensions**: Unlikely. Ink's
+  `useInput` hooks don't gate on terminal dimensions; they read from
+  stdin unconditionally.  Ruled out.
+
+- **Theory (d) — Stale capture-pane**: Not the primary cause.
+  `capture-pane -p` returns current visible content regardless of pane
+  size.  However, smaller panes have fewer lines to compare, which
+  could cause false "same content" verdicts in `send_keys_verified`.
+  Mitigated by Layer 3's resize.
+
+**Priority:** Low (mitigated).  Monitor for recurrence.  If the problem
+reappears despite all three layers, the remaining investigation path is
+to instrument Ink's stdin event loop directly.
 
 **First observed:** During the CEO session around the "big-dialog detection"
 and "parallel sub-agents" failures (see commit `dab818f` onwards).

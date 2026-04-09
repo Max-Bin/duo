@@ -45,15 +45,20 @@ __all__ = [
     "clear_bootstrap_done",
     "diagnose_pane",
     "doctor",
+    "ensure_minimum_pane_size",
     "get_dialog_kind",
     "get_pane_id",
+    "get_pane_size",
     "get_pr_log",
     "is_in_dialog",
     "is_in_dialog_stable",
+    "is_likely_stuck",
     "is_permission_dialog",
     "is_process_alive",
     "is_tmux_server_alive",
     "list_panes",
+    "MINIMUM_PANE_COLS",
+    "MINIMUM_PANE_ROWS",
     "name_pane",
     "read_pane",
     "resolve_label",
@@ -64,6 +69,7 @@ __all__ = [
     "send_option_other_message",
     "send_eof",
     "send_keys",
+    "send_keys_verified",
     "send_message",
     "send_prompt",
     "send_shell_command",
@@ -289,11 +295,17 @@ def send_keys_verified(
     *,
     settle: float = 0.5,
     retries: int = 3,
+    auto_resize: bool = True,
 ) -> bool:
     """Send a single key and verify the pane state changed.
 
     Captures pane content before and after, with a brief settle period for
     Ink TUIs to re-render.  Retries on no-change with small backoff.
+
+    When *auto_resize* is True and all retries fail, attempts to resize
+    the pane to minimum dimensions (see :data:`MINIMUM_PANE_COLS` /
+    :data:`MINIMUM_PANE_ROWS`) and retries once.  This mitigates the
+    observed input failures after ``tmux resize-pane`` events.
 
     Returns True if the pane content changed (key was consumed), False if
     the key appears to have been silently buffered (Copilot Ink event loop
@@ -306,8 +318,25 @@ def send_keys_verified(
         after = read_pane(label, 20)
         if after != before:
             return True
-        # No change — try once more with longer settle
         _time.sleep(settle * (attempt + 1))
+
+    # All retries failed — try auto-resize as last resort
+    if auto_resize:
+        try:
+            resized = ensure_minimum_pane_size(label)
+            if resized:
+                logger.info(
+                    "Pane %s was undersized; resized and retrying key send", label
+                )
+                _time.sleep(settle * 2)  # extra settle after SIGWINCH
+                send_keys(label, key)
+                _time.sleep(settle)
+                after = read_pane(label, 20)
+                if after != before:
+                    return True
+        except (subprocess.SubprocessError, OSError, RuntimeError):
+            logger.debug("Auto-resize failed for %s, ignoring", label)
+
     return False
 
 
@@ -361,6 +390,82 @@ def get_pane_id() -> str:
     which pane it is executing in (e.g. to avoid sending commands to itself).
     """
     return bridge(["id"]).strip()
+
+
+# Minimum pane dimensions for reliable Copilot Ink input handling.
+# Smaller panes may clip dialog boxes, change Ink component focus,
+# or cause SIGWINCH-related stdin listener detachment during re-render.
+MINIMUM_PANE_COLS = 100
+MINIMUM_PANE_ROWS = 24
+
+
+def get_pane_size(label: str) -> tuple[int, int]:
+    """Return (columns, rows) for the pane identified by *label*.
+
+    Uses ``tmux display-message`` to query the pane dimensions.
+    Raises RuntimeError if the pane cannot be found or the output
+    is unparseable.
+    """
+    target = resolve_label(label)
+    result = subprocess.run(
+        ["tmux", "display-message", "-t", target, "-p", "#{pane_width} #{pane_height}"],
+        capture_output=True,
+        text=True,
+        timeout=_BRIDGE_TIMEOUT,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Cannot query pane size for {label}: {result.stderr.strip()}"
+        )
+    parts = result.stdout.strip().split()
+    if len(parts) != 2:
+        raise RuntimeError(f"Unexpected pane size output: {result.stdout!r}")
+    return int(parts[0]), int(parts[1])
+
+
+def ensure_minimum_pane_size(
+    label: str,
+    *,
+    min_cols: int = MINIMUM_PANE_COLS,
+    min_rows: int = MINIMUM_PANE_ROWS,
+) -> bool:
+    """Ensure a pane meets minimum dimensions, resizing if needed.
+
+    Returns True if the pane was resized, False if it already met minimums.
+    Logs a warning when resizing.
+
+    This is a defensive measure against the observed tmux input failures
+    that correlate with pane resize events (see docs/known-issues.md).
+    After a resize, Copilot's Ink TUI receives SIGWINCH and re-renders;
+    a brief settle period may be needed before sending input.
+    """
+    cols, rows = get_pane_size(label)
+    resized = False
+    target = resolve_label(label)
+
+    if cols < min_cols:
+        logger.warning("Pane %s width %d < minimum %d, resizing", label, cols, min_cols)
+        subprocess.run(
+            ["tmux", "resize-pane", "-t", target, "-x", str(min_cols)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        resized = True
+
+    if rows < min_rows:
+        logger.warning(
+            "Pane %s height %d < minimum %d, resizing", label, rows, min_rows
+        )
+        subprocess.run(
+            ["tmux", "resize-pane", "-t", target, "-y", str(min_rows)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        resized = True
+
+    return resized
 
 
 @dataclass

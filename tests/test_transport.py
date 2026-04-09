@@ -10,6 +10,8 @@ import pytest
 
 import duo.transport
 from duo.transport import (
+    MINIMUM_PANE_COLS,
+    MINIMUM_PANE_ROWS,
     DialogKind,
     PaneInfo,
     _find_bridge,
@@ -20,8 +22,10 @@ from duo.transport import (
     cancel_current,
     diagnose_pane,
     doctor,
+    ensure_minimum_pane_size,
     get_dialog_kind,
     get_pane_id,
+    get_pane_size,
     is_in_dialog,
     is_in_dialog_stable,
     is_permission_dialog,
@@ -36,6 +40,7 @@ from duo.transport import (
     send_bootstrap,
     send_eof,
     send_keys,
+    send_keys_verified,
     send_message,
     send_option_other_message,
     send_prompt,
@@ -1771,3 +1776,160 @@ class TestIsLikelyStuck:
 
         result = is_likely_stuck("test-pane", poll_ms=100)
         assert result is False
+
+
+class TestGetPaneSize:
+    """Tests for get_pane_size()."""
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    def test_returns_dimensions(self, mock_run, mock_resolve):
+        mock_run.return_value = MagicMock(returncode=0, stdout="200 50\n", stderr="")
+        cols, rows = get_pane_size("my-pane")
+        assert cols == 200
+        assert rows == 50
+        mock_resolve.assert_called_once_with("my-pane")
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    def test_tmux_failure_raises(self, mock_run, mock_resolve):
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="no pane found"
+        )
+        with pytest.raises(RuntimeError, match="Cannot query pane size"):
+            get_pane_size("bad-pane")
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    def test_unexpected_output_raises(self, mock_run, mock_resolve):
+        mock_run.return_value = MagicMock(returncode=0, stdout="only-one\n", stderr="")
+        with pytest.raises(RuntimeError, match="Unexpected pane size"):
+            get_pane_size("weird-pane")
+
+
+class TestEnsureMinimumPaneSize:
+    """Tests for ensure_minimum_pane_size()."""
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    @patch("duo.transport.get_pane_size")
+    def test_no_resize_needed(self, mock_size, mock_run, mock_resolve):
+        mock_size.return_value = (200, 50)
+        resized = ensure_minimum_pane_size("my-pane")
+        assert resized is False
+        mock_run.assert_not_called()
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    @patch("duo.transport.get_pane_size")
+    def test_width_too_small(self, mock_size, mock_run, mock_resolve):
+        mock_size.return_value = (50, 50)
+        mock_run.return_value = MagicMock(returncode=0)
+        resized = ensure_minimum_pane_size("my-pane")
+        assert resized is True
+        # Should have called resize-pane for width
+        calls = mock_run.call_args_list
+        assert any("-x" in str(c) for c in calls)
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    @patch("duo.transport.get_pane_size")
+    def test_height_too_small(self, mock_size, mock_run, mock_resolve):
+        mock_size.return_value = (200, 15)
+        mock_run.return_value = MagicMock(returncode=0)
+        resized = ensure_minimum_pane_size("my-pane")
+        assert resized is True
+        calls = mock_run.call_args_list
+        assert any("-y" in str(c) for c in calls)
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    @patch("duo.transport.get_pane_size")
+    def test_both_too_small(self, mock_size, mock_run, mock_resolve):
+        mock_size.return_value = (50, 15)
+        mock_run.return_value = MagicMock(returncode=0)
+        resized = ensure_minimum_pane_size("my-pane", min_cols=100, min_rows=40)
+        assert resized is True
+        assert mock_run.call_count == 2
+
+    @patch("duo.transport.resolve_label", return_value="%1")
+    @patch("subprocess.run")
+    @patch("duo.transport.get_pane_size")
+    def test_custom_minimums(self, mock_size, mock_run, mock_resolve):
+        mock_size.return_value = (80, 30)
+        resized = ensure_minimum_pane_size("my-pane", min_cols=80, min_rows=30)
+        assert resized is False
+
+
+class TestSendKeysVerifiedAutoResize:
+    """Tests for send_keys_verified auto-resize fallback."""
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.ensure_minimum_pane_size")
+    def test_auto_resize_succeeds(self, mock_ensure, mock_read, mock_send, mock_time):
+        """Auto-resize rescues a stuck key send."""
+        mock_read.side_effect = ["before", "before", "before", "changed"]
+        mock_time.sleep = MagicMock()
+        mock_ensure.return_value = True
+
+        result = send_keys_verified("test-pane", "Enter", settle=0.1, retries=2)
+        assert result is True
+        mock_ensure.assert_called_once_with("test-pane")
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.ensure_minimum_pane_size")
+    def test_auto_resize_not_needed(self, mock_ensure, mock_read, mock_send, mock_time):
+        """Auto-resize skipped when pane already meets minimums."""
+        mock_read.side_effect = ["before", "before", "before"]
+        mock_time.sleep = MagicMock()
+        mock_ensure.return_value = False  # no resize needed
+
+        result = send_keys_verified("test-pane", "Enter", settle=0.1, retries=1)
+        assert result is False
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.ensure_minimum_pane_size")
+    def test_auto_resize_disabled(self, mock_ensure, mock_read, mock_send, mock_time):
+        """No auto-resize when auto_resize=False."""
+        mock_read.return_value = "same"
+        mock_time.sleep = MagicMock()
+
+        result = send_keys_verified(
+            "test-pane", "Enter", settle=0.1, retries=1, auto_resize=False
+        )
+        assert result is False
+        mock_ensure.assert_not_called()
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch(
+        "duo.transport.ensure_minimum_pane_size", side_effect=RuntimeError("no pane")
+    )
+    def test_auto_resize_error_graceful(
+        self, mock_ensure, mock_read, mock_send, mock_time
+    ):
+        """Auto-resize errors are caught gracefully."""
+        mock_read.return_value = "same"
+        mock_time.sleep = MagicMock()
+
+        result = send_keys_verified("test-pane", "Enter", settle=0.1, retries=1)
+        assert result is False
+
+
+class TestMinimumPaneConstants:
+    """Test pane size constants are reasonable."""
+
+    def test_minimum_cols(self):
+        assert MINIMUM_PANE_COLS >= 80
+        assert MINIMUM_PANE_COLS <= 200
+
+    def test_minimum_rows(self):
+        assert MINIMUM_PANE_ROWS >= 20
+        assert MINIMUM_PANE_ROWS <= 60
