@@ -2485,11 +2485,11 @@ def assert_not_at_main_prompt(label: str) -> None:
 
     content = read_pane(label, 20)
     if _is_at_main_prompt(content):
-        raise click.ClickException(
+        raise DuoUserError(
             f"REFUSED: '{label}' is at Copilot main ❯ prompt. "
             "Sending any input here would create a NEW Premium Request "
-            "and burn budget. Either wait for a new dialog or explicitly "
-            "use --force-new-session."
+            "and burn budget.",
+            fix="Wait for a new dialog or use --force-new-session.",
         )
 
 
