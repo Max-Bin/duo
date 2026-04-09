@@ -207,6 +207,11 @@ class SecurityPolicy:
             "-----BEGIN RSA PRIVATE KEY",
             "-----BEGIN EC PRIVATE KEY",
             "-----BEGIN OPENSSH PRIVATE KEY",
+            "-----BEGIN PRIVATE KEY",
+            "glpat-",
+            "pypi-AgEIcHlwaS",
+            "npm_",
+            "AIZA",
         ]
     )
     forbidden_commands: list[str] = field(default_factory=list)

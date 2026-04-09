@@ -433,6 +433,14 @@ class TestCheckSecretLeak:
                 "-----BEGIN OPENSSH PRIVATE KEY",
                 "+-----BEGIN OPENSSH PRIVATE KEY-----",
             ),
+            (
+                "-----BEGIN PRIVATE KEY",
+                "+-----BEGIN PRIVATE KEY-----",
+            ),
+            ("glpat-", "+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx"),
+            ("pypi-AgEIcHlwaS", "+PYPI_TOKEN=pypi-AgEIcHlwaSOmeLongToken"),
+            ("npm_", "+NPM_TOKEN=npm_xxxxxxxxxxxxxxxxxxxx"),
+            ("AIZA", "+GOOGLE_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXX"),
         ],
     )
     def test_modern_token_patterns(self, pattern, sample):
