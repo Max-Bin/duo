@@ -1453,14 +1453,14 @@ class TestRestartSession:
         assert task.incarnation_id != old_inc
 
     @patch("duo.commander.start_session")
-    def test_restart_resets_attempt(self, mock_start):
-        """restart_session resets current_attempt to 1."""
+    def test_restart_preserves_attempt(self, mock_start):
+        """restart_session preserves current_attempt (correction context)."""
         task = _make_task()
-        task.current_attempt = 5
+        task.current_attempt = 3
 
         restart_session(task)
 
-        assert task.current_attempt == 1
+        assert task.current_attempt == 3
 
     @patch("duo.commander.start_session")
     def test_restart_logs_event(self, mock_start):
@@ -1548,6 +1548,26 @@ class TestPollTask:
         mock_send.assert_called_once()
         events = read_jsonl(task.journal_path)
         assert any(e.get("event") == "session_crashed" for e in events)
+
+    @patch("duo.commander.send_task_prompt")
+    @patch("duo.commander.restart_session")
+    @patch("duo.commander.is_process_alive", return_value=False)
+    def test_poll_crash_recovery_uses_persisted_prompt(
+        self, mock_alive, mock_restart, mock_send
+    ):
+        """Crash recovery prefers persisted prompt over synthesized one."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        # Persist a correction prompt
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text("correction feedback prompt")
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        poll_task(task, poller)
+
+        sent_prompt = mock_send.call_args[0][1]
+        assert sent_prompt == "correction feedback prompt"
 
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.wait_for_dialog", return_value=True)

@@ -562,10 +562,12 @@ def start_session(task: Task) -> None:
 
 
 def restart_session(task: Task) -> None:
-    """Restart a crashed session with new incarnation."""
+    """Restart a crashed session with new incarnation.
+
+    Preserves current_attempt to maintain correction context.
+    """
     old_inc = task.incarnation_id
     task.incarnation_id = new_incarnation()
-    task.current_attempt = 1  # reset attempt for current step
     save_task(task)
 
     # Clear bootstrap lock so new session can send bootstrap
@@ -828,7 +830,12 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
         if not is_process_alive(task.pane_label):
             append_event(task, "session_crashed", {"incarnation": inc})
             restart_session(task)
-            prompt = build_task_prompt(task)
+            # Prefer persisted prompt (may contain correction context)
+            persisted = task.prompt_path(task.current_step, task.current_attempt)
+            if persisted.exists():
+                prompt = persisted.read_text()
+            else:
+                prompt = build_task_prompt(task)
             send_task_prompt(task, prompt)
         else:
             terminal = diagnose_pane(task.pane_label)
