@@ -299,8 +299,21 @@ def send_keys(label: str, *keys: str) -> None:
 
     Unknown keys fall through to tmux-bridge ``keys`` (name-based) as a
     best-effort fallback.
+
+    A ``tmux select-pane`` call precedes key delivery to ensure input
+    reaches non-focused panes in multi-pane layouts.
     """
     target = resolve_label(label)
+    # Ensure the target pane receives focus before sending keys
+    try:
+        subprocess.run(
+            ["tmux", "select-pane", "-t", target],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+        pass  # best-effort; send_keys still works without focus
     for key in keys:
         hex_code = _KEY_TO_HEX.get(key)
         if hex_code is not None:

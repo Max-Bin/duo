@@ -162,10 +162,13 @@ class TestSendKeys:
         """Known keys (Enter, arrows) are sent as raw hex via tmux send-keys -H."""
         mock_run.return_value = _ok()
         send_keys("editor", "Enter")
-        # Should make 2 calls: resolve_label, then tmux send-keys -H 0d
-        assert mock_run.call_count == 2
-        resolve_call, hex_call = mock_run.call_args_list
+        # resolve_label + select-pane + tmux send-keys -H 0d
+        assert mock_run.call_count == 3
+        resolve_call = mock_run.call_args_list[0]
+        select_call = mock_run.call_args_list[1]
+        hex_call = mock_run.call_args_list[2]
         assert resolve_call.args[0] == [BRIDGE, "resolve", "editor"]
+        assert select_call.args[0][:3] == ["tmux", "select-pane", "-t"]
         assert hex_call.args[0][:4] == ["tmux", "send-keys", "-t", ""]
         assert hex_call.args[0][-2:] == ["-H", "0d"]
 
@@ -173,21 +176,38 @@ class TestSendKeys:
     def test_multiple_hex_keys(self, mock_run):
         mock_run.return_value = _ok()
         send_keys("editor", "C-c", "Enter")
-        # resolve_label once + hex send twice
-        assert mock_run.call_count == 3
+        # resolve_label + select-pane + hex send twice
+        assert mock_run.call_count == 4
         calls = mock_run.call_args_list
         assert calls[0].args[0] == [BRIDGE, "resolve", "editor"]
-        assert "-H" in calls[1].args[0] and "03" in calls[1].args[0]
-        assert "-H" in calls[2].args[0] and "0d" in calls[2].args[0]
+        assert calls[1].args[0][:3] == ["tmux", "select-pane", "-t"]
+        assert "-H" in calls[2].args[0] and "03" in calls[2].args[0]
+        assert "-H" in calls[3].args[0] and "0d" in calls[3].args[0]
 
     @patch("subprocess.run")
     def test_unknown_key_falls_back_to_bridge(self, mock_run):
         """Keys not in _KEY_TO_HEX table fall through to tmux-bridge keys."""
         mock_run.return_value = _ok()
         send_keys("editor", "F1")
-        # resolve_label + bridge keys
-        assert mock_run.call_count == 2
-        assert mock_run.call_args_list[1].args[0] == [BRIDGE, "keys", "editor", "F1"]
+        # resolve_label + select-pane + bridge keys
+        assert mock_run.call_count == 3
+        assert mock_run.call_args_list[2].args[0] == [BRIDGE, "keys", "editor", "F1"]
+
+    @patch("subprocess.run")
+    def test_select_pane_failure_does_not_block(self, mock_run):
+        """select-pane failure is silently ignored; keys still sent."""
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise OSError("tmux gone")
+            return _ok()
+
+        mock_run.side_effect = side_effect
+        send_keys("editor", "Enter")
+        # resolve_label + select-pane(fails) + hex send
+        assert call_count["n"] == 3
 
 
 class TestNamePane:
@@ -273,15 +293,16 @@ class TestSendShellCommand:
     def test_call_sequence(self, mock_run):
         mock_run.return_value = _ok()
         send_shell_command("agent", "cd /tmp")
-        # Sequence: read → type → read → resolve_label → tmux send-keys -H 0d
+        # Sequence: read → type → read → resolve_label → select-pane → tmux send-keys -H 0d
         calls = mock_run.call_args_list
         assert calls[0].args[0] == [BRIDGE, "read", "agent", "5"]
         assert calls[1].args[0] == [BRIDGE, "type", "agent", "cd /tmp"]
         assert calls[2].args[0] == [BRIDGE, "read", "agent", "5"]
         assert calls[3].args[0] == [BRIDGE, "resolve", "agent"]
+        assert calls[4].args[0][:3] == ["tmux", "select-pane", "-t"]
         # Enter is sent as raw hex 0d
-        assert calls[4].args[0][:3] == ["tmux", "send-keys", "-t"]
-        assert "-H" in calls[4].args[0] and "0d" in calls[4].args[0]
+        assert calls[5].args[0][:3] == ["tmux", "send-keys", "-t"]
+        assert "-H" in calls[5].args[0] and "0d" in calls[5].args[0]
 
     @patch("subprocess.run")
     def test_rejects_at_main_prompt(self, mock_run):
@@ -340,8 +361,9 @@ class TestSendMessage:
         assert calls[1].args[0] == [BRIDGE, "message", "agent", "hello"]
         assert calls[2].args[0] == [BRIDGE, "read", "agent", "5"]
         assert calls[3].args[0] == [BRIDGE, "resolve", "agent"]
-        assert calls[4].args[0][:3] == ["tmux", "send-keys", "-t"]
-        assert "-H" in calls[4].args[0] and "0d" in calls[4].args[0]
+        assert calls[4].args[0][:3] == ["tmux", "select-pane", "-t"]
+        assert calls[5].args[0][:3] == ["tmux", "send-keys", "-t"]
+        assert "-H" in calls[5].args[0] and "0d" in calls[5].args[0]
 
 
 class TestCancelCurrent:
@@ -350,10 +372,11 @@ class TestCancelCurrent:
         mock_run.return_value = _ok()
         cancel_current("agent")
         calls = mock_run.call_args_list
-        # read + resolve + tmux send-keys -H 03
-        assert len(calls) == 3
-        assert calls[2].args[0][:3] == ["tmux", "send-keys", "-t"]
-        assert "-H" in calls[2].args[0] and "03" in calls[2].args[0]
+        # read + resolve + select-pane + tmux send-keys -H 03
+        assert len(calls) == 4
+        assert calls[2].args[0][:3] == ["tmux", "select-pane", "-t"]
+        assert calls[3].args[0][:3] == ["tmux", "send-keys", "-t"]
+        assert "-H" in calls[3].args[0] and "03" in calls[3].args[0]
 
 
 class TestSendEof:
@@ -362,9 +385,10 @@ class TestSendEof:
         mock_run.return_value = _ok()
         send_eof("agent")
         calls = mock_run.call_args_list
-        assert len(calls) == 3
-        assert calls[2].args[0][:3] == ["tmux", "send-keys", "-t"]
-        assert "-H" in calls[2].args[0] and "04" in calls[2].args[0]
+        assert len(calls) == 4
+        assert calls[2].args[0][:3] == ["tmux", "select-pane", "-t"]
+        assert calls[3].args[0][:3] == ["tmux", "send-keys", "-t"]
+        assert "-H" in calls[3].args[0] and "04" in calls[3].args[0]
 
 
 # ── Diagnostics ───────────────────────────────────────────────────────
