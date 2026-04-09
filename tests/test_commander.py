@@ -815,7 +815,11 @@ class TestClaudeCommander:
                 split_result.stdout = "%60\n"
                 layout_result = MagicMock()
                 layout_result.returncode = 0
-                mock_run.side_effect = [split_result, layout_result, OSError("kill failed")]
+                mock_run.side_effect = [
+                    split_result,
+                    layout_result,
+                    OSError("kill failed"),
+                ]
 
                 result = start_claude_commander(task)
                 assert result is None
@@ -835,7 +839,9 @@ class TestClaudeCommander:
                 patch("duo.commander.send_bootstrap"),
                 patch("duo.commander.time.sleep"),
                 patch("duo.commander.get_config", return_value=True),
-                patch("duo.commander.start_claude_commander", return_value="%99") as mock_claude,
+                patch(
+                    "duo.commander.start_claude_commander", return_value="%99"
+                ) as mock_claude,
             ):
                 split_result = MagicMock()
                 split_result.returncode = 0
@@ -1035,9 +1041,7 @@ class TestStartSessionError:
 
             assert task.status == TaskStatus.FAILED
             events = read_jsonl(task.journal_path)
-            assert any(
-                e.get("event") == "session_start_failed" for e in events
-            )
+            assert any(e.get("event") == "session_start_failed" for e in events)
 
     def test_restart_session_transport_failure(self):
         """restart_session transitions to FAILED on transport error."""
@@ -1057,9 +1061,8 @@ class TestStartSessionError:
 
             assert task.status == TaskStatus.FAILED
             events = read_jsonl(task.journal_path)
-            assert any(
-                e.get("event") == "session_restart_failed" for e in events
-            )
+            assert any(e.get("event") == "session_restart_failed" for e in events)
+
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     def test_send_task_prompt_success(self, mock_select, mock_wait):
@@ -1121,6 +1124,7 @@ class TestStartSessionError:
         assert task.last_prompt_sent_at is not None
         # Verify it's a valid ISO timestamp (not just any truthy value)
         from datetime import UTC, datetime
+
         dt = datetime.fromisoformat(task.last_prompt_sent_at)
         assert (datetime.now(UTC) - dt.replace(tzinfo=UTC)).total_seconds() < 5
 
@@ -1213,6 +1217,7 @@ class TestResendLastPrompt:
 
         assert task.last_prompt_sent_at is not None
         from datetime import UTC, datetime
+
         dt = datetime.fromisoformat(task.last_prompt_sent_at)
         assert (datetime.now(UTC) - dt.replace(tzinfo=UTC)).total_seconds() < 5
 
@@ -1863,7 +1868,8 @@ class TestStartSessionOrphanedPaneCleanup:
 
             # Verify tmux kill-pane was called for the orphaned pane
             kill_calls = [
-                c for c in mock_run.call_args_list
+                c
+                for c in mock_run.call_args_list
                 if c[0][0][:3] == ["tmux", "kill-pane", "-t"]
             ]
             assert len(kill_calls) == 1
@@ -1981,9 +1987,13 @@ class TestPollHeartbeatTimeoutSilent:
         _advance_to_prompt_sent(task)
 
         with (
-            patch.object(AdaptivePoller, "poll", return_value=PollResult.HEARTBEAT_TIMEOUT),
+            patch.object(
+                AdaptivePoller, "poll", return_value=PollResult.HEARTBEAT_TIMEOUT
+            ),
             patch("duo.commander.is_process_alive", return_value=True),
-            patch("duo.commander.diagnose_pane", return_value="all good, copilot working"),
+            patch(
+                "duo.commander.diagnose_pane", return_value="all good, copilot working"
+            ),
             patch("duo.commander.wait_for_dialog", return_value=False),
         ):
             poller = AdaptivePoller()
@@ -2220,9 +2230,7 @@ class TestWatchTasks:
         with (
             patch("duo.commander.list_tasks", return_value=[task]),
             patch("duo.commander.is_process_alive", return_value=True),
-            patch(
-                "duo.commander.wait_for_dialog", side_effect=OSError("no pane")
-            ),
+            patch("duo.commander.wait_for_dialog", side_effect=OSError("no pane")),
         ):
             result = watch_tasks(timeout=0.1, interval=0.01)
         assert result == 1
@@ -2266,7 +2274,9 @@ class TestWatchTasks:
 
         call_count = 0
 
-        def _wait_then_stop(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _wait_then_stop(
+            label: str, timeout: float = 300, interval: float = 5
+        ) -> bool:
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
@@ -2416,8 +2426,13 @@ class TestVerifyAndAdvanceEdgeCases:
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_raw(
-            task, 1, 1,
-            step=1, attempt=1, incarnation=task.incarnation_id, status="",
+            task,
+            1,
+            1,
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="",
         )
         # Empty status is not "blocked" or "error", so it goes to verify_step
         with patch("duo.commander.verify_step", return_value=Pass()) as mock_verify:
@@ -2431,9 +2446,14 @@ class TestVerifyAndAdvanceEdgeCases:
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_raw(
-            task, 1, 1,
-            step=1, attempt=1, incarnation=task.incarnation_id,
-            status="error", reason="executor crashed",
+            task,
+            1,
+            1,
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="error",
+            reason="executor crashed",
         )
         verify_and_advance(task)
         assert task.status == TaskStatus.BLOCKED
@@ -2441,13 +2461,20 @@ class TestVerifyAndAdvanceEdgeCases:
     @patch("duo.commander.wait_for_dialog", return_value=True)
     @patch("duo.commander.select_dialog_option")
     @patch("duo.commander.verify_step")
-    def test_verify_step_exception_transitions_to_failed(self, mock_verify, mock_send, mock_wait):
+    def test_verify_step_exception_transitions_to_failed(
+        self, mock_verify, mock_send, mock_wait
+    ):
         """When verify_step raises, task transitions to FAILED."""
         task = _make_task()
         _advance_to_prompt_sent(task)
         self._write_raw(
-            task, 1, 1,
-            step=1, attempt=1, incarnation=task.incarnation_id, status="done",
+            task,
+            1,
+            1,
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="done",
         )
         mock_verify.side_effect = RuntimeError("git diff exploded")
         verify_and_advance(task)

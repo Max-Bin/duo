@@ -69,7 +69,11 @@ def _build_tasks_table(tasks: list[Task]) -> Table:
             hb_text = Text("—", style="dim")
 
         step_str = f"{task.current_step}/{len(task.subtasks)}"
-        desc = task.description[:37] + "..." if len(task.description) > 40 else task.description
+        desc = (
+            task.description[:37] + "..."
+            if len(task.description) > 40
+            else task.description
+        )
 
         table.add_row(
             task.id,

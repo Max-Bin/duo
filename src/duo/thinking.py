@@ -273,7 +273,9 @@ def wait_for_response_stable(
         content = read_pane(label, 50)
 
         # Active spinner means still working
-        has_spinner = any(marker in content for marker in ("\u25c9 ", "\u25ce ", "\u25cb "))
+        has_spinner = any(
+            marker in content for marker in ("\u25c9 ", "\u25ce ", "\u25cb ")
+        )
 
         # Dialog detection
         dialog_kind = _detect_dialog_kind(content)
@@ -285,7 +287,10 @@ def wait_for_response_stable(
         if at_prompt and not has_spinner:
             current_hash = hash(content)
             if current_hash == last_hash:
-                if stable_since is not None and time.time() - stable_since > stable_threshold:
+                if (
+                    stable_since is not None
+                    and time.time() - stable_since > stable_threshold
+                ):
                     return "idle"
             else:
                 last_hash = current_hash
@@ -299,9 +304,7 @@ def wait_for_response_stable(
     return "timeout"
 
 
-def extract_response(
-    content_before: str, content_after: str, user_message: str
-) -> str:
+def extract_response(content_before: str, content_after: str, user_message: str) -> str:
     """Extract the assistant response from pane content delta.
 
     Compares *content_before* (snapshot before sending) with
@@ -346,9 +349,7 @@ def append_session_log(name: str, user_message: str, response: str) -> None:
     tdir = thinking_dir(name)
     log_file = tdir / "session.log"
     entry = (
-        f"--- ask at {now_iso()} ---\n"
-        f"[user] {user_message}\n"
-        f"[response]\n{response}\n\n"
+        f"--- ask at {now_iso()} ---\n[user] {user_message}\n[response]\n{response}\n\n"
     )
     with log_file.open("a", encoding="utf-8") as f:
         f.write(entry)
@@ -378,9 +379,7 @@ def list_sessions() -> list[dict[str, str]]:
         status = "finalized" if has_plan else "active"
         files = " ".join(f.name for f in sorted(d.iterdir()) if f.is_file())
 
-        sessions.append(
-            {"name": name, "pane": pane, "status": status, "files": files}
-        )
+        sessions.append({"name": name, "pane": pane, "status": status, "files": files})
     return sessions
 
 

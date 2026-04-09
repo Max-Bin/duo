@@ -254,10 +254,30 @@ class TestSendShellCommand:
         mock_run.return_value = _ok()
         send_shell_command("agent", "cd /tmp")
         expected = [
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
-            call([BRIDGE, "type", "agent", "cd /tmp"], capture_output=True, text=True, timeout=30),
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
-            call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True, timeout=30),
+            call(
+                [BRIDGE, "read", "agent", "5"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
+            call(
+                [BRIDGE, "type", "agent", "cd /tmp"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
+            call(
+                [BRIDGE, "read", "agent", "5"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
+            call(
+                [BRIDGE, "keys", "agent", "Enter"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
         ]
         assert mock_run.call_args_list == expected
 
@@ -314,10 +334,30 @@ class TestSendMessage:
         mock_run.return_value = _ok()
         send_message("agent", "hello")
         expected = [
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
-            call([BRIDGE, "message", "agent", "hello"], capture_output=True, text=True, timeout=30),
-            call([BRIDGE, "read", "agent", "5"], capture_output=True, text=True, timeout=30),
-            call([BRIDGE, "keys", "agent", "Enter"], capture_output=True, text=True, timeout=30),
+            call(
+                [BRIDGE, "read", "agent", "5"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
+            call(
+                [BRIDGE, "message", "agent", "hello"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
+            call(
+                [BRIDGE, "read", "agent", "5"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
+            call(
+                [BRIDGE, "keys", "agent", "Enter"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ),
         ]
         assert mock_run.call_args_list == expected
 
@@ -521,6 +561,7 @@ class TestRetry:
 
     def test_oserror_exhausts_retries(self):
         """OSError exhausts all retry attempts."""
+
         @_retry(max_attempts=2, delay=0.01)
         def fn():
             raise OSError("permanent OS error")
@@ -785,11 +826,15 @@ class TestSelectDialogOption:
     @patch("duo.transport._time")
     @patch("duo.transport.is_in_dialog")
     @patch("duo.transport.is_in_dialog_stable")
-    def test_select_dialog_option_success(self, mock_stable, mock_dialog, mock_time, mock_run):
+    def test_select_dialog_option_success(
+        self, mock_stable, mock_dialog, mock_time, mock_run
+    ):
         """Mock is_in_dialog_stable True, verify type_text and send_keys called, PR recorded."""
         mock_time.sleep = MagicMock()
         mock_stable.return_value = True
-        mock_dialog.return_value = True  # Dialog still present after type_text → Enter sent
+        mock_dialog.return_value = (
+            True  # Dialog still present after type_text → Enter sent
+        )
         # safe_enter reads pane to check prompt — return non-prompt content
         mock_run.return_value = MagicMock(returncode=0, stdout="some output", stderr="")
 
@@ -868,7 +913,9 @@ class TestBridgeTimeout:
     @patch("subprocess.run")
     def test_timeout_raises_runtime_error(self, mock_run):
         """bridge() converts subprocess.TimeoutExpired into RuntimeError."""
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["tmux-bridge", "read"], timeout=30)
+        mock_run.side_effect = subprocess.TimeoutExpired(
+            cmd=["tmux-bridge", "read"], timeout=30
+        )
         with pytest.raises(RuntimeError, match="timed out after 30s"):
             bridge(["read"])
 
@@ -948,7 +995,9 @@ class TestIsPermissionDialog:
     @patch("duo.transport.read_pane")
     def test_detects_run_permission(self, mock_read):
         """Detects 'Do you want to run' as permission dialog."""
-        mock_read.return_value = "╭──\n  Do you want to run this command?\n  1. Yes\n╰──"
+        mock_read.return_value = (
+            "╭──\n  Do you want to run this command?\n  1. Yes\n╰──"
+        )
         assert is_permission_dialog("test") is True
 
     @patch("duo.transport.read_pane")
@@ -960,7 +1009,9 @@ class TestIsPermissionDialog:
     @patch("duo.transport.read_pane")
     def test_not_permission_for_regular_dialog(self, mock_read):
         """Regular dialog without permission keywords returns False."""
-        mock_read.return_value = "What would you like to do?\n  1. Option A\n  2. Option B"
+        mock_read.return_value = (
+            "What would you like to do?\n  1. Option A\n  2. Option B"
+        )
         assert is_permission_dialog("test") is False
 
     @patch("duo.transport.read_pane")
@@ -1036,13 +1087,7 @@ class TestApprovePermission:
     @patch("duo.transport.read_pane")
     def test_add_to_allowed_list(self, mock_read, mock_select):
         """Picks 'Add to allowed list' option."""
-        mock_read.return_value = (
-            "╭──\n"
-            "  1. Yes\n"
-            "  2. Add to allowed list\n"
-            "  3. No\n"
-            "╰──"
-        )
+        mock_read.return_value = "╭──\n  1. Yes\n  2. Add to allowed list\n  3. No\n╰──"
         approve_permission("test")
         mock_select.assert_called_once_with("test", "2")
 
@@ -1064,13 +1109,7 @@ class TestApprovePermission:
     @patch("duo.transport.read_pane")
     def test_add_without_allowed_not_preferred(self, mock_read, mock_select):
         """'add' without 'allowed' should not be preferred over plain 'Yes'."""
-        mock_read.return_value = (
-            "╭──\n"
-            "Choose:\n"
-            "  1. Yes\n"
-            "  2. Add something else\n"
-            "╰──"
-        )
+        mock_read.return_value = "╭──\nChoose:\n  1. Yes\n  2. Add something else\n╰──"
         approve_permission("test")
         mock_select.assert_called_once_with("test", "1")
 
@@ -1145,11 +1184,7 @@ class TestSelectOtherOption:
     @patch("duo.transport.is_in_dialog", return_value=True)
     def test_too_few_options(self, mock_dialog, mock_read):
         """Refuses when dialog has fewer than 2 options."""
-        mock_read.return_value = (
-            "╭─ Choose: ─╮\n"
-            "  ❯ 1. Only option\n"
-            "╰─\n"
-        )
+        mock_read.return_value = "╭─ Choose: ─╮\n  ❯ 1. Only option\n╰─\n"
         with pytest.raises(RuntimeError, match="need ≥2"):
             select_other_option("test", "text")
 
@@ -1163,12 +1198,7 @@ class TestSelectOtherOption:
         self, mock_dialog, mock_keys, mock_type, mock_read, mock_enter, mock_pr
     ):
         """No navigation needed when cursor is already at last option."""
-        mock_read.return_value = (
-            "╭─ Choose: ─╮\n"
-            "  1. Run\n"
-            "  ❯ 2. Other\n"
-            "╰─\n"
-        )
+        mock_read.return_value = "╭─ Choose: ─╮\n  1. Run\n  ❯ 2. Other\n╰─\n"
         select_other_option("test", "custom")
         # Should not navigate at all (already at position 2 of 2)
         mock_keys.assert_not_called()
@@ -1250,7 +1280,9 @@ class TestSendTextDialogMessage:
     @patch("duo.transport.resolve_label", return_value="%42")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
-    def test_sigwinch_on_invisible_text(self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect):
+    def test_sigwinch_on_invisible_text(
+        self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect
+    ):
         """When typed text is not visible, sends SIGWINCH to refresh."""
         call_count = {"n": 0}
 
@@ -1262,8 +1294,10 @@ class TestSendTextDialogMessage:
 
         mock_read.side_effect = fake_read
         pid_run = MagicMock(returncode=0, stdout="12345\n")
-        with patch("subprocess.run", return_value=pid_run), \
-             patch("os.kill") as mock_kill:
+        with (
+            patch("subprocess.run", return_value=pid_run),
+            patch("os.kill") as mock_kill,
+        ):
             result = send_text_dialog_message("test", "my answer")
         assert result is True
         # os.kill should have been called with SIGWINCH
@@ -1274,7 +1308,9 @@ class TestSendTextDialogMessage:
     @patch("duo.transport.resolve_label", side_effect=RuntimeError("no pane"))
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
-    def test_sigwinch_failure_ignored(self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect):
+    def test_sigwinch_failure_ignored(
+        self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect
+    ):
         """SIGWINCH failure is silently ignored."""
         # read_pane calls: verify text (x3 retries) + after Enter (x1) = 4+
         mock_read.side_effect = ["no text", "no text", "my answer", "dismissed"]
@@ -1290,26 +1326,32 @@ class TestStripAnsi:
 
     def test_no_ansi(self) -> None:
         from duo.transport import strip_ansi
+
         assert strip_ansi("hello world") == "hello world"
 
     def test_strips_color_codes(self) -> None:
         from duo.transport import strip_ansi
+
         assert strip_ansi("\x1b[31mred\x1b[0m") == "red"
 
     def test_strips_bold_and_reset(self) -> None:
         from duo.transport import strip_ansi
+
         assert strip_ansi("\x1b[1m╭─ title ─╮\x1b[0m") == "╭─ title ─╮"
 
     def test_strips_multi_param_sequences(self) -> None:
         from duo.transport import strip_ansi
+
         assert strip_ansi("\x1b[38;5;196mhello\x1b[0m") == "hello"
 
     def test_preserves_unicode(self) -> None:
         from duo.transport import strip_ansi
+
         assert strip_ansi("❯ Type @") == "❯ Type @"
 
     def test_empty_string(self) -> None:
         from duo.transport import strip_ansi
+
         assert strip_ansi("") == ""
 
 
@@ -1318,21 +1360,25 @@ class TestAnsiInDialogDetection:
 
     def test_main_prompt_with_ansi_colored_prompt(self) -> None:
         from duo.transport import _is_at_main_prompt
+
         content = "\x1b[32m❯\x1b[0m \x1b[90mType @ to mention files\x1b[0m"
         assert _is_at_main_prompt(content) is True
 
     def test_main_prompt_with_ansi_spinner_detected(self) -> None:
         from duo.transport import _is_at_main_prompt
+
         content = "\x1b[33m◉ \x1b[0mProcessing...\n❯"
         assert _is_at_main_prompt(content) is False
 
     def test_main_prompt_with_ansi_box_chars(self) -> None:
         from duo.transport import _is_at_main_prompt
+
         content = "\x1b[1m╭─\x1b[0m question\n1. Yes\n\x1b[1m╰─\x1b[0m\n❯"
         assert _is_at_main_prompt(content) is False
 
     def test_detect_option_dialog_with_ansi(self) -> None:
         from duo.transport import DialogKind, _detect_dialog_kind
+
         content = (
             "\x1b[1m╭─ Choose ─╮\x1b[0m\n"
             "\x1b[32m❯ 1.\x1b[0m Accept\n"
@@ -1343,6 +1389,7 @@ class TestAnsiInDialogDetection:
 
     def test_detect_text_dialog_with_ansi(self) -> None:
         from duo.transport import DialogKind, _detect_dialog_kind
+
         content = (
             "\x1b[1m╭─ Input ─╮\x1b[0m\n"
             "\x1b[90mType your answer\x1b[0m\n"
@@ -1352,6 +1399,7 @@ class TestAnsiInDialogDetection:
 
     def test_detect_no_dialog_with_ansi_noise(self) -> None:
         from duo.transport import DialogKind, _detect_dialog_kind
+
         content = "\x1b[32m❯\x1b[0m \x1b[90mType @ to mention files\x1b[0m"
         assert _detect_dialog_kind(content) == DialogKind.NONE
 
@@ -1369,24 +1417,30 @@ class TestTmuxServerDownError:
     def test_bridge_detects_server_down(self) -> None:
         """Bridge raises TmuxServerDownError on 'no server running'."""
         from duo.transport import TmuxServerDownError
+
         result = MagicMock()
         result.returncode = 1
         result.stderr = "error: no server running on /tmp/tmux-1000/default"
         result.stdout = ""
-        with patch("subprocess.run", return_value=result), \
-             patch("duo.transport._bridge_bin", return_value="tmux-bridge"):
+        with (
+            patch("subprocess.run", return_value=result),
+            patch("duo.transport._bridge_bin", return_value="tmux-bridge"),
+        ):
             with pytest.raises(TmuxServerDownError, match="tmux server is down"):
                 bridge(["read", "test", "10"])
 
     def test_bridge_detects_lost_server(self) -> None:
         """Bridge raises TmuxServerDownError on 'lost server'."""
         from duo.transport import TmuxServerDownError
+
         result = MagicMock()
         result.returncode = 1
         result.stderr = "lost server"
         result.stdout = ""
-        with patch("subprocess.run", return_value=result), \
-             patch("duo.transport._bridge_bin", return_value="tmux-bridge"):
+        with (
+            patch("subprocess.run", return_value=result),
+            patch("duo.transport._bridge_bin", return_value="tmux-bridge"),
+        ):
             with pytest.raises(TmuxServerDownError, match="tmux server is down"):
                 bridge(["read", "test", "10"])
 
@@ -1396,8 +1450,10 @@ class TestTmuxServerDownError:
         result.returncode = 1
         result.stderr = "error: no pane found with label 'missing'"
         result.stdout = ""
-        with patch("subprocess.run", return_value=result), \
-             patch("duo.transport._bridge_bin", return_value="tmux-bridge"):
+        with (
+            patch("subprocess.run", return_value=result),
+            patch("duo.transport._bridge_bin", return_value="tmux-bridge"),
+        ):
             with pytest.raises(RuntimeError, match="tmux-bridge read failed"):
                 bridge(["read", "missing", "10"])
 
@@ -1407,6 +1463,7 @@ class TestIsTmuxServerAlive:
 
     def test_alive_when_sessions_exist(self) -> None:
         from duo.transport import is_tmux_server_alive
+
         result = MagicMock()
         result.returncode = 0
         with patch("subprocess.run", return_value=result):
@@ -1414,6 +1471,7 @@ class TestIsTmuxServerAlive:
 
     def test_dead_when_no_server(self) -> None:
         from duo.transport import is_tmux_server_alive
+
         result = MagicMock()
         result.returncode = 1
         with patch("subprocess.run", return_value=result):
@@ -1421,10 +1479,12 @@ class TestIsTmuxServerAlive:
 
     def test_dead_when_tmux_missing(self) -> None:
         from duo.transport import is_tmux_server_alive
+
         with patch("subprocess.run", side_effect=FileNotFoundError):
             assert is_tmux_server_alive() is False
 
     def test_dead_when_timeout(self) -> None:
         from duo.transport import is_tmux_server_alive
+
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("tmux", 5)):
             assert is_tmux_server_alive() is False

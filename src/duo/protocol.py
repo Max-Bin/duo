@@ -91,7 +91,11 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.RUNNING,
         TaskStatus.BLOCKED,
     },
-    TaskStatus.ACKED: {TaskStatus.RUNNING, TaskStatus.RESULT_REPORTED, TaskStatus.FAILED},
+    TaskStatus.ACKED: {
+        TaskStatus.RUNNING,
+        TaskStatus.RESULT_REPORTED,
+        TaskStatus.FAILED,
+    },
     TaskStatus.RUNNING: {
         TaskStatus.RESULT_REPORTED,
         TaskStatus.BLOCKED,
@@ -153,11 +157,17 @@ class SecurityPolicy:
     writable_paths: list[str] = field(default_factory=list)
     secret_patterns: list[str] = field(
         default_factory=lambda: [
-            "API_KEY=", "api_key=", "apikey=",
-            "PASSWORD=", "password=",
-            "TOKEN=", "token=",
-            "SECRET=", "secret=",
-            "PRIVATE_KEY", "private_key",
+            "API_KEY=",
+            "api_key=",
+            "apikey=",
+            "PASSWORD=",
+            "password=",
+            "TOKEN=",
+            "token=",
+            "SECRET=",
+            "secret=",
+            "PRIVATE_KEY",
+            "private_key",
             "Authorization: Bearer",
         ]
     )
@@ -332,9 +342,7 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
             # Rotate: keep last half
             lines = journal.read_text(encoding="utf-8").splitlines()
             half = len(lines) // 2
-            atomic_write_text(
-                journal, "\n".join(lines[half:]) + "\n"
-            )
+            atomic_write_text(journal, "\n".join(lines[half:]) + "\n")
             logger.info(
                 "Rotated journal for task %r (%d entries removed)", task.id, half
             )
@@ -581,7 +589,9 @@ def quarantine_task(task_id: str, reason: str = "") -> Path | None:
     ts = now_iso().replace(":", "-")
     dst = _CORRUPTED_DIR / f"{task_id}-{ts}"
     shutil.move(str(src), str(dst))
-    logger.info("Quarantined corrupted task '%s' → %s (reason: %s)", task_id, dst, reason)
+    logger.info(
+        "Quarantined corrupted task '%s' → %s (reason: %s)", task_id, dst, reason
+    )
     _task_cache.pop(task_id, None)
     return dst
 

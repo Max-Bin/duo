@@ -164,11 +164,14 @@ class TestCompletion:
         result = runner.invoke(main, ["completion", "powershell"])
         assert result.exit_code != 0
 
-    @pytest.mark.parametrize("shell,keyword", [
-        ("bash", "bash_source"),
-        ("zsh", "zsh_source"),
-        ("fish", "fish_source"),
-    ])
+    @pytest.mark.parametrize(
+        "shell,keyword",
+        [
+            ("bash", "bash_source"),
+            ("zsh", "zsh_source"),
+            ("fish", "fish_source"),
+        ],
+    )
     def test_completion_shells(self, runner: CliRunner, shell: str, keyword: str):
         result = runner.invoke(main, ["completion", shell])
         assert result.exit_code == 0
@@ -318,14 +321,20 @@ class TestSend:
         _make_task("empty-prompt-task")
         result = runner.invoke(main, ["send", "empty-prompt-task", ""])
         assert result.exit_code != 0
-        assert "empty" in result.output.lower() or "empty" in (result.output + str(result.exception)).lower()
+        assert (
+            "empty" in result.output.lower()
+            or "empty" in (result.output + str(result.exception)).lower()
+        )
 
     def test_send_whitespace_prompt(self, runner: CliRunner):
         """Verify send() rejects whitespace-only prompts."""
         _make_task("ws-prompt-task")
         result = runner.invoke(main, ["send", "ws-prompt-task", "   "])
         assert result.exit_code != 0
-        assert "empty" in result.output.lower() or "empty" in (result.output + str(result.exception)).lower()
+        assert (
+            "empty" in result.output.lower()
+            or "empty" in (result.output + str(result.exception)).lower()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -364,16 +373,23 @@ class TestStart:
         result = runner.invoke(main, ["start", "../evil", "--repo", str(tmp_path)])
         assert result.exit_code != 0
 
-    @pytest.mark.parametrize("invalid_name", [
-        "tâche",
-        "任务",
-        "タスク",
-        "задача",
-        "name with space",
-        "name\twith\ttab",
-    ])
-    def test_start_rejects_unicode_names(self, runner: CliRunner, tmp_path: Path, invalid_name: str):
-        result = runner.invoke(main, ["start", invalid_name, "--repo", str(tmp_path), "--desc", "test"])
+    @pytest.mark.parametrize(
+        "invalid_name",
+        [
+            "tâche",
+            "任务",
+            "タスク",
+            "задача",
+            "name with space",
+            "name\twith\ttab",
+        ],
+    )
+    def test_start_rejects_unicode_names(
+        self, runner: CliRunner, tmp_path: Path, invalid_name: str
+    ):
+        result = runner.invoke(
+            main, ["start", invalid_name, "--repo", str(tmp_path), "--desc", "test"]
+        )
         assert result.exit_code != 0
 
     def test_start_concurrent_lock(self, runner: CliRunner, tmp_path: Path):
@@ -1020,6 +1036,7 @@ class TestValidateTaskName:
     def test_boundary_length_64_rejected(self):
         """64 characters should be rejected."""
         import click
+
         with pytest.raises(click.BadParameter, match="at most 63"):
             _validate_task_name("a" * 64)
 
@@ -1027,6 +1044,7 @@ class TestValidateTaskName:
     def test_special_characters_rejected(self, char):
         """Each special character in task name is rejected."""
         import click
+
         with pytest.raises(click.BadParameter):
             _validate_task_name(f"task{char}name")
 
@@ -1039,7 +1057,13 @@ class TestValidateTaskName:
 class TestPropertyBased:
     """Property-based tests using hypothesis for validation functions."""
 
-    @given(st.text(alphabet=string.ascii_letters + string.digits + "_-", min_size=1, max_size=63))
+    @given(
+        st.text(
+            alphabet=string.ascii_letters + string.digits + "_-",
+            min_size=1,
+            max_size=63,
+        )
+    )
     def test_valid_task_names_always_accepted(self, name: str):
         """Any string of valid characters ≤63 chars is accepted."""
         _validate_task_name(name)  # Should not raise
@@ -1048,10 +1072,13 @@ class TestPropertyBased:
     def test_long_names_always_rejected(self, name: str):
         """Names >63 chars are always rejected."""
         import click
+
         with pytest.raises(click.BadParameter, match="at most 63"):
             _validate_task_name(name)
 
-    @given(st.sampled_from(["d", "h", "m", "s"]), st.integers(min_value=1, max_value=999))
+    @given(
+        st.sampled_from(["d", "h", "m", "s"]), st.integers(min_value=1, max_value=999)
+    )
     def test_parse_age_unit_conversion(self, unit: str, value: int):
         """All valid age strings produce correct seconds."""
         expected = value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
@@ -1080,6 +1107,7 @@ class TestPropertyBased:
         import tempfile
 
         from duo.protocol import read_json, write_json
+
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "test.json"
             write_json(p, data)
@@ -2229,7 +2257,9 @@ class TestExportJsonl:
         """export --format jsonl --outfile writes JSONL to disk."""
         make_task("exp-jsonl-file")
         outfile = str(tmp_path / "export.jsonl")
-        result = runner.invoke(main, ["export", "exp-jsonl-file", "--format", "jsonl", "-o", outfile])
+        result = runner.invoke(
+            main, ["export", "exp-jsonl-file", "--format", "jsonl", "-o", outfile]
+        )
         assert result.exit_code == 0
         assert "written to" in result.output
         content = Path(outfile).read_text()
@@ -2513,7 +2543,11 @@ class TestWatchCommand:
             result = runner.invoke(main, ["watch", "task-a", "task-b"])
             assert result.exit_code == 0
             mock_w.assert_called_once_with(
-                ["task-a", "task-b"], timeout=300, interval=5.0, once=False, auto_approve=False
+                ["task-a", "task-b"],
+                timeout=300,
+                interval=5.0,
+                once=False,
+                auto_approve=False,
             )
 
     def test_watch_no_names(self, runner: CliRunner):
@@ -2762,7 +2796,9 @@ class TestInit:
         repo.mkdir()
         result = runner.invoke(main, ["init", "--repo", str(repo)])
         assert result.exit_code != 0
-        assert "git init" in result.output or "git init" in (result.output + str(result.exception or ""))
+        assert "git init" in result.output or "git init" in (
+            result.output + str(result.exception or "")
+        )
 
     def test_init_gitignore_no_duplicate(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2824,7 +2860,9 @@ class TestDoctor:
         """Python check fails when version < 3.12."""
         from collections import namedtuple
 
-        FakeVI = namedtuple("version_info", ["major", "minor", "micro", "releaselevel", "serial"])
+        FakeVI = namedtuple(
+            "version_info", ["major", "minor", "micro", "releaselevel", "serial"]
+        )
         fake_vi = FakeVI(3, 11, 0, "final", 0)
         monkeypatch.setattr("duo.cli.sys.version_info", fake_vi)
         r = _doctor_check_python()
@@ -2833,7 +2871,9 @@ class TestDoctor:
 
     def test_check_tmux_pass(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check passes with version >= 3.0."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="tmux 3.4\n", returncode=0),
@@ -2844,7 +2884,9 @@ class TestDoctor:
 
     def test_check_tmux_warn_old_version(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check warns when version < 3.0."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="tmux 2.9\n", returncode=0),
@@ -2862,7 +2904,9 @@ class TestDoctor:
 
     def test_check_tmux_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check passes (graceful) on subprocess timeout."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
 
         def _timeout(*a: object, **kw: object) -> None:
             raise subprocess.TimeoutExpired("tmux", 10)
@@ -2874,7 +2918,9 @@ class TestDoctor:
 
     def test_check_tmux_unparseable_version(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check passes (graceful) when version string cannot be parsed."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="tmux next-server\n", returncode=0),
@@ -2885,11 +2931,16 @@ class TestDoctor:
 
     def test_check_tmux_bridge_in_path(self, monkeypatch: pytest.MonkeyPatch):
         """tmux-bridge found in PATH."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux-bridge" if n == "tmux-bridge" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which",
+            lambda n: "/usr/bin/tmux-bridge" if n == "tmux-bridge" else None,
+        )
         r = _doctor_check_tmux_bridge()
         assert r.status == "pass"
 
-    def test_check_tmux_bridge_fallback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_tmux_bridge_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """tmux-bridge found at ~/.smux/bin/tmux-bridge fallback."""
         monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
         smux_bin = tmp_path / ".smux" / "bin"
@@ -2902,7 +2953,9 @@ class TestDoctor:
         assert r.status == "pass"
         assert "found at" in r.message
 
-    def test_check_tmux_bridge_not_executable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_tmux_bridge_not_executable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """tmux-bridge found but not executable."""
         monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
         smux_bin = tmp_path / ".smux" / "bin"
@@ -2916,7 +2969,9 @@ class TestDoctor:
         assert r.status == "fail"
         assert "not executable" in r.message
 
-    def test_check_tmux_bridge_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_tmux_bridge_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """tmux-bridge missing everywhere."""
         monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
         monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
@@ -2926,7 +2981,10 @@ class TestDoctor:
 
     def test_check_claude_cli_pass(self, monkeypatch: pytest.MonkeyPatch):
         """claude CLI found."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/claude" if n == "claude" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which",
+            lambda n: "/usr/bin/claude" if n == "claude" else None,
+        )
         r = _doctor_check_claude_cli()
         assert r.status == "pass"
 
@@ -2938,7 +2996,10 @@ class TestDoctor:
 
     def test_check_copilot_cli_pass_copilot(self, monkeypatch: pytest.MonkeyPatch):
         """Copilot CLI found via 'copilot'."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/copilot" if n == "copilot" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which",
+            lambda n: "/usr/bin/copilot" if n == "copilot" else None,
+        )
         r = _doctor_check_copilot_cli()
         assert r.status == "pass"
 
@@ -2946,7 +3007,9 @@ class TestDoctor:
         """Copilot CLI found via 'github-copilot-cli'."""
         monkeypatch.setattr(
             "duo.cli.shutil.which",
-            lambda n: "/usr/bin/github-copilot-cli" if n == "github-copilot-cli" else None,
+            lambda n: (
+                "/usr/bin/github-copilot-cli" if n == "github-copilot-cli" else None
+            ),
         )
         r = _doctor_check_copilot_cli()
         assert r.status == "pass"
@@ -2967,14 +3030,18 @@ class TestDoctor:
         assert r.status == "pass"
         assert "writable" in r.message
 
-    def test_check_duo_dir_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_duo_dir_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """~/.duo directory missing → fail."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path / "nonexistent")
         r = _doctor_check_duo_dir()
         assert r.status == "fail"
         assert "missing" in r.message
 
-    def test_check_duo_dir_not_writable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_duo_dir_not_writable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """~/.duo directory not writable → fail."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         monkeypatch.setattr("duo.cli.os.access", lambda p, m: False)
@@ -2982,7 +3049,9 @@ class TestDoctor:
         assert r.status == "fail"
         assert "not writable" in r.message
 
-    def test_check_duo_dir_low_space(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_duo_dir_low_space(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """~/.duo directory low disk space → warn."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
@@ -2992,7 +3061,9 @@ class TestDoctor:
         assert r.status == "warn"
         assert "50 MB" in r.message
 
-    def test_check_duo_dir_disk_usage_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_duo_dir_disk_usage_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """~/.duo disk_usage raises OSError → pass gracefully."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
@@ -3013,14 +3084,18 @@ class TestDoctor:
         assert r.status == "pass"
         assert r.message == "valid"
 
-    def test_check_config_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_config_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """Missing config.json → warn."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         r = _doctor_check_config()
         assert r.status == "warn"
         assert "missing" in r.message
 
-    def test_check_config_invalid(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_config_invalid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """Invalid JSON → warn."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
         (tmp_path / "config.json").write_text("{{{invalid")
@@ -3030,7 +3105,9 @@ class TestDoctor:
 
     def test_check_tmux_session_pass(self, monkeypatch: pytest.MonkeyPatch):
         """Active tmux session → pass."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0),
@@ -3040,7 +3117,9 @@ class TestDoctor:
 
     def test_check_tmux_session_warn_no_session(self, monkeypatch: pytest.MonkeyPatch):
         """No active tmux session → warn."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=1),
@@ -3049,7 +3128,9 @@ class TestDoctor:
         assert r.status == "warn"
         assert "no active" in r.message
 
-    def test_check_tmux_session_warn_not_installed(self, monkeypatch: pytest.MonkeyPatch):
+    def test_check_tmux_session_warn_not_installed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
         """tmux not installed → warn for session check."""
         monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
         r = _doctor_check_tmux_session()
@@ -3058,7 +3139,9 @@ class TestDoctor:
 
     def test_check_tmux_session_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """tmux list-sessions times out → warn."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+        )
 
         def _timeout(*a: object, **kw: object) -> None:
             raise subprocess.TimeoutExpired("tmux", 10)
@@ -3101,16 +3184,22 @@ class TestDoctor:
         assert r.status == "pass"
         assert r.message == "0"
 
-    def test_check_corrupted_warn(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_check_corrupted_warn(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """Corrupted tasks present → warn."""
-        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [tmp_path / "a", tmp_path / "b"])
+        monkeypatch.setattr(
+            "duo.protocol.list_corrupted", lambda: [tmp_path / "a", tmp_path / "b"]
+        )
         r = _doctor_check_corrupted()
         assert r.status == "warn"
         assert r.message == "2"
 
     def test_check_git_pass(self, monkeypatch: pytest.MonkeyPatch):
         """git found with version → pass."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None
+        )
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="git version 2.44.0\n", returncode=0),
@@ -3128,7 +3217,9 @@ class TestDoctor:
 
     def test_check_git_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """git --version times out → pass gracefully."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None)
+        monkeypatch.setattr(
+            "duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None
+        )
 
         def _timeout(*a: object, **kw: object) -> None:
             raise subprocess.TimeoutExpired("git", 10)
@@ -3156,7 +3247,9 @@ class TestDoctor:
             "duo.cli.subprocess.run",
             lambda *a, **kw: MagicMock(
                 returncode=0,
-                stdout="tmux 3.4\n" if a and a[0] and a[0][0] == "tmux" else "git version 2.44.0\n",
+                stdout="tmux 3.4\n"
+                if a and a[0] and a[0][0] == "tmux"
+                else "git version 2.44.0\n",
             ),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
@@ -3517,9 +3610,7 @@ class TestBatchValidation:
         with pytest.raises(click.UsageError):
             _load_batch_file(str(f))
 
-    def test_batch_missing_name_in_task_def(
-        self, runner: CliRunner, tmp_path: Path
-    ):
+    def test_batch_missing_name_in_task_def(self, runner: CliRunner, tmp_path: Path):
         """batch task missing 'name' key prints error and skips that task."""
         f = tmp_path / "noname.json"
         f.write_text(json.dumps({"tasks": [{"description": "no name field"}]}))
@@ -3537,9 +3628,9 @@ class TestBatchValidation:
     ) -> None:
         """target_files as string instead of list is rejected."""
         f = tmp_path / "bad_tf.json"
-        f.write_text(json.dumps({
-            "tasks": [{"name": "t1", "target_files": "not-a-list"}]
-        }))
+        f.write_text(
+            json.dumps({"tasks": [{"name": "t1", "target_files": "not-a-list"}]})
+        )
         result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
         assert "'target_files' must be a list" in result.output
 
@@ -3548,9 +3639,9 @@ class TestBatchValidation:
     ) -> None:
         """writable_paths as dict instead of list is rejected."""
         f = tmp_path / "bad_wp.json"
-        f.write_text(json.dumps({
-            "tasks": [{"name": "t1", "writable_paths": {"a": 1}}]
-        }))
+        f.write_text(
+            json.dumps({"tasks": [{"name": "t1", "writable_paths": {"a": 1}}]})
+        )
         result = runner.invoke(main, ["batch", str(f), "--repo", str(tmp_path)])
         assert "'writable_paths' must be a list" in result.output
 
@@ -3630,9 +3721,7 @@ class TestDiffCommand:
 
     def test_diff_no_worktree(self, runner: CliRunner):
         """diff when worktree doesn't exist shows error."""
-        sub = Subtask(
-            step_id=1, description="d", target_files=[], writable_paths=[]
-        )
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
         create_task(
             task_id="diff-test",
             description="desc",
@@ -3645,8 +3734,7 @@ class TestDiffCommand:
         result = runner.invoke(main, ["diff", "diff-test"])
         assert result.exit_code != 0
         assert (
-            "worktree" in result.output.lower()
-            or "not found" in result.output.lower()
+            "worktree" in result.output.lower() or "not found" in result.output.lower()
         )
 
     def test_diff_no_changes(self, runner: CliRunner, tmp_path: Path):
@@ -3654,9 +3742,7 @@ class TestDiffCommand:
         wt = tmp_path / "worktree"
         wt.mkdir()
 
-        sub = Subtask(
-            step_id=1, description="d", target_files=[], writable_paths=[]
-        )
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
         create_task(
             task_id="diff-empty",
             description="desc",
@@ -3672,9 +3758,7 @@ class TestDiffCommand:
 
         def mock_run(cmd, **kwargs):
             if cmd[0] == "git" and "diff" in cmd:
-                return subprocess.CompletedProcess(
-                    cmd, 0, stdout="", stderr=""
-                )
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
             return original_run(cmd, **kwargs)
 
         with patch("subprocess.run", side_effect=mock_run):
@@ -3687,9 +3771,7 @@ class TestDiffCommand:
         wt = tmp_path / "worktree"
         wt.mkdir()
 
-        sub = Subtask(
-            step_id=1, description="d", target_files=[], writable_paths=[]
-        )
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
         create_task(
             task_id="diff-output",
             description="desc",
@@ -3706,9 +3788,7 @@ class TestDiffCommand:
 
         def mock_run(cmd, **kwargs):
             if cmd[0] == "git" and "diff" in cmd:
-                return subprocess.CompletedProcess(
-                    cmd, 0, stdout=diff_text, stderr=""
-                )
+                return subprocess.CompletedProcess(cmd, 0, stdout=diff_text, stderr="")
             return original_run(cmd, **kwargs)
 
         with patch("subprocess.run", side_effect=mock_run):
@@ -3851,7 +3931,9 @@ class TestStartFlags:
         assert task is not None
         assert task.status == TaskStatus.QUEUED
 
-    def test_start_with_model(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_start_with_model(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """start --model sets DUO_COPILOT_MODEL env var."""
         with (
             patch("duo.cli._create_worktree") as mock_wt,
@@ -3869,12 +3951,16 @@ class TestStartFlags:
         # Clean up env var
         monkeypatch.delenv("DUO_COPILOT_MODEL", raising=False)
 
-    def test_start_from_thinking(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_start_from_thinking(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """start --from-thinking reads plan.md from thinking session."""
         fake_thinking = tmp_path / "thinking"
         tdir = fake_thinking / "my-app"
         tdir.mkdir(parents=True)
-        (tdir / "plan.md").write_text("# Plan: my-app\n\nBuild the app.", encoding="utf-8")
+        (tdir / "plan.md").write_text(
+            "# Plan: my-app\n\nBuild the app.", encoding="utf-8"
+        )
 
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         with (
@@ -3894,7 +3980,9 @@ class TestStartFlags:
         assert task is not None
         assert "Plan: my-app" in task.description
 
-    def test_start_from_thinking_no_plan(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_start_from_thinking_no_plan(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """start --from-thinking fails if plan.md doesn't exist."""
         fake_thinking = tmp_path / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
@@ -3906,7 +3994,9 @@ class TestStartFlags:
         assert result.exit_code != 0
         assert "No plan.md" in result.output
 
-    def test_start_from_thinking_empty_plan(self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_start_from_thinking_empty_plan(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """start --from-thinking fails if plan.md is empty."""
         fake_thinking = tmp_path / "thinking"
         tdir = fake_thinking / "empty-plan"
@@ -4174,9 +4264,15 @@ class TestInspectIncludeFiles:
     def test_inspect_include_files(self, runner: CliRunner):
         """inspect --include-files shows changed and untracked files."""
         _make_task("incl-files")
-        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="src/a.py\nsrc/b.py\n", stderr="")
-        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="new.txt\n", stderr="")
-        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout="diff --git a/src/a.py\n+hello\n", stderr="")
+        changed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="src/a.py\nsrc/b.py\n", stderr=""
+        )
+        untracked = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="new.txt\n", stderr=""
+        )
+        diff = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="diff --git a/src/a.py\n+hello\n", stderr=""
+        )
 
         def fake_run_git(args, cwd, *, check=True):
             if args[:2] == ["diff", "--name-only"]:
@@ -4185,8 +4281,10 @@ class TestInspectIncludeFiles:
                 return untracked
             return diff
 
-        with patch("duo.cli._run_git", side_effect=fake_run_git), \
-             patch("os.path.isdir", return_value=True):
+        with (
+            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("os.path.isdir", return_value=True),
+        ):
             result = runner.invoke(main, ["inspect", "incl-files", "--include-files"])
         assert result.exit_code == 0
         assert "Changed files (2):" in result.output
@@ -4205,9 +4303,15 @@ class TestInspectIncludeFiles:
     def test_inspect_include_files_json(self, runner: CliRunner):
         """inspect --json-output --include-files populates JSON keys."""
         _make_task("incl-json")
-        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="x.py\n", stderr="")
-        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout="diff content", stderr="")
+        changed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="x.py\n", stderr=""
+        )
+        untracked = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        diff = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="diff content", stderr=""
+        )
 
         def fake_run_git(args, cwd, *, check=True):
             if args[:2] == ["diff", "--name-only"]:
@@ -4216,9 +4320,13 @@ class TestInspectIncludeFiles:
                 return untracked
             return diff
 
-        with patch("duo.cli._run_git", side_effect=fake_run_git), \
-             patch("os.path.isdir", return_value=True):
-            result = runner.invoke(main, ["inspect", "incl-json", "--json-output", "--include-files"])
+        with (
+            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("os.path.isdir", return_value=True),
+        ):
+            result = runner.invoke(
+                main, ["inspect", "incl-json", "--json-output", "--include-files"]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["changed_files"] == ["x.py"]
@@ -4229,9 +4337,15 @@ class TestInspectIncludeFiles:
         """inspect --json-output --include-files truncates diff > 500 chars."""
         _make_task("incl-trunc")
         big_diff = "x" * 600
-        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="a.py\n", stderr="")
-        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout=big_diff, stderr="")
+        changed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="a.py\n", stderr=""
+        )
+        untracked = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        diff = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=big_diff, stderr=""
+        )
 
         def fake_run_git(args, cwd, *, check=True):
             if args[:2] == ["diff", "--name-only"]:
@@ -4240,9 +4354,13 @@ class TestInspectIncludeFiles:
                 return untracked
             return diff
 
-        with patch("duo.cli._run_git", side_effect=fake_run_git), \
-             patch("os.path.isdir", return_value=True):
-            result = runner.invoke(main, ["inspect", "incl-trunc", "--json-output", "--include-files"])
+        with (
+            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("os.path.isdir", return_value=True),
+        ):
+            result = runner.invoke(
+                main, ["inspect", "incl-trunc", "--json-output", "--include-files"]
+            )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["diff_preview"].endswith("... (truncated)")
@@ -4251,7 +4369,9 @@ class TestInspectIncludeFiles:
     def test_inspect_json_include_files_no_worktree(self, runner: CliRunner):
         """inspect --json-output --include-files sets files_error when worktree missing."""
         _make_task("incl-nodir-json")
-        result = runner.invoke(main, ["inspect", "incl-nodir-json", "--json-output", "--include-files"])
+        result = runner.invoke(
+            main, ["inspect", "incl-nodir-json", "--json-output", "--include-files"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "files_error" in data
@@ -4261,9 +4381,15 @@ class TestInspectIncludeFiles:
         """inspect --include-files (text) truncates diff > 500 chars."""
         _make_task("incl-trunc-text")
         big_diff = "y" * 600
-        changed = subprocess.CompletedProcess(args=[], returncode=0, stdout="b.py\n", stderr="")
-        untracked = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        diff = subprocess.CompletedProcess(args=[], returncode=0, stdout=big_diff, stderr="")
+        changed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="b.py\n", stderr=""
+        )
+        untracked = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="", stderr=""
+        )
+        diff = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout=big_diff, stderr=""
+        )
 
         def fake_run_git(args, cwd, *, check=True):
             if args[:2] == ["diff", "--name-only"]:
@@ -4272,9 +4398,13 @@ class TestInspectIncludeFiles:
                 return untracked
             return diff
 
-        with patch("duo.cli._run_git", side_effect=fake_run_git), \
-             patch("os.path.isdir", return_value=True):
-            result = runner.invoke(main, ["inspect", "incl-trunc-text", "--include-files"])
+        with (
+            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("os.path.isdir", return_value=True),
+        ):
+            result = runner.invoke(
+                main, ["inspect", "incl-trunc-text", "--include-files"]
+            )
         assert result.exit_code == 0
         assert "... (truncated)" in result.output
 
@@ -4323,11 +4453,11 @@ class TestBatchInvalidName:
         """Batch file with path-traversal task name is rejected."""
         batch_file = tmp_path / "bad-names.json"
         batch_file.write_text(
-            json.dumps(
-                {"tasks": [{"name": "../evil", "description": "bad"}]}
-            )
+            json.dumps({"tasks": [{"name": "../evil", "description": "bad"}]})
         )
-        result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        result = runner.invoke(
+            main, ["batch", str(batch_file), "--repo", str(tmp_path)]
+        )
         assert "invalid task name" in result.output.lower() or result.exit_code != 0
 
 
@@ -4444,20 +4574,23 @@ class TestRetry:
 class TestNotFoundParametrized:
     """Parametrized 'not found' tests covering all task-based commands."""
 
-    @pytest.mark.parametrize("args", [
-        ["status", "nonexistent"],
-        ["logs", "nonexistent"],
-        ["inspect", "nonexistent"],
-        ["export", "nonexistent"],
-        ["audit", "nonexistent"],
-        ["kill", "nonexistent"],
-        ["stop", "nonexistent"],
-        ["merge", "nonexistent"],
-        ["diff", "nonexistent"],
-        ["retry", "nonexistent"],
-        ["resume", "nonexistent"],
-        ["send", "nonexistent", "hello"],
-    ])
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["status", "nonexistent"],
+            ["logs", "nonexistent"],
+            ["inspect", "nonexistent"],
+            ["export", "nonexistent"],
+            ["audit", "nonexistent"],
+            ["kill", "nonexistent"],
+            ["stop", "nonexistent"],
+            ["merge", "nonexistent"],
+            ["diff", "nonexistent"],
+            ["retry", "nonexistent"],
+            ["resume", "nonexistent"],
+            ["send", "nonexistent", "hello"],
+        ],
+    )
     def test_command_task_not_found(self, runner: CliRunner, args: list[str]):
         result = runner.invoke(main, args)
         assert result.exit_code != 0
@@ -4560,7 +4693,9 @@ class TestDoctorTaskTimeout:
             lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
-        monkeypatch.setattr("duo.cli.get_config", lambda k: -1 if k == "task_timeout" else 0)
+        monkeypatch.setattr(
+            "duo.cli.get_config", lambda k: -1 if k == "task_timeout" else 0
+        )
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
         assert "invalid" in result.output.lower()
@@ -4573,10 +4708,14 @@ class TestBatchBareArray:
     def test_batch_bare_array_auto_wrapped(self, runner: CliRunner, tmp_path: Path):
         """Batch file with bare JSON array (not wrapped in {tasks:...}) is auto-wrapped."""
         batch_file = tmp_path / "bare-array.json"
-        batch_file.write_text(json.dumps([
-            {"name": "task-a", "description": "first task"},
-            {"name": "task-b", "description": "second task"},
-        ]))
+        batch_file.write_text(
+            json.dumps(
+                [
+                    {"name": "task-a", "description": "first task"},
+                    {"name": "task-b", "description": "second task"},
+                ]
+            )
+        )
         with (
             patch("duo.cli._create_single_task") as mock_create,
             patch(
@@ -4591,7 +4730,9 @@ class TestBatchBareArray:
             ),
         ):
             mock_create.side_effect = ["task-a", "task-b"]
-            result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+            result = runner.invoke(
+                main, ["batch", str(batch_file), "--repo", str(tmp_path)]
+            )
         # Should succeed, not error about missing 'tasks' key
         assert result.exit_code == 0
         assert "2 tasks created" in result.output
@@ -4601,23 +4742,33 @@ class TestBatchDuplicateNames:
     def test_batch_duplicate_names_rejected(self, runner: CliRunner, tmp_path: Path):
         """Batch file with duplicate task names is rejected."""
         batch_file = tmp_path / "dupes.json"
-        batch_file.write_text(json.dumps({
-            "tasks": [
-                {"name": "task-a", "description": "first"},
-                {"name": "task-b", "description": "second"},
-                {"name": "task-a", "description": "duplicate"},
-            ]
-        }))
-        result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        batch_file.write_text(
+            json.dumps(
+                {
+                    "tasks": [
+                        {"name": "task-a", "description": "first"},
+                        {"name": "task-b", "description": "second"},
+                        {"name": "task-a", "description": "duplicate"},
+                    ]
+                }
+            )
+        )
+        result = runner.invoke(
+            main, ["batch", str(batch_file), "--repo", str(tmp_path)]
+        )
         assert result.exit_code != 0
         assert "duplicate" in result.output.lower()
         assert "task-a" in result.output
 
-    def test_batch_file_too_large_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_batch_file_too_large_rejected(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
         """Batch file exceeding 10 MB is rejected."""
         batch_file = tmp_path / "huge.json"
         batch_file.write_text("x" * (10_000_001))
-        result = runner.invoke(main, ["batch", str(batch_file), "--repo", str(tmp_path)])
+        result = runner.invoke(
+            main, ["batch", str(batch_file), "--repo", str(tmp_path)]
+        )
         assert result.exit_code != 0
         assert "too large" in result.output.lower()
 
@@ -4630,66 +4781,96 @@ class TestBatchDuplicateNames:
 class TestEventsCommand:
     """Tests for duo events subcommands."""
 
-    def test_events_list_empty(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_list_empty(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
         assert "No events" in result.output
 
-    def test_events_list_with_files(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_list_with_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
-        write_json(edir / "task1-2026-04-08.json", {"task_id": "task1", "detected_at": "2026-04-08T10:00:00Z"})
+
+        write_json(
+            edir / "task1-2026-04-08.json",
+            {"task_id": "task1", "detected_at": "2026-04-08T10:00:00Z"},
+        )
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
         assert "task1" in result.output
 
-    def test_events_show_latest(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_show_latest(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
-        write_json(edir / "a-ev.json", {"task_id": "t1", "detected_at": "2026-04-08T09:00:00Z"})
-        write_json(edir / "b-ev.json", {"task_id": "t2", "detected_at": "2026-04-08T10:00:00Z"})
+
+        write_json(
+            edir / "a-ev.json", {"task_id": "t1", "detected_at": "2026-04-08T09:00:00Z"}
+        )
+        write_json(
+            edir / "b-ev.json", {"task_id": "t2", "detected_at": "2026-04-08T10:00:00Z"}
+        )
         result = runner.invoke(main, ["events", "show"])
         assert result.exit_code == 0
         assert "t2" in result.output
 
-    def test_events_show_by_name(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_show_by_name(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
-        write_json(edir / "my-event.json", {"task_id": "x", "detected_at": "2026-04-08T10:00:00Z"})
+
+        write_json(
+            edir / "my-event.json",
+            {"task_id": "x", "detected_at": "2026-04-08T10:00:00Z"},
+        )
         result = runner.invoke(main, ["events", "show", "my-event"])
         assert result.exit_code == 0
         assert '"task_id"' in result.output
 
-    def test_events_show_not_found(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_show_not_found(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "show", "nonexistent"])
         assert result.exit_code != 0
 
-    def test_events_show_no_dir(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_show_no_dir(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "nope")
         result = runner.invoke(main, ["events", "show"])
         assert result.exit_code != 0
 
-    def test_events_clear_empty(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_clear_empty(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
         result = runner.invoke(main, ["events", "clear"])
         assert result.exit_code == 0
         assert "No events" in result.output
 
-    def test_events_clear_force(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_clear_force(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
+
         write_json(edir / "ev1.json", {"task_id": "t"})
         write_json(edir / "ev2.json", {"task_id": "t"})
         result = runner.invoke(main, ["events", "clear", "--force"])
@@ -4697,24 +4878,34 @@ class TestEventsCommand:
         assert "Cleared 2" in result.output
         assert not list(edir.glob("*.json"))
 
-    def test_events_clear_confirm_abort(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_clear_confirm_abort(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
+
         write_json(edir / "ev.json", {"task_id": "t"})
         result = runner.invoke(main, ["events", "clear"], input="n\n")
         assert result.exit_code != 0  # aborted
 
-    def test_events_tail_initial(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_tail_initial(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Tail shows initial events then gets interrupted."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
-        write_json(edir / "ev.json", {"task_id": "tail-test", "detected_at": "2026-04-08T10:00:00Z"})
+
+        write_json(
+            edir / "ev.json",
+            {"task_id": "tail-test", "detected_at": "2026-04-08T10:00:00Z"},
+        )
         # Simulate KeyboardInterrupt on first sleep
         import time
+
         orig_sleep = time.sleep
         call_count = 0
 
@@ -4730,7 +4921,9 @@ class TestEventsCommand:
         assert "tail-test" in result.output
         assert "following" in result.output
 
-    def test_events_list_dir_exists_no_files(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_list_dir_exists_no_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
@@ -4738,7 +4931,9 @@ class TestEventsCommand:
         assert result.exit_code == 0
         assert "No events" in result.output
 
-    def test_events_list_bad_json_skipped(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_list_bad_json_skipped(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
@@ -4746,7 +4941,9 @@ class TestEventsCommand:
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
 
-    def test_events_show_latest_empty_dir(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_show_latest_empty_dir(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
@@ -4754,7 +4951,9 @@ class TestEventsCommand:
         assert result.exit_code != 0
         assert "No events" in result.output
 
-    def test_events_show_invalid_json(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_show_invalid_json(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
@@ -4763,7 +4962,9 @@ class TestEventsCommand:
         assert result.exit_code != 0
         assert "Invalid" in result.output
 
-    def test_events_clear_dir_exists_no_files(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_clear_dir_exists_no_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
@@ -4771,7 +4972,9 @@ class TestEventsCommand:
         assert result.exit_code == 0
         assert "No events" in result.output
 
-    def test_events_tail_new_event_in_loop(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_events_tail_new_event_in_loop(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Tail picks up a new event added during the loop."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
@@ -4785,7 +4988,10 @@ class TestEventsCommand:
             call_count += 1
             if call_count == 1:
                 # Simulate new event appearing during poll
-                write_json(edir / "new-ev.json", {"task_id": "new-task", "detected_at": "2026-04-08T11:00:00Z"})
+                write_json(
+                    edir / "new-ev.json",
+                    {"task_id": "new-task", "detected_at": "2026-04-08T11:00:00Z"},
+                )
             elif call_count >= 2:
                 raise KeyboardInterrupt
 
@@ -4816,18 +5022,22 @@ class TestCeoWait:
 
     def test_timeout(self, runner: CliRunner, make_task) -> None:
         task = make_task("wait-timeout")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.wait_for_dialog", return_value=False):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.wait_for_dialog", return_value=False),
+        ):
             result = runner.invoke(main, ["ceo-wait", task.id, "--timeout", "10"])
         assert result.exit_code != 0
         assert "Timeout" in result.output
 
     def test_dialog_found(self, runner: CliRunner, make_task) -> None:
         task = make_task("wait-ok")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.wait_for_dialog", return_value=True), \
-             patch("duo.transport.read_pane", return_value="dialog content here"), \
-             patch("duo.commander._write_watch_event") as mock_write:
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.wait_for_dialog", return_value=True),
+            patch("duo.transport.read_pane", return_value="dialog content here"),
+            patch("duo.commander._write_watch_event") as mock_write,
+        ):
             result = runner.invoke(main, ["ceo-wait", task.id])
         assert result.exit_code == 0
         assert "dialog content here" in result.output
@@ -4835,10 +5045,12 @@ class TestCeoWait:
 
     def test_custom_interval(self, runner: CliRunner, make_task) -> None:
         task = make_task("wait-interval")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.wait_for_dialog", return_value=True) as mock_wait, \
-             patch("duo.transport.read_pane", return_value="content"), \
-             patch("duo.commander._write_watch_event"):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.wait_for_dialog", return_value=True) as mock_wait,
+            patch("duo.transport.read_pane", return_value="content"),
+            patch("duo.commander._write_watch_event"),
+        ):
             runner.invoke(main, ["ceo-wait", task.id, "--interval", "2"])
         mock_wait.assert_called_once_with(task.pane_label, timeout=300, interval=2.0)
 
@@ -4862,8 +5074,10 @@ class TestPrBudgetSafety:
         """assert_not_at_main_prompt raises when at ❯ prompt."""
         from duo.cli import assert_not_at_main_prompt
 
-        with patch("duo.transport._is_at_main_prompt", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ Type @"):
+        with (
+            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ Type @"),
+        ):
             with pytest.raises(click.exceptions.ClickException, match="REFUSED"):
                 assert_not_at_main_prompt("duo:test-label")
 
@@ -4871,8 +5085,10 @@ class TestPrBudgetSafety:
         """assert_not_at_main_prompt returns None when not at prompt."""
         from duo.cli import assert_not_at_main_prompt
 
-        with patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""):
+        with (
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+        ):
             assert assert_not_at_main_prompt("duo:test-label") is None
 
     def test_enforce_force_new_session_logs(self) -> None:
@@ -4889,8 +5105,10 @@ class TestPrBudgetSafety:
         """_enforce_not_at_main_prompt with force=False calls assert."""
         from duo.cli import _enforce_not_at_main_prompt
 
-        with patch("duo.transport._is_at_main_prompt", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ Type @"):
+        with (
+            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ Type @"),
+        ):
             with pytest.raises(click.exceptions.ClickException, match="REFUSED"):
                 _enforce_not_at_main_prompt("duo:test-label", force_new_session=False)
 
@@ -4905,19 +5123,23 @@ class TestCeoSelect:
 
     def test_not_in_dialog(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-nodlg")
-        with patch("duo.transport.is_in_dialog_stable", return_value=False), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""):
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=False),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+        ):
             result = runner.invoke(main, ["ceo-select", task.id, "1"])
         assert result.exit_code != 0
         assert "not in a stable dialog" in result.output
 
     def test_select_number(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-num")
-        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""), \
-             patch("duo.transport.select_dialog_option") as mock_sel:
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+        ):
             result = runner.invoke(main, ["ceo-select", task.id, "2"])
         assert result.exit_code == 0
         assert "Selected option 2" in result.output
@@ -4925,11 +5147,15 @@ class TestCeoSelect:
 
     def test_select_other(self, runner: CliRunner, make_task) -> None:
         task = make_task("sel-other")
-        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""), \
-             patch("duo.transport.select_other_option") as mock_other:
-            result = runner.invoke(main, ["ceo-select", task.id, "--other", "my custom text"])
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.select_other_option") as mock_other,
+        ):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "--other", "my custom text"]
+            )
         assert result.exit_code == 0
         assert "Other" in result.output
         mock_other.assert_called_once_with(task.pane_label, "my custom text")
@@ -4944,7 +5170,9 @@ class TestCeoSelect:
         assert result.exit_code != 0
         assert "Cannot specify both" in result.output
 
-    def test_neither_option_nor_other_is_error(self, runner: CliRunner, make_task) -> None:
+    def test_neither_option_nor_other_is_error(
+        self, runner: CliRunner, make_task
+    ) -> None:
         task = make_task("sel-none")
         result = runner.invoke(main, ["ceo-select", task.id])
         assert result.exit_code != 0
@@ -4953,39 +5181,53 @@ class TestCeoSelect:
     def test_refused_at_main_prompt(self, runner: CliRunner, make_task) -> None:
         """ceo-select REFUSES if pane is at main ❯ prompt."""
         task = make_task("sel-prompt")
-        with patch("duo.transport._is_at_main_prompt", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ Type @"):
+        with (
+            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ Type @"),
+        ):
             result = runner.invoke(main, ["ceo-select", task.id, "1"])
         assert result.exit_code != 0
         assert "REFUSED" in result.output
         assert "Premium Request" in result.output
 
-    def test_force_new_session_bypasses_assert(self, runner: CliRunner, make_task) -> None:
+    def test_force_new_session_bypasses_assert(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--force-new-session bypasses the main-prompt check but logs."""
         task = make_task("sel-force")
-        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ Type @"), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION), \
-             patch("duo.transport.select_dialog_option"):
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ Type @"),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.select_dialog_option"),
+        ):
             result = runner.invoke(
-                main, ["ceo-select", task.id, "1", "--force-new-session"],
+                main,
+                ["ceo-select", task.id, "1", "--force-new-session"],
                 catch_exceptions=False,
             )
         assert result.exit_code == 0
         # Check budget log was written
         from duo.protocol import DUO_DIR
+
         log_path = DUO_DIR / "pr-budget.log"
         assert log_path.exists()
         assert "--force-new-session" in log_path.read_text()
 
-    def test_text_dialog_option_number_rejected(self, runner: CliRunner, make_task) -> None:
+    def test_text_dialog_option_number_rejected(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """Selecting a number in a TEXT dialog is rejected."""
         task = make_task("sel-text-num")
-        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT):
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch(
+                "duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"
+            ),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+        ):
             result = runner.invoke(main, ["ceo-select", task.id, "1"])
         assert result.exit_code != 0
         assert "text-input dialog" in result.output
@@ -4993,27 +5235,44 @@ class TestCeoSelect:
     def test_text_dialog_other_works(self, runner: CliRunner, make_task) -> None:
         """--other in a TEXT dialog uses send_text_dialog_message."""
         task = make_task("sel-text-ok")
-        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT), \
-             patch("duo.transport.send_text_dialog_message", return_value=True) as mock_send:
-            result = runner.invoke(main, ["ceo-select", task.id, "--other", "my answer"])
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch(
+                "duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"
+            ),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch(
+                "duo.transport.send_text_dialog_message", return_value=True
+            ) as mock_send,
+        ):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "--other", "my answer"]
+            )
         assert result.exit_code == 0
         assert "Typed text" in result.output
         mock_send.assert_called_once_with(task.pane_label, "my answer")
 
-    def test_text_dialog_other_retry_warning(self, runner: CliRunner, make_task) -> None:
+    def test_text_dialog_other_retry_warning(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--other shows warning when dialog persists after retries."""
         task = make_task("sel-text-retry")
-        with patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT), \
-             patch("duo.transport.send_text_dialog_message", return_value=False):
-            result = runner.invoke(main, ["ceo-select", task.id, "--other", "my answer"])
+        with (
+            patch("duo.transport.is_in_dialog_stable", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch(
+                "duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"
+            ),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+            patch("duo.transport.send_text_dialog_message", return_value=False),
+        ):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "--other", "my answer"]
+            )
         assert result.exit_code == 0
         assert "may still be active" in result.output
+
     """Tests for duo ceo-approve."""
 
     def test_task_not_found(self, runner: CliRunner) -> None:
@@ -5023,10 +5282,12 @@ class TestCeoSelect:
 
     def test_approve_success(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-ok")
-        with patch("duo.transport.is_permission_dialog", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""), \
-             patch("duo.transport.approve_permission") as mock_approve:
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.approve_permission") as mock_approve,
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code == 0
         assert "Approved" in result.output
@@ -5034,9 +5295,11 @@ class TestCeoSelect:
 
     def test_approve_not_permission_dialog(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-ask")
-        with patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""):
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
         assert "not showing a permission dialog" in result.output
@@ -5044,19 +5307,26 @@ class TestCeoSelect:
 
     def test_approve_runtime_error(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-fail")
-        with patch("duo.transport.is_permission_dialog", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""), \
-             patch("duo.transport.approve_permission", side_effect=RuntimeError("SAFETY: not in dialog")):
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch(
+                "duo.transport.approve_permission",
+                side_effect=RuntimeError("SAFETY: not in dialog"),
+            ),
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
 
     def test_approve_oserror(self, runner: CliRunner, make_task) -> None:
         task = make_task("appr-os")
-        with patch("duo.transport.is_permission_dialog", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=False), \
-             patch("duo.transport.read_pane", return_value=""), \
-             patch("duo.transport.approve_permission", side_effect=OSError("pane gone")):
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch("duo.transport.approve_permission", side_effect=OSError("pane gone")),
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
 
@@ -5067,25 +5337,32 @@ class TestCeoSelect:
     def test_refused_at_main_prompt(self, runner: CliRunner, make_task) -> None:
         """ceo-approve REFUSES if pane is at main ❯ prompt."""
         task = make_task("appr-prompt")
-        with patch("duo.transport._is_at_main_prompt", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ Type @"):
+        with (
+            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ Type @"),
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
         assert "REFUSED" in result.output
         assert "Premium Request" in result.output
 
-    def test_force_new_session_bypasses_assert(self, runner: CliRunner, make_task) -> None:
+    def test_force_new_session_bypasses_assert(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--force-new-session bypasses the main-prompt check but logs."""
         task = make_task("appr-force")
-        with patch("duo.transport.is_permission_dialog", return_value=True), \
-             patch("duo.transport._is_at_main_prompt", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ Type @"), \
-             patch("duo.transport.approve_permission"):
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ Type @"),
+            patch("duo.transport.approve_permission"),
+        ):
             result = runner.invoke(
                 main, ["ceo-approve", task.id, "--force-new-session"]
             )
         assert result.exit_code == 0
         from duo.protocol import DUO_DIR
+
         log_path = DUO_DIR / "pr-budget.log"
         assert log_path.exists()
         assert "--force-new-session" in log_path.read_text()
@@ -5110,9 +5387,11 @@ class TestCeoStatus:
     def test_dialog_state(self, runner: CliRunner, make_task) -> None:
         task = make_task("stat-dlg")
         pane_content = "╭─ Question ─╮\n│ 1. Yes  \n│ 2. No   \n│ 3. Other\n╰─"
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -5121,9 +5400,11 @@ class TestCeoStatus:
 
     def test_processing_state(self, runner: CliRunner, make_task) -> None:
         task = make_task("stat-proc")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value="◉ Thinking..."), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value="◉ Thinking..."),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -5131,9 +5412,11 @@ class TestCeoStatus:
 
     def test_idle_state(self, runner: CliRunner, make_task) -> None:
         task = make_task("stat-idle")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ "), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ "),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -5143,36 +5426,50 @@ class TestCeoStatus:
         result = runner.invoke(main, ["ceo-status", "bad name"])
         assert result.exit_code != 0
 
-    def test_assert_in_dialog_passes_when_dialog(self, runner: CliRunner, make_task) -> None:
+    def test_assert_in_dialog_passes_when_dialog(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--assert-in-dialog exits 0 when pane IS in a dialog."""
         task = make_task("stat-aid-ok")
         pane_content = "╭─ Question ─╮\n│ 1. Yes  \n│ 2. No\n╰─"
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 0
 
-    def test_assert_in_dialog_fails_when_idle(self, runner: CliRunner, make_task) -> None:
+    def test_assert_in_dialog_fails_when_idle(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--assert-in-dialog exits non-zero when pane is idle."""
         task = make_task("stat-aid-idle")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value="❯ "), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯ "),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         # SystemExit(1) — Click wraps as exit_code=1
         assert result.exit_code == 1
 
-    def test_assert_in_dialog_fails_when_processing(self, runner: CliRunner, make_task) -> None:
+    def test_assert_in_dialog_fails_when_processing(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--assert-in-dialog exits non-zero when pane is processing."""
         task = make_task("stat-aid-proc")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value="◉ Thinking..."), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value="◉ Thinking..."),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 1
 
-    def test_assert_in_dialog_fails_when_dead(self, runner: CliRunner, make_task) -> None:
+    def test_assert_in_dialog_fails_when_dead(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--assert-in-dialog exits non-zero when pane is dead."""
         task = make_task("stat-aid-dead")
         with patch("duo.transport.is_process_alive", return_value=False):
@@ -5183,25 +5480,33 @@ class TestCeoStatus:
         """ceo-status reports text_dialog for text-input dialogs."""
         task = make_task("stat-text")
         pane_content = "╭─ Question ─╮\n Type your answer\n╰────────────╯"
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data == {"task": task.id, "state": "text_dialog"}
 
-    def test_assert_in_dialog_passes_for_text_dialog(self, runner: CliRunner, make_task) -> None:
+    def test_assert_in_dialog_passes_for_text_dialog(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """--assert-in-dialog exits 0 for text_dialog (it IS a dialog)."""
         task = make_task("stat-aid-text")
         pane_content = "╭─ Q ─╮\n Type your answer\n╰─"
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.TEXT),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id, "--assert-in-dialog"])
         assert result.exit_code == 0
 
-    def test_dialog_options_not_counted_outside_box(self, runner: CliRunner, make_task) -> None:
+    def test_dialog_options_not_counted_outside_box(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """Options in scrollback ABOVE the dialog box are not counted."""
         task = make_task("stat-box-above")
         # Scrollback has "1. foo", "2. bar" before the dialog box
@@ -5216,15 +5521,19 @@ class TestCeoStatus:
             "│   2. No\n"
             "╰──────────────╯"
         )
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["options"] == 2  # only 2 inside box, not 5
 
-    def test_dialog_options_not_counted_below_box(self, runner: CliRunner, make_task) -> None:
+    def test_dialog_options_not_counted_below_box(
+        self, runner: CliRunner, make_task
+    ) -> None:
         """Options BELOW the dialog box are not counted."""
         task = make_task("stat-box-below")
         pane_content = (
@@ -5236,9 +5545,11 @@ class TestCeoStatus:
             "4. Some other numbered text\n"
             "5. More numbered text\n"
         )
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -5256,9 +5567,11 @@ class TestCeoStatus:
             "│   5. Tell differently\n"
             "╰───────────╯"
         )
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.read_pane", return_value=pane_content), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.read_pane", return_value=pane_content),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -5275,16 +5588,19 @@ class TestLoadPolicy:
 
     def test_default_policy(self, runner: CliRunner) -> None:
         from duo.cli import _load_policy
+
         p = _load_policy(None)
         assert p["permission_dialogs"] == {"auto_approve": True}
 
     def test_policy_file_not_found(self, runner: CliRunner) -> None:
         from duo.cli import _load_policy
+
         with pytest.raises(click.ClickException, match="not found"):
             _load_policy("/nonexistent/policy.yaml")
 
     def test_invalid_policy_yaml(self, runner: CliRunner, tmp_path: Path) -> None:
         from duo.cli import _load_policy
+
         bad = tmp_path / "bad.yaml"
         bad.write_text(":\n  :\n  - [broken", encoding="utf-8")
         with pytest.raises(click.ClickException, match="Invalid policy"):
@@ -5292,6 +5608,7 @@ class TestLoadPolicy:
 
     def test_policy_not_mapping(self, runner: CliRunner, tmp_path: Path) -> None:
         from duo.cli import _load_policy
+
         bad = tmp_path / "list.yaml"
         bad.write_text("- item1\n- item2\n", encoding="utf-8")
         with pytest.raises(click.ClickException, match="YAML mapping"):
@@ -5299,6 +5616,7 @@ class TestLoadPolicy:
 
     def test_valid_policy(self, runner: CliRunner, tmp_path: Path) -> None:
         from duo.cli import _load_policy
+
         good = tmp_path / "policy.yaml"
         good.write_text(
             "permission_dialogs:\n"
@@ -5317,21 +5635,30 @@ class TestLoadPolicy:
 class TestLoopState:
     """Tests for ceo-loop state persistence."""
 
-    def test_write_and_read(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_write_and_read(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _read_loop_state, _write_loop_state
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         _write_loop_state("test-task", {"status": "paused"})
         state = _read_loop_state("test-task")
         assert state is not None
         assert state["status"] == "paused"
 
-    def test_read_nonexistent(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_read_nonexistent(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _read_loop_state
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         assert _read_loop_state("nonexistent") is None
 
-    def test_read_corrupt(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_read_corrupt(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _read_loop_state
+
         loops = tmp_path / "loops"
         loops.mkdir()
         (loops / "bad.json").write_text("not json!", encoding="utf-8")
@@ -5344,6 +5671,7 @@ class TestMatchOptionRule:
 
     def test_match_found(self) -> None:
         from duo.cli import _match_option_rule
+
         rules = [
             {"match": "Do you want to run", "action": "approve"},
             {"match": "continue", "action": "select_option", "option": 1},
@@ -5354,30 +5682,40 @@ class TestMatchOptionRule:
 
     def test_no_match(self) -> None:
         from duo.cli import _match_option_rule
+
         rules = [{"match": "foo", "action": "approve"}]
         result = _match_option_rule(rules, "bar baz")
         assert result is None
 
     def test_empty_rules(self) -> None:
         from duo.cli import _match_option_rule
+
         assert _match_option_rule([], "anything") is None
 
 
 class TestHandleDialog:
     """Tests for _handle_dialog."""
 
-    def test_permission_auto_approve(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_permission_auto_approve(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _DEFAULT_POLICY, _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = dict(_DEFAULT_POLICY)
-        with patch("duo.transport.is_permission_dialog", return_value=True), \
-             patch("duo.transport.approve_permission") as mock_approve:
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission") as mock_approve,
+        ):
             action = _handle_dialog("t1", "lbl", policy, "content", "option")
         assert action == "approved"
         mock_approve.assert_called_once()
 
-    def test_option_rule_approve(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_option_rule_approve(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = {
             "permission_dialogs": {"auto_approve": False},
@@ -5387,45 +5725,64 @@ class TestHandleDialog:
             },
             "text_dialogs": {"action": "pause"},
         }
-        with patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("duo.transport.approve_permission") as mock_approve:
-            action = _handle_dialog("t1", "lbl", policy, "Do you want to run command?", "option")
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.approve_permission") as mock_approve,
+        ):
+            action = _handle_dialog(
+                "t1", "lbl", policy, "Do you want to run command?", "option"
+            )
         assert action == "rule_approved"
         mock_approve.assert_called_once()
 
-    def test_option_rule_select(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_option_rule_select(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = {
             "permission_dialogs": {"auto_approve": False},
             "option_dialogs": {
                 "default": "pause",
-                "rules": [{"match": "continue", "action": "select_option", "option": 2}],
+                "rules": [
+                    {"match": "continue", "action": "select_option", "option": 2}
+                ],
             },
             "text_dialogs": {"action": "pause"},
         }
-        with patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("duo.transport.select_dialog_option") as mock_select:
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_select,
+        ):
             action = _handle_dialog("t1", "lbl", policy, "continue?", "option")
         assert action == "rule_selected_2"
         mock_select.assert_called_once_with("lbl", "2")
 
-    def test_option_default_select_first(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_option_default_select_first(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = {
             "permission_dialogs": {"auto_approve": False},
             "option_dialogs": {"default": "select_first", "rules": []},
             "text_dialogs": {"action": "pause"},
         }
-        with patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("duo.transport.select_dialog_option") as mock_select:
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_select,
+        ):
             action = _handle_dialog("t1", "lbl", policy, "no match", "option")
         assert action == "selected_first"
         mock_select.assert_called_once_with("lbl", "1")
 
-    def test_option_default_select_last(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_option_default_select_last(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = {
             "permission_dialogs": {"auto_approve": False},
@@ -5433,28 +5790,40 @@ class TestHandleDialog:
             "text_dialogs": {"action": "pause"},
         }
         content = "╭──\n 1. Yes\n 2. No\n 3. Other\n╰──"
-        with patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("duo.transport.select_dialog_option") as mock_select:
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_select,
+        ):
             action = _handle_dialog("t1", "lbl", policy, content, "option")
         assert action == "selected_last_3"
         mock_select.assert_called_once_with("lbl", "3")
 
-    def test_text_auto_respond(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_text_auto_respond(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = {
             "permission_dialogs": {"auto_approve": True},
             "option_dialogs": {"default": "pause", "rules": []},
             "text_dialogs": {"action": "auto_respond", "response": "yes please"},
         }
-        with patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("duo.transport.send_text_dialog_message", return_value=True) as mock_send:
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch(
+                "duo.transport.send_text_dialog_message", return_value=True
+            ) as mock_send,
+        ):
             action = _handle_dialog("t1", "lbl", policy, "type answer", "text")
         assert action == "auto_responded"
         mock_send.assert_called_once_with("lbl", "yes please")
 
-    def test_pause_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_pause_fallback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _handle_dialog
+
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         policy = {
             "permission_dialogs": {"auto_approve": False},
@@ -5472,7 +5841,13 @@ class TestHandleDialog:
 class TestCeoLoop:
     """Tests for duo ceo-loop."""
 
-    def test_pane_dead_exits(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_pane_dead_exits(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         task = make_task("loop-dead")
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         with patch("duo.transport.is_process_alive", return_value=False):
@@ -5480,7 +5855,13 @@ class TestCeoLoop:
         assert result.exit_code == 0
         assert "died" in result.output
 
-    def test_permission_auto_approved(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_permission_auto_approved(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         """Loop detects permission dialog and auto-approves."""
         task = make_task("loop-perm")
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
@@ -5491,17 +5872,30 @@ class TestCeoLoop:
             call_count["n"] += 1
             return call_count["n"] <= 3
 
-        with patch("duo.transport.is_process_alive", side_effect=fake_alive), \
-             patch("duo.transport.get_dialog_kind", side_effect=[DialogKind.OPTION, DialogKind.NONE, DialogKind.NONE]), \
-             patch("duo.transport.read_pane", return_value="╭── Allow? ──╮\n 1. Yes\n╰──"), \
-             patch("duo.transport.is_permission_dialog", return_value=True), \
-             patch("duo.transport.approve_permission") as mock_approve, \
-             patch("time.sleep"):
+        with (
+            patch("duo.transport.is_process_alive", side_effect=fake_alive),
+            patch(
+                "duo.transport.get_dialog_kind",
+                side_effect=[DialogKind.OPTION, DialogKind.NONE, DialogKind.NONE],
+            ),
+            patch(
+                "duo.transport.read_pane", return_value="╭── Allow? ──╮\n 1. Yes\n╰──"
+            ),
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.approve_permission") as mock_approve,
+            patch("time.sleep"),
+        ):
             result = runner.invoke(main, ["ceo-loop", task.id])
         assert "approved" in result.output
         mock_approve.assert_called_once()
 
-    def test_pause_and_pane_dies(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_pause_and_pane_dies(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         """Loop pauses on unknown dialog, then pane dies."""
         task = make_task("loop-pause-die")
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
@@ -5513,15 +5907,23 @@ class TestCeoLoop:
             # Alive for first check (dialog detection), then dies during pause wait
             return alive_count["n"] <= 2
 
-        with patch("duo.transport.is_process_alive", side_effect=fake_alive), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION), \
-             patch("duo.transport.read_pane", return_value="╭── Q ──╮\n 1. Opt\n╰──"), \
-             patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("time.sleep"):
+        with (
+            patch("duo.transport.is_process_alive", side_effect=fake_alive),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value="╭── Q ──╮\n 1. Opt\n╰──"),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("time.sleep"),
+        ):
             result = runner.invoke(main, ["ceo-loop", task.id])
         assert "paused" in result.output.lower() or "died" in result.output.lower()
 
-    def test_policy_file(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_policy_file(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         """Loop with custom policy file."""
         task = make_task("loop-policy")
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
@@ -5531,28 +5933,48 @@ class TestCeoLoop:
             encoding="utf-8",
         )
 
-        with patch("duo.transport.is_process_alive", side_effect=[True, False]), \
-             patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE), \
-             patch("time.sleep"):
+        with (
+            patch("duo.transport.is_process_alive", side_effect=[True, False]),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.NONE),
+            patch("time.sleep"),
+        ):
             result = runner.invoke(main, ["ceo-loop", task.id, "--policy", str(policy)])
         assert result.exit_code == 0
 
-    def test_invalid_policy_file(self, runner: CliRunner, make_task, tmp_path: Path) -> None:
+    def test_invalid_policy_file(
+        self, runner: CliRunner, make_task, tmp_path: Path
+    ) -> None:
         task = make_task("loop-bad-policy")
-        result = runner.invoke(main, ["ceo-loop", task.id, "--policy", "/nonexistent.yaml"])
+        result = runner.invoke(
+            main, ["ceo-loop", task.id, "--policy", "/nonexistent.yaml"]
+        )
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_keyboard_interrupt(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_keyboard_interrupt(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         task = make_task("loop-ctrl-c")
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
-        with patch("duo.transport.is_process_alive", return_value=True), \
-             patch("duo.transport.get_dialog_kind", side_effect=KeyboardInterrupt), \
-             patch("time.sleep"):
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.get_dialog_kind", side_effect=KeyboardInterrupt),
+            patch("time.sleep"),
+        ):
             result = runner.invoke(main, ["ceo-loop", task.id])
         assert "stopped" in result.output.lower()
 
-    def test_pause_then_resume(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_pause_then_resume(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         """Loop pauses on dialog, then resumes when state file changes."""
         from duo.cli import _write_loop_state
 
@@ -5577,13 +5999,17 @@ class TestCeoLoop:
         def fake_sleep(secs: float) -> None:
             sleep_count["n"] += 1
             if sleep_count["n"] == 2:
-                _write_loop_state("loop-resume", {"status": "resumed", "instruction": "go!"})
+                _write_loop_state(
+                    "loop-resume", {"status": "resumed", "instruction": "go!"}
+                )
 
-        with patch("duo.transport.is_process_alive", side_effect=fake_alive), \
-             patch("duo.transport.get_dialog_kind", side_effect=fake_dialog), \
-             patch("duo.transport.read_pane", return_value="╭── Q ──╮\n 1. Opt\n╰──"), \
-             patch("duo.transport.is_permission_dialog", return_value=False), \
-             patch("time.sleep", side_effect=fake_sleep):
+        with (
+            patch("duo.transport.is_process_alive", side_effect=fake_alive),
+            patch("duo.transport.get_dialog_kind", side_effect=fake_dialog),
+            patch("duo.transport.read_pane", return_value="╭── Q ──╮\n 1. Opt\n╰──"),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("time.sleep", side_effect=fake_sleep),
+        ):
             result = runner.invoke(main, ["ceo-loop", task.id])
         assert "Resumed with: go!" in result.output
 
@@ -5591,7 +6017,13 @@ class TestCeoLoop:
         result = runner.invoke(main, ["ceo-loop", "nonexistent"])
         assert result.exit_code != 0
 
-    def test_tmux_server_down(self, runner: CliRunner, make_task, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_tmux_server_down(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
         """ceo-loop handles TmuxServerDownError gracefully."""
         from duo.transport import TmuxServerDownError
 
@@ -5599,11 +6031,15 @@ class TestCeoLoop:
         loops = tmp_path / "loops"
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
 
-        with patch("duo.transport.is_process_alive", side_effect=TmuxServerDownError("no server")):
+        with patch(
+            "duo.transport.is_process_alive",
+            side_effect=TmuxServerDownError("no server"),
+        ):
             result = runner.invoke(main, ["ceo-loop", task.id])
         assert "tmux server is down" in result.output
         # State file should record the reason
         from duo.cli import _read_loop_state
+
         state = _read_loop_state(task.id)
         assert state is not None
         assert state["reason"] == "tmux_server_down"
@@ -5612,8 +6048,11 @@ class TestCeoLoop:
 class TestCeoResume:
     """Tests for duo ceo-resume."""
 
-    def test_resume_paused(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_resume_paused(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _write_loop_state
+
         loops = tmp_path / "loops"
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
         _write_loop_state("my-task", {"status": "paused"})
@@ -5621,8 +6060,11 @@ class TestCeoResume:
         assert result.exit_code == 0
         assert "Resumed" in result.output
 
-    def test_resume_not_paused(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_resume_not_paused(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         from duo.cli import _write_loop_state
+
         loops = tmp_path / "loops"
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
         _write_loop_state("my-task", {"status": "running"})
@@ -5630,7 +6072,9 @@ class TestCeoResume:
         assert result.exit_code != 0
         assert "not paused" in result.output
 
-    def test_resume_no_state(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_resume_no_state(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", tmp_path / "loops")
         result = runner.invoke(main, ["ceo-resume", "nonexistent"])
         assert result.exit_code != 0
@@ -5645,13 +6089,17 @@ class TestCeoResume:
 class TestThinkInfo:
     """Tests for ``duo think <name>`` (info mode)."""
 
-    def test_info_mode(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_info_mode(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         tdir = fake_thinking / "my-app"
         tdir.mkdir(parents=True)
-        with patch("duo.thinking.ensure_pane", return_value="think-my-app"), \
-             patch("duo.thinking.thinking_dir", return_value=tdir):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-my-app"),
+            patch("duo.thinking.thinking_dir", return_value=tdir),
+        ):
             result = runner.invoke(main, ["think", "my-app"])
         assert result.exit_code == 0
         assert "Thinking session: my-app" in result.output
@@ -5665,49 +6113,69 @@ class TestThinkInfo:
 class TestThinkAsk:
     """Tests for ``duo think <name> --ask``."""
 
-    def test_ask_happy_path(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ask_happy_path(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
-        with patch("duo.thinking.ensure_pane", return_value="think-x"), \
-             patch("duo.transport.read_pane", side_effect=["before", "after\nClaude says hello"]), \
-             patch("duo.transport.type_text"), \
-             patch("duo.transport.send_keys"), \
-             patch("duo.thinking.wait_for_response_stable", return_value="idle"), \
-             patch("duo.thinking.extract_response", return_value="Claude says hello"), \
-             patch("duo.thinking.append_session_log"):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-x"),
+            patch(
+                "duo.transport.read_pane",
+                side_effect=["before", "after\nClaude says hello"],
+            ),
+            patch("duo.transport.type_text"),
+            patch("duo.transport.send_keys"),
+            patch("duo.thinking.wait_for_response_stable", return_value="idle"),
+            patch("duo.thinking.extract_response", return_value="Claude says hello"),
+            patch("duo.thinking.append_session_log"),
+        ):
             result = runner.invoke(main, ["think", "x", "--ask", "hello"])
         assert result.exit_code == 0
         assert "Claude says hello" in result.output
 
-    def test_ask_dialog_response(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ask_dialog_response(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
-        with patch("duo.thinking.ensure_pane", return_value="think-x"), \
-             patch("duo.transport.read_pane", return_value="before"), \
-             patch("duo.transport.type_text"), \
-             patch("duo.transport.send_keys"), \
-             patch("duo.thinking.wait_for_response_stable", return_value="dialog"):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-x"),
+            patch("duo.transport.read_pane", return_value="before"),
+            patch("duo.transport.type_text"),
+            patch("duo.transport.send_keys"),
+            patch("duo.thinking.wait_for_response_stable", return_value="dialog"),
+        ):
             result = runner.invoke(main, ["think", "x", "--ask", "q"])
         assert result.exit_code != 0
         assert "dialog" in result.output.lower() or "question" in result.output.lower()
 
-    def test_ask_timeout(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_ask_timeout(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
-        with patch("duo.thinking.ensure_pane", return_value="think-x"), \
-             patch("duo.transport.read_pane", return_value="before"), \
-             patch("duo.transport.type_text"), \
-             patch("duo.transport.send_keys"), \
-             patch("duo.thinking.wait_for_response_stable", return_value="timeout"):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-x"),
+            patch("duo.transport.read_pane", return_value="before"),
+            patch("duo.transport.type_text"),
+            patch("duo.transport.send_keys"),
+            patch("duo.thinking.wait_for_response_stable", return_value="timeout"),
+        ):
             result = runner.invoke(main, ["think", "x", "--ask", "q"])
         assert result.exit_code != 0
-        assert "not responding" in result.output.lower() or "timeout" in result.output.lower()
+        assert (
+            "not responding" in result.output.lower()
+            or "timeout" in result.output.lower()
+        )
 
 
 class TestThinkFinalize:
     """Tests for ``duo think <name> --finalize``."""
 
-    def test_finalize_success(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_finalize_success(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         tdir = fake_thinking / "my-app"
@@ -5723,38 +6191,50 @@ class TestThinkFinalize:
             counter["n"] += 1
             return counter["n"]
 
-        with patch("duo.thinking.ensure_pane", return_value="think-my-app"), \
-             patch("duo.thinking.thinking_dir", return_value=tdir), \
-             patch("duo.thinking.wait_for_response_stable", return_value="idle"), \
-             patch("duo.transport.type_text"), \
-             patch("duo.transport.send_keys"), \
-             patch("time.sleep"), \
-             patch("time.time", side_effect=fake_time):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-my-app"),
+            patch("duo.thinking.thinking_dir", return_value=tdir),
+            patch("duo.thinking.wait_for_response_stable", return_value="idle"),
+            patch("duo.transport.type_text"),
+            patch("duo.transport.send_keys"),
+            patch("time.sleep"),
+            patch("time.time", side_effect=fake_time),
+        ):
             result = runner.invoke(main, ["think", "my-app", "--finalize"])
         assert result.exit_code == 0
         assert "Plan written" in result.output
 
-    def test_finalize_pane_in_dialog(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_finalize_pane_in_dialog(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
-        with patch("duo.thinking.ensure_pane", return_value="think-x"), \
-             patch("duo.thinking.thinking_dir", return_value=fake_thinking / "x"), \
-             patch("duo.thinking.wait_for_response_stable", return_value="dialog"):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-x"),
+            patch("duo.thinking.thinking_dir", return_value=fake_thinking / "x"),
+            patch("duo.thinking.wait_for_response_stable", return_value="dialog"),
+        ):
             result = runner.invoke(main, ["think", "x", "--finalize"])
         assert result.exit_code != 0
         assert "dialog" in result.output.lower()
 
-    def test_finalize_pane_unresponsive(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_finalize_pane_unresponsive(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
-        with patch("duo.thinking.ensure_pane", return_value="think-x"), \
-             patch("duo.thinking.thinking_dir", return_value=fake_thinking / "x"), \
-             patch("duo.thinking.wait_for_response_stable", return_value="timeout"):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-x"),
+            patch("duo.thinking.thinking_dir", return_value=fake_thinking / "x"),
+            patch("duo.thinking.wait_for_response_stable", return_value="timeout"),
+        ):
             result = runner.invoke(main, ["think", "x", "--finalize"])
         assert result.exit_code != 0
         assert "unresponsive" in result.output.lower() or "Pane" in result.output
 
-    def test_finalize_timeout_no_plan(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_finalize_timeout_no_plan(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Finalize times out when Claude doesn't produce plan.md."""
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
@@ -5768,13 +6248,15 @@ class TestThinkFinalize:
             counter["n"] += 1
             return counter["n"] * 100  # jumps past deadline on first loop check
 
-        with patch("duo.thinking.ensure_pane", return_value="think-my-app"), \
-             patch("duo.thinking.thinking_dir", return_value=tdir), \
-             patch("duo.thinking.wait_for_response_stable", return_value="idle"), \
-             patch("duo.transport.type_text"), \
-             patch("duo.transport.send_keys"), \
-             patch("time.sleep"), \
-             patch("time.time", side_effect=fake_time):
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-my-app"),
+            patch("duo.thinking.thinking_dir", return_value=tdir),
+            patch("duo.thinking.wait_for_response_stable", return_value="idle"),
+            patch("duo.transport.type_text"),
+            patch("duo.transport.send_keys"),
+            patch("time.sleep"),
+            patch("time.time", side_effect=fake_time),
+        ):
             result = runner.invoke(main, ["think", "my-app", "--finalize"])
         assert result.exit_code != 0
         assert "plan.md" in result.output
@@ -5783,32 +6265,42 @@ class TestThinkFinalize:
 class TestThinkClose:
     """Tests for ``duo think <name> --close``."""
 
-    def test_close_existing(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_close_existing(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         tdir = fake_thinking / "my-app"
         tdir.mkdir(parents=True)
         (tdir / "CLAUDE.md").write_text("test", encoding="utf-8")
-        with patch("duo.thinking.close_pane", return_value=True), \
-             patch("duo.thinking.thinking_dir", return_value=tdir):
+        with (
+            patch("duo.thinking.close_pane", return_value=True),
+            patch("duo.thinking.thinking_dir", return_value=tdir),
+        ):
             result = runner.invoke(main, ["think", "my-app", "--close"])
         assert result.exit_code == 0
         assert "Closed" in result.output
 
-    def test_close_no_active_pane(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_close_no_active_pane(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Close when session dir exists but pane is not active."""
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         tdir = fake_thinking / "my-app"
         tdir.mkdir(parents=True)
         (tdir / "CLAUDE.md").write_text("test", encoding="utf-8")
-        with patch("duo.thinking.close_pane", return_value=False), \
-             patch("duo.thinking.thinking_dir", return_value=tdir):
+        with (
+            patch("duo.thinking.close_pane", return_value=False),
+            patch("duo.thinking.thinking_dir", return_value=tdir),
+        ):
             result = runner.invoke(main, ["think", "my-app", "--close"])
         assert result.exit_code == 0
         assert "No active pane" in result.output
 
-    def test_close_no_session(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_close_no_session(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         with patch("duo.thinking.thinking_dir", return_value=fake_thinking / "nope"):
@@ -5819,20 +6311,26 @@ class TestThinkClose:
 class TestThinkDelete:
     """Tests for ``duo think <name> --delete``."""
 
-    def test_delete_confirmed(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_delete_confirmed(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         tdir = fake_thinking / "my-app"
         tdir.mkdir(parents=True)
         (tdir / "CLAUDE.md").write_text("test", encoding="utf-8")
-        with patch("duo.thinking.close_pane", return_value=True), \
-             patch("duo.thinking.thinking_dir", return_value=tdir):
+        with (
+            patch("duo.thinking.close_pane", return_value=True),
+            patch("duo.thinking.thinking_dir", return_value=tdir),
+        ):
             result = runner.invoke(main, ["think", "my-app", "--delete"], input="y\n")
         assert result.exit_code == 0
         assert "Deleted" in result.output
         assert not tdir.exists()
 
-    def test_delete_aborted(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_delete_aborted(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         tdir = fake_thinking / "my-app"
@@ -5844,7 +6342,9 @@ class TestThinkDelete:
         assert "Aborted" in result.output
         assert tdir.exists()
 
-    def test_delete_no_session(self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_delete_no_session(
+        self, runner: CliRunner, isolated_tasks: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         fake_thinking = isolated_tasks.parent / "thinking"
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         with patch("duo.thinking.thinking_dir", return_value=fake_thinking / "nope"):
@@ -5863,8 +6363,18 @@ class TestThinkList:
 
     def test_with_sessions(self, runner: CliRunner, isolated_tasks: Path) -> None:
         sessions = [
-            {"name": "alpha", "pane": "alive", "status": "active", "files": "CLAUDE.md"},
-            {"name": "beta", "pane": "none", "status": "finalized", "files": "CLAUDE.md plan.md"},
+            {
+                "name": "alpha",
+                "pane": "alive",
+                "status": "active",
+                "files": "CLAUDE.md",
+            },
+            {
+                "name": "beta",
+                "pane": "none",
+                "status": "finalized",
+                "files": "CLAUDE.md plan.md",
+            },
         ]
         with patch("duo.thinking.list_sessions", return_value=sessions):
             result = runner.invoke(main, ["think", "list"])
@@ -6258,9 +6768,7 @@ class TestBenchCommand:
         assert data[0]["suite"] == "dialog-detection"
 
     def test_json_output_all(self, runner: CliRunner) -> None:
-        result = runner.invoke(
-            main, ["bench", "all", "-n", "10", "--json-output"]
-        )
+        result = runner.invoke(main, ["bench", "all", "-n", "10", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert len(data) == 3
@@ -6286,9 +6794,7 @@ class TestBenchCommand:
         assert isinstance(data, list)
         assert data[0]["suite"] == "dialog-detection"
 
-    def test_baseline_no_regression(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_baseline_no_regression(self, runner: CliRunner, tmp_path: Path) -> None:
         result = runner.invoke(
             main, ["bench", "dialog-detection", "-n", "10", "--json-output"]
         )
@@ -6303,9 +6809,7 @@ class TestBenchCommand:
         )
         assert result.exit_code == 0
 
-    def test_baseline_with_regression(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_baseline_with_regression(self, runner: CliRunner, tmp_path: Path) -> None:
         baseline_data = [
             {
                 "suite": "dialog-detection",

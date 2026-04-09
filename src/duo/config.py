@@ -46,7 +46,9 @@ def load_config() -> dict[str, Any]:
             stored = json.loads(CONFIG_PATH.read_text())
             unknown = [k for k in stored if k not in DEFAULTS]
             if unknown:
-                logger.warning("Unknown config keys (ignored for defaults): %s", ", ".join(unknown))
+                logger.warning(
+                    "Unknown config keys (ignored for defaults): %s", ", ".join(unknown)
+                )
             config.update(stored)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Config file corrupted or empty, using defaults: %s", e)
@@ -56,7 +58,9 @@ def load_config() -> dict[str, Any]:
 def save_config(config: dict[str, Any]) -> None:
     """Save config to disk."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(CONFIG_PATH, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+    atomic_write_text(
+        CONFIG_PATH, json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+    )
 
 
 def get_config(key: str) -> Any:

@@ -74,7 +74,9 @@ def git_diff(worktree: str) -> str:
         timeout=_GIT_TIMEOUT,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"git diff failed in {worktree}: {proc.stderr.strip()[:500]}")
+        raise RuntimeError(
+            f"git diff failed in {worktree}: {proc.stderr.strip()[:500]}"
+        )
     return proc.stdout
 
 
@@ -90,7 +92,9 @@ def git_untracked(worktree: str) -> list[str]:
         timeout=_GIT_TIMEOUT,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"git ls-files failed in {worktree}: {proc.stderr.strip()[:500]}")
+        raise RuntimeError(
+            f"git ls-files failed in {worktree}: {proc.stderr.strip()[:500]}"
+        )
     return [line for line in proc.stdout.strip().splitlines() if line]
 
 
@@ -106,11 +110,15 @@ def run_in_worktree(worktree: str, command: str) -> int:
     except ValueError:
         return 127
     try:
-        proc = subprocess.run(argv, shell=False, cwd=worktree, timeout=_TEST_SUITE_TIMEOUT)
+        proc = subprocess.run(
+            argv, shell=False, cwd=worktree, timeout=_TEST_SUITE_TIMEOUT
+        )
     except FileNotFoundError:
         return 127
     except subprocess.TimeoutExpired:
-        logger.warning("Acceptance test timed out after %ds: %s", _TEST_SUITE_TIMEOUT, command)
+        logger.warning(
+            "Acceptance test timed out after %ds: %s", _TEST_SUITE_TIMEOUT, command
+        )
         return 124  # standard timeout exit code
     return proc.returncode
 

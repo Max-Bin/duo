@@ -417,6 +417,7 @@ def is_in_dialog_stable(label: str) -> bool:
     _time.sleep(1.0)
     return is_in_dialog(label)
 
+
 def wait_for_idle(
     label: str, timeout: float = 30.0, poll_interval: float = 1.0
 ) -> bool:
@@ -510,7 +511,9 @@ def approve_permission(label: str) -> None:
     for num, text in options.items():
         text_lower = text.lower()
         # Skip any "No" or "tell differently" options
-        if "no" in text_lower and ("tell" in text_lower or "esc" in text_lower or "differently" in text_lower):
+        if "no" in text_lower and (
+            "tell" in text_lower or "esc" in text_lower or "differently" in text_lower
+        ):
             continue
         if text_lower.startswith("no"):
             continue
@@ -583,7 +586,9 @@ def select_other_option(label: str, text: str) -> None:
                 current_pos = n
 
     if option_count < 2:
-        raise RuntimeError(f"SAFETY: '{label}' dialog has {option_count} options, need ≥2.")
+        raise RuntimeError(
+            f"SAFETY: '{label}' dialog has {option_count} options, need ≥2."
+        )
 
     # Navigate down to last option (Other)
     downs_needed = option_count - current_pos
@@ -676,7 +681,9 @@ def send_bootstrap(label: str, prompt: str) -> None:
     """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use."""
     with _LOCK:
         if label in _BOOTSTRAP_DONE:
-            raise RuntimeError(f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK.")
+            raise RuntimeError(
+                f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK."
+            )
         _BOOTSTRAP_DONE.add(label)
     read_pane(label, 5)
     type_text(label, prompt)

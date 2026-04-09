@@ -818,29 +818,42 @@ class TestCeoE2EScenarios:
         runner = CliRunner()
 
         # Step 1: ceo-wait finds dialog
-        with _patch("duo.transport.is_process_alive", return_value=True), \
-             _patch("duo.transport.wait_for_dialog", return_value=True), \
-             _patch("duo.transport.read_pane", return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─"), \
-             _patch("duo.commander._write_watch_event"):
+        with (
+            _patch("duo.transport.is_process_alive", return_value=True),
+            _patch("duo.transport.wait_for_dialog", return_value=True),
+            _patch(
+                "duo.transport.read_pane",
+                return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─",
+            ),
+            _patch("duo.commander._write_watch_event"),
+        ):
             result = runner.invoke(main, ["ceo-wait", task.id])
         assert result.exit_code == 0
         assert "Permission" in result.output
 
         # Step 2: ceo-status reports dialog
-        with _patch("duo.transport.is_process_alive", return_value=True), \
-             _patch("duo.transport.read_pane", return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─"), \
-             _patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION):
+        with (
+            _patch("duo.transport.is_process_alive", return_value=True),
+            _patch(
+                "duo.transport.read_pane",
+                return_value="╭─ Permission ─╮\n│ 1. Yes\n│ 2. No\n╰─",
+            ),
+            _patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+        ):
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         import json
+
         data = json.loads(result.output)
         assert data["state"] == "dialog"
 
         # Step 3: ceo-approve
-        with _patch("duo.transport.is_permission_dialog", return_value=True), \
-             _patch("duo.transport._is_at_main_prompt", return_value=False), \
-             _patch("duo.transport.read_pane", return_value=""), \
-             _patch("duo.transport.approve_permission"):
+        with (
+            _patch("duo.transport.is_permission_dialog", return_value=True),
+            _patch("duo.transport._is_at_main_prompt", return_value=False),
+            _patch("duo.transport.read_pane", return_value=""),
+            _patch("duo.transport.approve_permission"),
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code == 0
         assert "Approved" in result.output
@@ -856,11 +869,15 @@ class TestCeoE2EScenarios:
         task = self._make_task()
         runner = CliRunner()
 
-        with _patch("duo.transport.is_in_dialog_stable", return_value=True), \
-             _patch("duo.transport._is_at_main_prompt", return_value=False), \
-             _patch("duo.transport.read_pane", return_value=""), \
-             _patch("duo.transport.select_other_option"):
-            result = runner.invoke(main, ["ceo-select", task.id, "--other", "custom answer"])
+        with (
+            _patch("duo.transport.is_in_dialog_stable", return_value=True),
+            _patch("duo.transport._is_at_main_prompt", return_value=False),
+            _patch("duo.transport.read_pane", return_value=""),
+            _patch("duo.transport.select_other_option"),
+        ):
+            result = runner.invoke(
+                main, ["ceo-select", task.id, "--other", "custom answer"]
+            )
         assert result.exit_code == 0
         assert "Other" in result.output
 
@@ -879,6 +896,7 @@ class TestCeoE2EScenarios:
             result = runner.invoke(main, ["ceo-status", task.id])
         assert result.exit_code == 0
         import json
+
         assert json.loads(result.output)["state"] == "dead"
 
     def test_ceo_approve_rejects_ask_user_dialog(self) -> None:
@@ -892,9 +910,11 @@ class TestCeoE2EScenarios:
         task = self._make_task()
         runner = CliRunner()
 
-        with _patch("duo.transport.is_permission_dialog", return_value=False), \
-             _patch("duo.transport._is_at_main_prompt", return_value=False), \
-             _patch("duo.transport.read_pane", return_value=""):
+        with (
+            _patch("duo.transport.is_permission_dialog", return_value=False),
+            _patch("duo.transport._is_at_main_prompt", return_value=False),
+            _patch("duo.transport.read_pane", return_value=""),
+        ):
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
         assert "not showing a permission dialog" in result.output
@@ -910,8 +930,10 @@ class TestCeoE2EScenarios:
         task = self._make_task()
         runner = CliRunner()
 
-        with _patch("duo.transport.is_process_alive", return_value=True), \
-             _patch("duo.transport.wait_for_dialog", return_value=False):
+        with (
+            _patch("duo.transport.is_process_alive", return_value=True),
+            _patch("duo.transport.wait_for_dialog", return_value=False),
+        ):
             result = runner.invoke(main, ["ceo-wait", task.id, "--timeout", "1"])
         assert result.exit_code != 0
         assert "Timeout" in result.output

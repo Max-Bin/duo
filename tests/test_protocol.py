@@ -589,7 +589,9 @@ class TestAppendEventEdgeCases:
         assert len(test_events) == 1
         assert test_events[0]["data"] == {"key": "value"}
 
-    def test_journal_rotation_on_max_size(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_journal_rotation_on_max_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """Journal rotates when exceeding MAX_JOURNAL_BYTES."""
         import duo.protocol
 
@@ -604,7 +606,9 @@ class TestAppendEventEdgeCases:
         lines_after = len(task.journal_path.read_text().splitlines())
         assert lines_after < lines_before
 
-    def test_journal_rotation_oserror_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_journal_rotation_oserror_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """Journal rotation OSError is caught and event still appended."""
         import duo.protocol
 
@@ -895,8 +899,7 @@ class TestReplayStateMalformed:
                 + "\n"
             )
             f.write(
-                json.dumps({"event": "status_changed", "data": {"to": "failed"}})
-                + "\n"
+                json.dumps({"event": "status_changed", "data": {"to": "failed"}}) + "\n"
             )
         assert replay_state(task) == TaskStatus.FAILED
 
@@ -934,7 +937,9 @@ class TestWriteJsonSerialization:
         with pytest.raises(ValueError, match="not JSON-serializable"):
             write_json(path, {"func": object()})
 
-    def test_large_payload_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_large_payload_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         """write_json rejects payloads exceeding the size limit."""
         import duo.protocol
 
@@ -1070,7 +1075,10 @@ class TestTransitionExhaustiveIllegal:
                 # This transition should be illegal
                 task = create_task(
                     f"test-{src.value}-{dst.value}",
-                    "d", "/w", "b", "c",
+                    "d",
+                    "/w",
+                    "b",
+                    "c",
                     [_make_subtask()],
                 )
                 task.status = src
@@ -1101,6 +1109,7 @@ class TestQuarantineTask:
 
     def test_quarantine_moves_dir(self) -> None:
         import duo.protocol as _p
+
         create_task("qtask", "d", "/w", "b", "c", [_make_subtask()])
         dst = quarantine_task("qtask", "bad json")
         assert dst is not None
@@ -1116,6 +1125,7 @@ class TestQuarantineTask:
         list_tasks()  # populate cache
         quarantine_task("cached", "corrupt")
         from duo.protocol import _task_cache
+
         assert "cached" not in _task_cache
 
 
@@ -1142,6 +1152,7 @@ class TestListTasksAutoQuarantine:
 
     def test_corrupted_task_json_gets_quarantined(self) -> None:
         import duo.protocol as _p
+
         create_task("good", "d", "/w", "b", "c", [_make_subtask()])
         # Create a corrupted task (invalid JSON)
         bad_dir = _p.TASKS_DIR / "corrupt1"
@@ -1156,6 +1167,7 @@ class TestListTasksAutoQuarantine:
 
     def test_underscore_dirs_skipped(self) -> None:
         import duo.protocol as _p
+
         create_task("ok", "d", "/w", "b", "c", [_make_subtask()])
         # Manually create _corrupted dir
         (_p.TASKS_DIR / "_corrupted").mkdir(parents=True, exist_ok=True)
@@ -1190,6 +1202,7 @@ class TestWriteJsonEdgeCases:
     def test_concurrent_writes_atomic(self, tmp_path: Path) -> None:
         """Concurrent writes to the same file don't produce corrupt JSON."""
         import threading
+
         path = tmp_path / "concurrent.json"
         errors: list[str] = []
 
@@ -1223,13 +1236,7 @@ class TestReadJsonlEdgeCases:
     def test_malformed_lines_skipped(self, tmp_path: Path) -> None:
         """Malformed JSON lines are silently skipped."""
         path = tmp_path / "journal.jsonl"
-        path.write_text(
-            '{"ok": 1}\n'
-            '{bad json\n'
-            '{"ok": 2}\n'
-            'not json at all\n'
-            '{"ok": 3}\n'
-        )
+        path.write_text('{"ok": 1}\n{bad json\n{"ok": 2}\nnot json at all\n{"ok": 3}\n')
         events = read_jsonl(path)
         assert len(events) == 3
         assert events[0]["ok"] == 1

@@ -28,6 +28,7 @@ from duo.transport import DialogKind
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _isolate_thinking_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """Redirect THINKING_DIR to a temp dir for test isolation."""
@@ -120,7 +121,9 @@ class TestPaneChecks:
 
 class TestSpawnClaudePane:
     def test_success(self) -> None:
-        mock_run = MagicMock(return_value=MagicMock(returncode=0, stdout="%99\n", stderr=""))
+        mock_run = MagicMock(
+            return_value=MagicMock(returncode=0, stdout="%99\n", stderr="")
+        )
         with (
             patch("subprocess.run", mock_run),
             patch("duo.transport.name_pane") as mock_name,
@@ -134,7 +137,9 @@ class TestSpawnClaudePane:
             assert mock_cmd.call_count == 2  # cd + claude
 
     def test_tmux_failure(self) -> None:
-        mock_run = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="no tmux"))
+        mock_run = MagicMock(
+            return_value=MagicMock(returncode=1, stdout="", stderr="no tmux")
+        )
         with patch("subprocess.run", mock_run):
             with pytest.raises(RuntimeError, match="tmux running"):
                 _spawn_claude_pane("think-x", "/tmp/test")
@@ -252,7 +257,9 @@ class TestWaitForResponseStable:
             patch("time.sleep"),
             patch("time.time", side_effect=[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5]),
         ):
-            result = wait_for_response_stable("think-x", timeout=10, stable_threshold=2.0)
+            result = wait_for_response_stable(
+                "think-x", timeout=10, stable_threshold=2.0
+            )
             assert result == "idle"
 
     def test_dialog_detected(self) -> None:
@@ -311,7 +318,9 @@ class TestWaitForResponseStable:
             patch("time.sleep"),
             patch("time.time", side_effect=[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5, 5.0, 8.0]),
         ):
-            result = wait_for_response_stable("think-x", timeout=10, stable_threshold=2.0)
+            result = wait_for_response_stable(
+                "think-x", timeout=10, stable_threshold=2.0
+            )
             assert result == "idle"
 
 

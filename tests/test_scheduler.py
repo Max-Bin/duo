@@ -364,6 +364,7 @@ class TestSchedulerEdgeCases:
     def test_queue_position_deterministic_with_ties(self) -> None:
         """Tasks with the same created_at timestamp have stable queue positions."""
         import time
+
         now = time.time()
         tasks = []
         for i in range(5):

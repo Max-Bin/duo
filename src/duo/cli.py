@@ -44,7 +44,14 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Thinking": ["think"],
     "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
-    "CEO Workflow": ["ceo-wait", "ceo-select", "ceo-approve", "ceo-status", "ceo-loop", "ceo-resume"],
+    "CEO Workflow": [
+        "ceo-wait",
+        "ceo-select",
+        "ceo-approve",
+        "ceo-status",
+        "ceo-loop",
+        "ceo-resume",
+    ],
     "Recovery": ["recover", "resume", "retry"],
     "Data & Audit": ["export", "audit", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
@@ -56,7 +63,9 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
 class _OrderedGroup(click.Group):
     """Click group that displays commands in categorized sections."""
 
-    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+    def format_commands(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
         """Format help output with categorized command sections."""
         seen: set[str] = set()
         for section, cmd_names in _COMMAND_SECTIONS.items():
@@ -78,7 +87,9 @@ class _OrderedGroup(click.Group):
             if name not in seen:
                 cmd = self.get_command(ctx, name)  # pragma: no cover
                 if cmd:  # pragma: no cover
-                    extra.append((name, cmd.get_short_help_str(limit=60)))  # pragma: no cover
+                    extra.append(
+                        (name, cmd.get_short_help_str(limit=60))
+                    )  # pragma: no cover
         if extra:  # pragma: no cover
             with formatter.section("Other"):  # pragma: no cover
                 formatter.write_dl(extra)  # pragma: no cover
@@ -118,7 +129,9 @@ def _safe_join(base: str, name: str) -> str:
     return str(joined)
 
 
-def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    args: list[str], cwd: str, *, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     """Run a git command with consistent error handling.
 
     Args:
@@ -130,7 +143,14 @@ def _run_git(args: list[str], cwd: str, *, check: bool = True) -> subprocess.Com
         CompletedProcess result
     """
     try:
-        result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=_GIT_TIMEOUT)
+        result = subprocess.run(
+            ["git", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=_GIT_TIMEOUT,
+        )
     except FileNotFoundError:
         raise DuoUserError(
             "git is not installed",
@@ -220,14 +240,23 @@ def completion(shell: str) -> None:
 @click.option("--repo", default=".", help="Git repo path to create worktree from")
 @click.option("--desc", default="", help="Task description")
 @click.option("--model", default=None, help="Override copilot model for this task")
-@click.option("--queue", "start_queued", is_flag=True, help="Create task in queued state")
+@click.option(
+    "--queue", "start_queued", is_flag=True, help="Create task in queued state"
+)
 @click.option(
     "--from-thinking",
     "from_thinking",
     is_flag=True,
     help="Use plan.md from a thinking session as the task description",
 )
-def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool, from_thinking: bool) -> None:
+def start(
+    name: str,
+    repo: str,
+    desc: str,
+    model: str | None,
+    start_queued: bool,
+    from_thinking: bool,
+) -> None:
     """Create a task with worktree + Copilot session."""
     from duo.commander import start_session
 
@@ -318,6 +347,7 @@ def start(name: str, repo: str, desc: str, model: str | None, start_queued: bool
 
     if start_queued:
         from duo.protocol import transition
+
         transition(task, TaskStatus.QUEUED)
         click.echo(f"Task '{name}' queued.")
         return
@@ -351,7 +381,9 @@ def send(name: str, prompt: str) -> None:
 
     _validate_task_name(name)
     if not prompt or not prompt.strip():
-        raise click.UsageError("prompt cannot be empty. Usage: duo send TASK_NAME \"your instruction\"")
+        raise click.UsageError(
+            'prompt cannot be empty. Usage: duo send TASK_NAME "your instruction"'
+        )
     task = load_task(name)
     if task is None:
         raise DuoUserError(
@@ -734,9 +766,13 @@ def kill(name: str) -> None:
 
     # Remove worktree
     if os.path.exists(task.worktree):
-        r = _run_git(["worktree", "remove", "--force", task.worktree], cwd=repo_cwd, check=False)
+        r = _run_git(
+            ["worktree", "remove", "--force", task.worktree], cwd=repo_cwd, check=False
+        )
         if r.returncode != 0:
-            click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
+            click.echo(
+                f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
+            )
 
     # Remove branch
     r = _run_git(["branch", "-D", task.branch], cwd=repo_cwd, check=False)
@@ -903,9 +939,13 @@ def _create_single_task(
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--repo", default=".", help="Git repo path")
 @click.option("--dry-run", is_flag=True, help="Preview tasks without creating")
-@click.option("--queue", "start_queued", is_flag=True, help="Create all tasks in queued state")
+@click.option(
+    "--queue", "start_queued", is_flag=True, help="Create all tasks in queued state"
+)
 @click.pass_context
-def batch(ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued: bool) -> None:
+def batch(
+    ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued: bool
+) -> None:
     """Create multiple tasks from a file (JSON or YAML)."""
     from duo.scheduler import queue_status
 
@@ -916,7 +956,9 @@ def batch(ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued:
     if dry_run:
         click.echo(f"Would create {len(task_defs)} tasks:")
         for i, td in enumerate(task_defs, 1):
-            click.echo(f"  {i}. {td['name']} — {td.get('description', '(no description)')}")
+            click.echo(
+                f"  {i}. {td['name']} — {td.get('description', '(no description)')}"
+            )
         return
 
     created = 0
@@ -963,14 +1005,20 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         # Single task audit
         task = load_task(name)
         if task is None:
-            raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
+            raise DuoUserError(
+                f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
+            )
         events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
 
         if as_json:
             click.echo(
                 json.dumps(
-                    {"task": task.id, "pr_consumed": len(pr_events), "events": pr_events},
+                    {
+                        "task": task.id,
+                        "pr_consumed": len(pr_events),
+                        "events": pr_events,
+                    },
                     indent=2,
                 )
             )
@@ -1001,7 +1049,9 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
             events = read_jsonl(t.journal_path)
             pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
             total_pr += pr_count
-            task_rows.append({"task": t.id, "status": t.status.value, "pr_count": pr_count})
+            task_rows.append(
+                {"task": t.id, "status": t.status.value, "pr_count": pr_count}
+            )
 
         if as_json:
             pr_log = get_pr_log()
@@ -1053,11 +1103,15 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 
 @main.command()
 @click.argument("name")
-@click.option("-n", "--lines", default=20, type=click.IntRange(1), help="Number of recent events")
+@click.option(
+    "-n", "--lines", default=20, type=click.IntRange(1), help="Number of recent events"
+)
 @click.option("--all", "show_all", is_flag=True, help="Show all events")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: bool) -> None:
+def logs(
+    ctx: click.Context, name: str, lines: int, show_all: bool, as_json: bool
+) -> None:
     """Show task journal events."""
     from duo.protocol import read_jsonl
 
@@ -1114,7 +1168,11 @@ def logs(ctx: click.Context, name: str, lines: int, show_all: bool, as_json: boo
 @main.command()
 @click.argument("name")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("--include-files", is_flag=True, help="Show changed files and diff preview from worktree")
+@click.option(
+    "--include-files",
+    is_flag=True,
+    help="Show changed files and diff preview from worktree",
+)
 def inspect(name: str, as_json: bool, include_files: bool) -> None:
     """Show detailed task information."""
     from duo.protocol import (
@@ -1177,9 +1235,21 @@ def inspect(name: str, as_json: bool, include_files: bool) -> None:
             worktree = task.worktree
             if os.path.isdir(worktree):
                 r = _run_git(["diff", "--name-only", "HEAD"], cwd=worktree, check=False)
-                changed = [f for f in r.stdout.strip().splitlines() if f] if r.returncode == 0 else []
-                r2 = _run_git(["ls-files", "--others", "--exclude-standard"], cwd=worktree, check=False)
-                untracked = [f for f in r2.stdout.strip().splitlines() if f] if r2.returncode == 0 else []
+                changed = (
+                    [f for f in r.stdout.strip().splitlines() if f]
+                    if r.returncode == 0
+                    else []
+                )
+                r2 = _run_git(
+                    ["ls-files", "--others", "--exclude-standard"],
+                    cwd=worktree,
+                    check=False,
+                )
+                untracked = (
+                    [f for f in r2.stdout.strip().splitlines() if f]
+                    if r2.returncode == 0
+                    else []
+                )
                 r3 = _run_git(["diff", "HEAD"], cwd=worktree, check=False)
                 diff_preview = r3.stdout[:500] if r3.returncode == 0 else ""
                 if len(r3.stdout) > 500:
@@ -1258,9 +1328,21 @@ def inspect(name: str, as_json: bool, include_files: bool) -> None:
         worktree = task.worktree
         if os.path.isdir(worktree):
             r = _run_git(["diff", "--name-only", "HEAD"], cwd=worktree, check=False)
-            changed = [f for f in r.stdout.strip().splitlines() if f] if r.returncode == 0 else []
-            r2 = _run_git(["ls-files", "--others", "--exclude-standard"], cwd=worktree, check=False)
-            untracked = [f for f in r2.stdout.strip().splitlines() if f] if r2.returncode == 0 else []
+            changed = (
+                [f for f in r.stdout.strip().splitlines() if f]
+                if r.returncode == 0
+                else []
+            )
+            r2 = _run_git(
+                ["ls-files", "--others", "--exclude-standard"],
+                cwd=worktree,
+                check=False,
+            )
+            untracked = (
+                [f for f in r2.stdout.strip().splitlines() if f]
+                if r2.returncode == 0
+                else []
+            )
             r3 = _run_git(["diff", "HEAD"], cwd=worktree, check=False)
             diff_preview = r3.stdout[:500] if r3.returncode == 0 else ""
             if len(r3.stdout) > 500:
@@ -1416,9 +1498,7 @@ def _doctor_check_python() -> CheckResult:
     ver = f"{vi.major}.{vi.minor}.{vi.micro}"
     if vi >= (3, 12):
         return CheckResult("Python", "pass", ver, "")
-    return CheckResult(
-        "Python", "fail", ver, "Upgrade to Python >= 3.12"
-    )
+    return CheckResult("Python", "fail", ver, "Upgrade to Python >= 3.12")
 
 
 def _doctor_check_tmux() -> CheckResult:
@@ -1462,9 +1542,7 @@ def _doctor_check_tmux_bridge() -> CheckResult:
     """Check tmux-bridge binary exists and is executable."""
     path_loc = shutil.which("tmux-bridge")
     if path_loc is not None:
-        return CheckResult(
-            "tmux-bridge", "pass", f"found at {path_loc}", ""
-        )
+        return CheckResult("tmux-bridge", "pass", f"found at {path_loc}", "")
     smux_path = Path.home() / ".smux" / "bin" / "tmux-bridge"
     if smux_path.exists() and os.access(str(smux_path), os.X_OK):
         return CheckResult(
@@ -1613,9 +1691,7 @@ def _doctor_check_task_timeout() -> CheckResult:
     timeout_val = get_config("task_timeout")
     if isinstance(timeout_val, int) and timeout_val >= 0:
         label = f"{timeout_val}s" if timeout_val > 0 else "disabled"
-        return CheckResult(
-            "task_timeout", "pass", f"configured ({label})", ""
-        )
+        return CheckResult("task_timeout", "pass", f"configured ({label})", "")
     return CheckResult(
         "task_timeout",
         "warn",
@@ -1732,9 +1808,13 @@ def doctor(json_output: bool, strict: bool) -> None:
         parts: list[str] = []
         parts.append(f"{counts['pass']}/{total} checks passed")
         if counts["warn"]:
-            parts.append(f"{counts['warn']} warning{'s' if counts['warn'] != 1 else ''}")
+            parts.append(
+                f"{counts['warn']} warning{'s' if counts['warn'] != 1 else ''}"
+            )
         if counts["fail"]:
-            parts.append(f"{counts['fail']} failure{'s' if counts['fail'] != 1 else ''}")
+            parts.append(
+                f"{counts['fail']} failure{'s' if counts['fail'] != 1 else ''}"
+            )
         click.echo(f"\n{', '.join(parts)}")
 
     has_fail = counts["fail"] > 0
@@ -1755,7 +1835,9 @@ def resume(name: str | None) -> None:
     if name is not None:
         task = load_task(name)
         if task is None:
-            raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
+            raise DuoUserError(
+                f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
+            )
         if task.status in TERMINAL_STATES:
             click.echo(f"Task '{name}' is already completed.")
             return
@@ -1772,7 +1854,10 @@ def resume(name: str | None) -> None:
         try:
             pane_alive = is_process_alive(task.pane_label)
         except (RuntimeError, OSError):
-            click.echo(f"  Warning: could not check pane status for '{task.id}', assuming dead", err=True)
+            click.echo(
+                f"  Warning: could not check pane status for '{task.id}', assuming dead",
+                err=True,
+            )
 
         if pane_alive:
             restart_session(task)
@@ -1791,7 +1876,9 @@ def retry(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
+        raise DuoUserError(
+            f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
+        )
     if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
         raise DuoUserError(
             f"task '{name}' is '{task.status.value}', not retryable",
@@ -1986,11 +2073,17 @@ def events_list(limit: int) -> None:
 def events_show(name: str) -> None:
     """Show a single event (by filename or 'latest')."""
     if not _WATCH_EVENTS_DIR.exists():
-        raise DuoUserError("No events directory", fix="Run a task with 'duo ceo-loop' to generate events.")
+        raise DuoUserError(
+            "No events directory",
+            fix="Run a task with 'duo ceo-loop' to generate events.",
+        )
     if name == "latest":
         files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
         if not files:
-            raise DuoUserError("No events found", fix="Run a task with 'duo ceo-loop' to generate events.")
+            raise DuoUserError(
+                "No events found",
+                fix="Run a task with 'duo ceo-loop' to generate events.",
+            )
         target = files[0]
     else:
         target = _WATCH_EVENTS_DIR / name
@@ -2203,12 +2296,16 @@ def ceo_select(
                 fix="Use --other TEXT to type a response.",
             )
         if other_text is None:  # pragma: no cover — guarded by mutual-exclusion above
-            raise click.ClickException("Internal error: expected --other TEXT for text dialog.")
+            raise click.ClickException(
+                "Internal error: expected --other TEXT for text dialog."
+            )
         success = send_text_dialog_message(t.pane_label, other_text)
         if success:
             click.echo(f"Typed text: {other_text}")
         else:
-            click.echo(f"Typed text: {other_text} (dialog may still be active — check manually)")
+            click.echo(
+                f"Typed text: {other_text} (dialog may still be active — check manually)"
+            )
     elif other_text is not None:
         select_other_option(t.pane_label, other_text)
         click.echo(f"Selected 'Other' with text: {other_text}")
@@ -2459,17 +2556,25 @@ def _handle_dialog(
                 return "auto_responded"
 
     # Pause — wait for CEO to resume
-    _write_loop_state(task_id, {
-        "status": "paused",
-        "dialog_kind": kind,
-        "content_preview": content[:500],
-    })
+    _write_loop_state(
+        task_id,
+        {
+            "status": "paused",
+            "dialog_kind": kind,
+            "content_preview": content[:500],
+        },
+    )
     return "paused"
 
 
 @main.command("ceo-loop")
 @click.argument("task")
-@click.option("--policy", "policy_path", default=None, help="YAML policy file for auto-handling dialogs")
+@click.option(
+    "--policy",
+    "policy_path",
+    default=None,
+    help="YAML policy file for auto-handling dialogs",
+)
 @click.option("--interval", default=5.0, type=float, help="Poll interval in seconds")
 def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
     """Automated CEO workflow loop.
@@ -2515,7 +2620,9 @@ def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
             click.echo(f"  → Action: {action}")
 
             if action == "paused":
-                click.echo(f"  Paused. Run 'duo ceo-resume {task}' from another terminal.")
+                click.echo(
+                    f"  Paused. Run 'duo ceo-resume {task}' from another terminal."
+                )
                 # Wait for resume signal
                 while True:
                     state = _read_loop_state(task)
@@ -2527,7 +2634,9 @@ def ceo_loop(task: str, policy_path: str | None, interval: float) -> None:
                         break
                     if not is_process_alive(t.pane_label):
                         click.echo(f"Pane '{t.pane_label}' died while paused. Exiting.")
-                        _write_loop_state(task, {"status": "stopped", "reason": "pane_died"})
+                        _write_loop_state(
+                            task, {"status": "stopped", "reason": "pane_died"}
+                        )
                         return
                     _time.sleep(2)
 
@@ -2625,6 +2734,7 @@ def export(name: str, fmt: str, outfile: str | None) -> None:
 def _parse_age(age_str: str) -> int:
     """Parse age string like '7d', '24h', '30m' into seconds."""
     import re
+
     match = re.match(r"^(\d+)([dhms])$", age_str)
     if not match:
         raise click.UsageError("invalid age format. Use: 7d, 24h, 30m, 3600s")
@@ -2633,9 +2743,7 @@ def _parse_age(age_str: str) -> int:
         raise click.UsageError("age value must be > 0")
     seconds = value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
     if seconds > _MAX_AGE_SECONDS:
-        raise click.UsageError(
-            f"age '{age_str}' too large (max ~1000 years)."
-        )
+        raise click.UsageError(f"age '{age_str}' too large (max ~1000 years).")
     return seconds
 
 
@@ -2648,9 +2756,18 @@ def _parse_age(age_str: str) -> int:
 )
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--keep-journal", is_flag=True, help="Keep journal files")
-@click.option("--age", type=str, default=None, help="Only clean tasks older than duration (e.g., 7d, 24h, 30m)")
-@click.option("--corrupted", is_flag=True, help="List and purge quarantined corrupted tasks")
-def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None, corrupted: bool) -> None:
+@click.option(
+    "--age",
+    type=str,
+    default=None,
+    help="Only clean tasks older than duration (e.g., 7d, 24h, 30m)",
+)
+@click.option(
+    "--corrupted", is_flag=True, help="List and purge quarantined corrupted tasks"
+)
+def cleanup(
+    clean_all: bool, force: bool, keep_journal: bool, age: str | None, corrupted: bool
+) -> None:
     """Clean up completed and failed tasks."""
     import shutil
 
@@ -2691,6 +2808,7 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None, c
     if age:
         max_age = _parse_age(age)
         from duo.poller import age as task_age
+
         targets = [t for t in targets if task_age(t.created_at) > max_age]
 
     if not targets:
@@ -2708,14 +2826,20 @@ def cleanup(clean_all: bool, force: bool, keep_journal: bool, age: str | None, c
     for task in targets:
         # Remove worktree if it exists
         if os.path.exists(task.worktree):
-            r = _run_git(["worktree", "remove", "--force", task.worktree], cwd=".", check=False)
+            r = _run_git(
+                ["worktree", "remove", "--force", task.worktree], cwd=".", check=False
+            )
             if r.returncode != 0:
-                click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
+                click.echo(
+                    f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
+                )
 
         # Remove branch
         r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
         if r.returncode != 0:
-            click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
+            click.echo(
+                f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True
+            )
 
         # Remove task directory (or just non-journal files)
         if keep_journal:
@@ -2743,7 +2867,9 @@ def diff_cmd(name: str) -> None:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise DuoUserError(f"task '{name}' not found", fix="Run 'duo list' to see available tasks.")
+        raise DuoUserError(
+            f"task '{name}' not found", fix="Run 'duo list' to see available tasks."
+        )
 
     if not Path(task.worktree).exists():
         raise DuoUserError(
@@ -2765,8 +2891,12 @@ def diff_cmd(name: str) -> None:
 
 @main.command("think")
 @click.argument("name")
-@click.option("--ask", "ask_text", default=None, help="One-shot question (CEO primary path)")
-@click.option("--finalize", is_flag=True, help="Generate plan.md from the thinking session")
+@click.option(
+    "--ask", "ask_text", default=None, help="One-shot question (CEO primary path)"
+)
+@click.option(
+    "--finalize", is_flag=True, help="Generate plan.md from the thinking session"
+)
 @click.option("--close", "do_close", is_flag=True, help="Close pane, keep files")
 @click.option("--delete", "do_delete", is_flag=True, help="Close pane + delete files")
 def think(
@@ -2997,11 +3127,7 @@ def _bench_dialog_detection(iterations: int) -> dict[str, Any]:
         "  Remaining reqs: 42\n"
         "❯ Type @ to mention files\n"
     )
-    spinner_content = (
-        "◉ Processing your request...\n"
-        "  Working on file changes\n"
-        "❯\n"
-    )
+    spinner_content = "◉ Processing your request...\n  Working on file changes\n❯\n"
 
     samples: dict[str, tuple[str, str]] = {
         "option_dialog_detect": (option_dialog, "_detect_dialog_kind"),
@@ -3014,7 +3140,11 @@ def _bench_dialog_detection(iterations: int) -> dict[str, Any]:
     total_start = time.perf_counter_ns()
 
     for name, (content, func_name) in samples.items():
-        func = _detect_dialog_kind if func_name == "_detect_dialog_kind" else _is_at_main_prompt
+        func = (
+            _detect_dialog_kind
+            if func_name == "_detect_dialog_kind"
+            else _is_at_main_prompt
+        )
         timings: list[int] = []
         for _ in range(iterations):
             t0 = time.perf_counter_ns()
@@ -3052,7 +3182,9 @@ def _bench_file_protocol(iterations: int) -> dict[str, Any]:
         "description": "Benchmark task for performance testing",
         "status": "running",
         "current_step": 1,
-        "subtasks": [{"step_id": 1, "description": "step one", "target_files": ["a.py"]}],
+        "subtasks": [
+            {"step_id": 1, "description": "step one", "target_files": ["a.py"]}
+        ],
     }
     json_bytes = len(json.dumps(sample_data, indent=2).encode())
 
@@ -3137,7 +3269,14 @@ def _bench_journal_append(iterations: int) -> dict[str, Any]:
             worktree="/fake/bench",
             branch="duo/bench-journal",
             base_commit="abc123bench",
-            subtasks=[Subtask(step_id=1, description="bench", target_files=[], writable_paths=["*"])],
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="bench",
+                    target_files=[],
+                    writable_paths=["*"],
+                )
+            ],
         )
 
         results: dict[str, dict[str, float]] = {}
@@ -3201,7 +3340,8 @@ def _bench_journal_append(iterations: int) -> dict[str, Any]:
 
 
 def _compare_results(
-    current: list[dict[str, Any]], baseline: list[dict[str, Any]],
+    current: list[dict[str, Any]],
+    baseline: list[dict[str, Any]],
 ) -> tuple[str, bool]:
     """Compare current results against a baseline.
 

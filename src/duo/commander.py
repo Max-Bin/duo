@@ -341,7 +341,9 @@ def start_claude_commander(task: Task) -> str | None:
         try:
             subprocess.run(
                 ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True, check=False, timeout=10,
+                capture_output=True,
+                check=False,
+                timeout=10,
             )
         except (subprocess.CalledProcessError, OSError):
             pass
@@ -487,7 +489,9 @@ def start_session(task: Task) -> None:
         try:
             subprocess.run(
                 ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True, check=False, timeout=10,
+                capture_output=True,
+                check=False,
+                timeout=10,
             )
         except (subprocess.CalledProcessError, OSError):
             pass
@@ -941,7 +945,12 @@ def monitor(task_ids: list[str] | None = None) -> None:
             poller = pollers[task.id]
             try:
                 result = poll_task(task, poller)
-            except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as exc:
+            except (
+                RuntimeError,
+                ValueError,
+                OSError,
+                subprocess.CalledProcessError,
+            ) as exc:
                 _log_monitor("✗", task.id, f"poll error: {exc}")
                 logger.exception("poll_task failed for %s", task.id)
                 append_event(task, "poll_error", {"error": str(exc)})

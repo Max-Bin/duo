@@ -33,11 +33,16 @@ class TestDuoUserError:
         assert err.fix == ""
 
     def test_format_message_with_fix(self) -> None:
-        err = DuoUserError("task 'foo' not found", fix="Run 'duo list' to see available tasks.")
+        err = DuoUserError(
+            "task 'foo' not found", fix="Run 'duo list' to see available tasks."
+        )
         result = err.format_message()
         assert "task 'foo' not found" in result
         assert "Fix: Run 'duo list'" in result
-        assert result == "task 'foo' not found\n  Fix: Run 'duo list' to see available tasks."
+        assert (
+            result
+            == "task 'foo' not found\n  Fix: Run 'duo list' to see available tasks."
+        )
 
     def test_fix_default_empty(self) -> None:
         err = DuoUserError("oops")
@@ -63,7 +68,9 @@ class TestDuoDataError:
         assert err.path == ""
 
     def test_with_path(self) -> None:
-        err = DuoDataError("schema mismatch", path="/home/user/.duo/tasks/foo/task.json")
+        err = DuoDataError(
+            "schema mismatch", path="/home/user/.duo/tasks/foo/task.json"
+        )
         assert str(err) == "schema mismatch"
         assert err.path == "/home/user/.duo/tasks/foo/task.json"
         assert isinstance(err, DuoError)

@@ -70,7 +70,10 @@ class TestHappyPath:
         with (
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=True),
-            patch("duo.transport.read_pane", side_effect=["before1", "before1\nClaude thinks X"]),
+            patch(
+                "duo.transport.read_pane",
+                side_effect=["before1", "before1\nClaude thinks X"],
+            ),
             patch("duo.transport.type_text"),
             patch("duo.transport.send_keys"),
             patch("duo.thinking.wait_for_response_stable", return_value="idle"),
@@ -90,14 +93,21 @@ class TestHappyPath:
         with (
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=True),
-            patch("duo.transport.read_pane", side_effect=["before2", "before2\nRate limit with Redis"]),
+            patch(
+                "duo.transport.read_pane",
+                side_effect=["before2", "before2\nRate limit with Redis"],
+            ),
             patch("duo.transport.type_text"),
             patch("duo.transport.send_keys"),
             patch("duo.thinking.wait_for_response_stable", return_value="idle"),
-            patch("duo.thinking.extract_response", return_value="Rate limit with Redis"),
+            patch(
+                "duo.thinking.extract_response", return_value="Rate limit with Redis"
+            ),
             patch("duo.thinking.append_session_log"),
         ):
-            result = runner.invoke(main, ["think", name, "--ask", "What about rate limiting?"])
+            result = runner.invoke(
+                main, ["think", name, "--ask", "What about rate limiting?"]
+            )
         assert result.exit_code == 0
         assert "Rate limit with Redis" in result.output
 
@@ -207,7 +217,9 @@ class TestAskEdgeCases:
             patch("duo.thinking._pane_alive", return_value=False),
             patch("duo.transport.send_shell_command"),
             patch("duo.transport.wait_for_idle"),
-            patch("duo.transport.read_pane", side_effect=["before", "before\nRecovered"]),
+            patch(
+                "duo.transport.read_pane", side_effect=["before", "before\nRecovered"]
+            ),
             patch("duo.transport.type_text"),
             patch("duo.transport.send_keys"),
             patch("duo.thinking.wait_for_response_stable", return_value="idle"),
@@ -218,9 +230,7 @@ class TestAskEdgeCases:
         assert result.exit_code == 0
         assert "Recovered" in result.output
 
-    def test_ask_dialog_response(
-        self, runner: CliRunner, fake_thinking: Path
-    ) -> None:
+    def test_ask_dialog_response(self, runner: CliRunner, fake_thinking: Path) -> None:
         """--ask triggers a dialog → error with guidance."""
         tdir = fake_thinking / "dg"
         tdir.mkdir(parents=True)
@@ -239,9 +249,7 @@ class TestAskEdgeCases:
         assert result.exit_code != 0
         assert "dialog" in result.output.lower() or "question" in result.output.lower()
 
-    def test_ask_timeout_response(
-        self, runner: CliRunner, fake_thinking: Path
-    ) -> None:
+    def test_ask_timeout_response(self, runner: CliRunner, fake_thinking: Path) -> None:
         """--ask timeout → error with guidance."""
         tdir = fake_thinking / "to"
         tdir.mkdir(parents=True)
@@ -258,7 +266,10 @@ class TestAskEdgeCases:
         ):
             result = runner.invoke(main, ["think", "to", "--ask", "hello"])
         assert result.exit_code != 0
-        assert "timeout" in result.output.lower() or "not responding" in result.output.lower()
+        assert (
+            "timeout" in result.output.lower()
+            or "not responding" in result.output.lower()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +380,9 @@ class TestWaitForResponseStable:
         from duo.transport import DialogKind
 
         with (
-            patch("duo.transport.read_pane", return_value="╭─ dialog ─╮\n1. Yes\n2. No"),
+            patch(
+                "duo.transport.read_pane", return_value="╭─ dialog ─╮\n1. Yes\n2. No"
+            ),
             patch("duo.transport._detect_dialog_kind", return_value=DialogKind.OPTION),
             patch("time.time", side_effect=[0, 0.5]),
         ):
@@ -461,12 +474,7 @@ class TestExtractResponseToolCalls:
         from duo.thinking import extract_response
 
         before = "❯"
-        after = (
-            "❯\n"
-            "● Grep auth\n"
-            "Found these patterns in your codebase.\n"
-            "❯"
-        )
+        after = "❯\n● Grep auth\nFound these patterns in your codebase.\n❯"
         result = extract_response(before, after, "find auth")
         assert "Found these patterns" in result
         assert "● Grep" not in result
