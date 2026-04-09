@@ -1991,6 +1991,46 @@ class TestMonitorPollersCleanup:
         assert mock_poll.call_count == 3
 
 
+class TestMonitorConfigWiring:
+    """Monitor creates AdaptivePoller with config values."""
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_poller_uses_config_values(
+        self, mock_list, mock_promote, mock_poll, mock_sleep
+    ):
+        task = _make_task("config-wire")
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 3},
+            ),
+            patch("duo.commander.get_config") as mock_cfg,
+            pytest.raises(StopIteration),
+        ):
+            mock_cfg.side_effect = lambda key: {
+                "poll_base_interval": 10.0,
+                "poll_max_interval": 60.0,
+                "heartbeat_timeout": 45,
+                "task_timeout": 0,
+            }.get(key)
+            monitor()
+
+        # Verify the poller was called with our task
+        assert mock_poll.call_count >= 1
+        # The poller created should use config values
+        call_args = mock_poll.call_args
+        poller = call_args[0][1]
+        assert poller.base_interval == 10.0
+        assert poller.max_interval == 60.0
+        assert poller.heartbeat_timeout == 45.0
+
+
 # ── poll_task silent path (heartbeat timeout, alive, no error) ───────
 
 

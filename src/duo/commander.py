@@ -956,7 +956,11 @@ def monitor(task_ids: list[str] | None = None) -> None:
                     continue
 
             if task.id not in pollers:
-                pollers[task.id] = AdaptivePoller()
+                pollers[task.id] = AdaptivePoller(
+                    base_interval=float(get_config("poll_base_interval") or 5.0),
+                    max_interval=float(get_config("poll_max_interval") or 120.0),
+                    heartbeat_timeout=float(get_config("heartbeat_timeout") or 90),
+                )
 
             poller = pollers[task.id]
             try:
