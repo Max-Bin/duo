@@ -669,6 +669,44 @@ class TestStartSession:
             assert "'" in cd_cmd or "\\" in cd_cmd
             assert "cd " in cd_cmd
 
+    def test_start_session_startup_timeout_logged(self):
+        """When wait_for_idle returns False, a startup_timeout event is appended."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+
+        config_values = {
+            "auto_allow_all": True,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", return_value=False),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            # Session still proceeds (best-effort)
+            assert task.status == TaskStatus.PROMPT_SENT
+            # But startup timeout is logged in journal
+            events = [json.loads(line) for line in task.journal_path.read_text().strip().split("\n")]
+            timeout_events = [e for e in events if e.get("event") == "startup_timeout"]
+            assert len(timeout_events) == 1
+            assert timeout_events[0]["data"]["phase"] == "copilot_start"
+
 
 # ---------------------------------------------------------------------------
 # write_commander_claude_md and start_claude_commander

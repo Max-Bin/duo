@@ -526,13 +526,24 @@ def start_session(task: Task) -> None:
 
     # Wait for copilot to start (adaptive instead of hardcoded sleep)
     click.echo("Waiting for Copilot to start...")
-    wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0)
+    if not wait_for_idle(
+        task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0
+    ):
+        logger.warning("Copilot did not stabilize within %ss for %s", _IDLE_TIMEOUT_START, task.id)
+        append_event(
+            task,
+            "startup_timeout",
+            {"timeout": _IDLE_TIMEOUT_START, "phase": "copilot_start"},
+        )
 
     # Auto-approve all operations to avoid interactive prompts (configurable)
     if get_config("auto_allow_all"):
         click.echo("Sending /allow-all...")
         send_shell_command(task.pane_label, "/allow-all")
-        wait_for_idle(task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0)
+        if not wait_for_idle(
+            task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0
+        ):
+            logger.warning("/allow-all did not stabilize within %ss for %s", _IDLE_TIMEOUT_ALLOW_ALL, task.id)
     else:
         click.echo("Skipping /allow-all (auto_allow_all=false)")
 
