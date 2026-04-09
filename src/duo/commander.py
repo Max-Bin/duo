@@ -847,6 +847,8 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
         if not is_process_alive(task.pane_label):
             append_event(task, "session_crashed", {"incarnation": inc})
             restart_session(task)
+            if task.status == TaskStatus.FAILED:
+                return poll_result
             # Prefer persisted prompt (may contain correction context)
             persisted = task.prompt_path(task.current_step, task.current_attempt)
             if persisted.exists():
@@ -948,6 +950,9 @@ def monitor(task_ids: list[str] | None = None) -> None:
             _log_monitor("◷", task.id, "promoted from queue")
             try:
                 start_session(task)
+                if task.status == TaskStatus.FAILED:
+                    _log_monitor("✗", task.id, "session failed to start")
+                    continue
                 # Prefer user-persisted prompt over synthesized one
                 persisted = task.prompt_path(task.current_step, task.current_attempt)
                 if persisted.exists():

@@ -1558,6 +1558,22 @@ class TestPollTask:
         assert any(e.get("event") == "session_crashed" for e in events)
 
     @patch("duo.commander.send_task_prompt")
+    @patch("duo.commander.is_process_alive", return_value=False)
+    def test_poll_heartbeat_timeout_restart_fails(self, mock_alive, mock_send):
+        """HEARTBEAT_TIMEOUT → restart leaves FAILED → skip prompt send."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        def fail_restart(t):
+            t.status = TaskStatus.FAILED
+
+        with patch("duo.commander.restart_session", side_effect=fail_restart):
+            poll_task(task, poller)
+
+        mock_send.assert_not_called()
+
+    @patch("duo.commander.send_task_prompt")
     @patch("duo.commander.restart_session")
     @patch("duo.commander.is_process_alive", return_value=False)
     def test_poll_crash_recovery_uses_persisted_prompt(
@@ -1874,6 +1890,44 @@ class TestMonitor:
         mock_send.assert_not_called()  # prompt not sent due to failure
         captured = capsys.readouterr()
         assert "failed to start" in captured.out
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.commander.send_task_prompt")
+    @patch("duo.scheduler.promote_queued")
+    @patch("duo.commander.list_tasks")
+    def test_monitor_skips_prompt_on_failed_start(
+        self,
+        mock_list,
+        mock_promote,
+        mock_send,
+        mock_poll,
+        mock_sleep,
+        capsys,
+    ):
+        """Monitor skips prompt send when start_session leaves task FAILED."""
+        task = _make_task()
+        transition(task, TaskStatus.SESSION_STARTING)
+
+        def fail_start(t):
+            t.status = TaskStatus.FAILED
+
+        mock_list.return_value = [task]
+        mock_promote.return_value = [task]
+
+        with (
+            patch("duo.commander.start_session", side_effect=fail_start),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 0, "queued_count": 0, "max_parallel": 2},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        mock_send.assert_not_called()
+        captured = capsys.readouterr()
+        assert "session failed to start" in captured.out
 
 
 # ---------------------------------------------------------------------------
