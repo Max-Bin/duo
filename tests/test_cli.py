@@ -367,6 +367,13 @@ class TestStart:
         assert result.exit_code != 0
         assert "not a git repo" in result.output
 
+    def test_repo_path_does_not_exist(self, runner: CliRunner, tmp_path: Path):
+        result = runner.invoke(
+            main, ["start", "t", "--repo", str(tmp_path / "nonexistent")]
+        )
+        assert result.exit_code != 0
+        assert "does not exist" in result.output
+
     def test_start_invalid_task_name(self, runner: CliRunner, tmp_path: Path):
         result = runner.invoke(main, ["start", "my task!", "--repo", str(tmp_path)])
         assert result.exit_code != 0
@@ -412,8 +419,19 @@ class TestStart:
     def test_start_concurrent_lock(self, runner: CliRunner, tmp_path: Path):
         """Concurrent start attempts are protected by lockfile."""
         import fcntl
+        import subprocess
 
         import duo.protocol
+
+        # Create a real git repo so validation passes
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", str(repo)], capture_output=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "--allow-empty", "-m", "init"],
+            capture_output=True,
+            check=True,
+        )
 
         lock_path = duo.protocol.TASKS_DIR / ".lock-task.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -421,7 +439,7 @@ class TestStart:
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         try:
             result = runner.invoke(
-                main, ["start", "lock-task", "--repo", str(tmp_path), "--desc", "t"]
+                main, ["start", "lock-task", "--repo", str(repo), "--desc", "t"]
             )
             assert result.exit_code != 0
             assert "another process" in result.output.lower()
@@ -431,7 +449,17 @@ class TestStart:
 
     def test_start_race_recheck_after_lock(self, runner: CliRunner, tmp_path: Path):
         """Re-check after lock detects task created by another process."""
+        import subprocess
         from unittest.mock import patch
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", str(repo)], capture_output=True, check=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "commit", "--allow-empty", "-m", "init"],
+            capture_output=True,
+            check=True,
+        )
 
         call_count = 0
 
@@ -444,7 +472,7 @@ class TestStart:
 
         with patch("duo.cli.load_task", side_effect=load_side_effect):
             result = runner.invoke(
-                main, ["start", "race-task", "--repo", str(tmp_path), "--desc", "t"]
+                main, ["start", "race-task", "--repo", str(repo), "--desc", "t"]
             )
             assert result.exit_code != 0
             assert "already exists" in result.output
@@ -1520,35 +1548,39 @@ class TestPropertyBased:
 class TestCreateWorktree:
     def test_success(self, tmp_path: Path):
         """_create_worktree returns (worktree_path, base_commit) on success."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
         with (
             patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.cli.subprocess.run") as mock_run,
         ):
-            # First call: git rev-parse HEAD
-            # Second call: git worktree add
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
                 MagicMock(returncode=0, stdout="", stderr=""),
             ]
-            worktree, base_commit = _create_worktree("my-task", "/fake/repo")
+            worktree, base_commit = _create_worktree("my-task", str(repo))
             assert base_commit == "abc123"
             assert "my-task" in worktree
             assert mock_run.call_count == 2
 
     def test_not_git_repo(self, tmp_path: Path):
-        """_create_worktree exits if repo is not a git repository."""
-        with (
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
-            patch("duo.cli.subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(
-                returncode=128, stdout="", stderr="not a git repo"
-            )
-            with pytest.raises(click.ClickException):
-                _create_worktree("fail-task", "/not/a/repo")
+        """_create_worktree exits if repo has no .git directory."""
+        repo = tmp_path / "no-git"
+        repo.mkdir()
+        with pytest.raises(DuoUserError, match="not a git repository"):
+            _create_worktree("fail-task", str(repo))
+
+    def test_repo_path_missing(self, tmp_path: Path):
+        """_create_worktree exits if repo path doesn't exist."""
+        with pytest.raises(DuoUserError, match="does not exist"):
+            _create_worktree("fail-task", str(tmp_path / "nonexistent"))
 
     def test_worktree_add_fails(self, tmp_path: Path):
         """_create_worktree exits if 'git worktree add' fails."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
         with (
             patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.cli.subprocess.run") as mock_run,
@@ -1558,7 +1590,7 @@ class TestCreateWorktree:
                 MagicMock(returncode=1, stdout="", stderr="branch already exists"),
             ]
             with pytest.raises(click.ClickException):
-                _create_worktree("dup-task", "/fake/repo")
+                _create_worktree("dup-task", str(repo))
 
 
 # ---------------------------------------------------------------------------
@@ -5111,6 +5143,7 @@ class TestBatchFileNotFound:
 class TestRunGitNotInstalled:
     def test_run_git_not_installed(self, runner: CliRunner, tmp_path: Path):
         """When git is not found, a friendly error is shown."""
+        (tmp_path / ".git").mkdir()
         with patch("subprocess.run", side_effect=FileNotFoundError("git not found")):
             result = runner.invoke(main, ["start", "sometask", "--repo", str(tmp_path)])
         assert result.exit_code != 0
@@ -5119,6 +5152,7 @@ class TestRunGitNotInstalled:
 
     def test_run_git_timeout(self, runner: CliRunner, tmp_path: Path):
         """When git times out, a timeout error is shown."""
+        (tmp_path / ".git").mkdir()
         with patch(
             "subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="git", timeout=30),

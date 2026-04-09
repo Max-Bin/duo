@@ -217,6 +217,17 @@ def main(ctx: click.Context, verbose: bool) -> None:
 
 def _create_worktree(name: str, repo: str) -> tuple[str, str]:
     """Create git worktree for task. Returns (worktree_path, base_commit)."""
+    if not os.path.isdir(repo):
+        raise DuoUserError(
+            f"repo path '{repo}' does not exist or is not a directory",
+            fix="Use --repo /path/to/git/repo or run from inside a git repo.",
+        )
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        raise DuoUserError(
+            f"'{repo}' is not a git repository (no .git directory)",
+            fix="Run 'git init' first, or use --repo to point to an existing repo.",
+        )
+
     worktree_base = get_config("worktree_base_path")
     worktree = _safe_join(worktree_base, name)
     branch = f"duo/{name}"
@@ -287,6 +298,15 @@ def start(
     from duo.commander import start_session
 
     _validate_task_name(name)
+
+    # Check for duplicate task early (before expensive repo validation)
+    existing = load_task(name)
+    if existing is not None:
+        raise DuoUserError(
+            f"task '{name}' already exists (status: {existing.status.value}, worktree: {existing.worktree})",
+            fix=f"Use 'duo kill {name}' first, or choose a different task name.",
+        )
+
     repo = os.path.abspath(repo)
 
     if from_thinking:
@@ -308,14 +328,6 @@ def start(
 
     if model:
         os.environ["DUO_COPILOT_MODEL"] = model
-
-    # Check for duplicate task
-    existing = load_task(name)
-    if existing is not None:
-        raise DuoUserError(
-            f"task '{name}' already exists (status: {existing.status.value}, worktree: {existing.worktree})",
-            fix=f"Use 'duo kill {name}' first, or choose a different task name.",
-        )
 
     # Acquire lockfile to prevent concurrent duplicate creation (TOCTOU)
     lock_path = TASKS_DIR / f".{name}.lock"
