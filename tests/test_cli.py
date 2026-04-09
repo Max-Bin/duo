@@ -4786,6 +4786,145 @@ class TestInspectIncludeFiles:
 
 
 # ---------------------------------------------------------------------------
+# inspect — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestInspectEdgeCases:
+    def test_inspect_task_no_steps(self, runner: CliRunner):
+        """inspect a task whose subtask list is empty — no Current Step section."""
+        task = _make_task("no-steps")
+        # Clear subtasks after creation to simulate an edge case
+        task.subtasks = []
+        save_task(task)
+        # current_step=1 but len(subtasks)==0, so the guard should skip
+        assert task.current_step == 1
+        result = runner.invoke(main, ["inspect", "no-steps"])
+        assert result.exit_code == 0
+        assert "Task: no-steps" in result.output
+        assert "Current Step" not in result.output
+
+    def test_inspect_json_output_structure(self, runner: CliRunner):
+        """Validate all expected top-level keys in JSON output."""
+        _make_task("json-struct")
+        result = runner.invoke(main, ["inspect", "json-struct", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        expected_keys = {
+            "id",
+            "description",
+            "status",
+            "step",
+            "attempt",
+            "worktree",
+            "branch",
+            "base_commit",
+            "created_at",
+            "subtasks",
+        }
+        assert expected_keys.issubset(data.keys())
+        assert isinstance(data["subtasks"], list)
+        assert isinstance(data["step"], int)
+        assert isinstance(data["attempt"], int)
+
+    def test_inspect_with_heartbeat_missing_fields(self, runner: CliRunner):
+        """Heartbeat JSON with missing fields still displays with defaults."""
+        from duo.protocol import write_json
+
+        task = _make_task("hb-missing")
+        # Write heartbeat with only partial fields
+        write_json(task.heartbeat_path, {"ts": "2025-01-01T10:00:00"})
+
+        result = runner.invoke(main, ["inspect", "hb-missing"])
+        assert result.exit_code == 0
+        assert "Heartbeat:" in result.output
+        assert "2025-01-01T10:00:00" in result.output
+
+    def test_inspect_step_with_ack_no_result(self, runner: CliRunner):
+        """Step has ack but no result — only Ack section shown."""
+        from duo.protocol import write_json
+
+        task = _make_task("ack-only")
+        task.step_dir(1).mkdir(parents=True, exist_ok=True)
+        write_json(
+            task.ack_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc1",
+                "prompt_hash": "abc",
+                "acked_at": "2025-01-01T12:00:00",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "ack-only"])
+        assert result.exit_code == 0
+        assert "Ack:" in result.output
+        assert "abc" in result.output
+        assert "Result:" not in result.output
+
+    def test_inspect_step_with_result_no_ack(self, runner: CliRunner):
+        """Step has result but no ack (unusual state) — only Result section shown."""
+        from duo.protocol import write_json
+
+        task = _make_task("res-only")
+        task.step_dir(1).mkdir(parents=True, exist_ok=True)
+        write_json(
+            task.result_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc2",
+                "status": "done",
+                "files_changed": ["x.py"],
+                "summary": "Finished",
+                "reason": "",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "res-only"])
+        assert result.exit_code == 0
+        assert "Ack:" not in result.output
+        assert "Result:" in result.output
+        assert "Finished" in result.output
+
+    def test_inspect_multiple_attempts(self, runner: CliRunner):
+        """Task on attempt 2 — inspect reads ack/result for that attempt."""
+        from duo.protocol import write_json
+
+        task = _make_task("multi-att")
+        task.current_attempt = 2
+        save_task(task)
+        task.step_dir(1).mkdir(parents=True, exist_ok=True)
+        # Write ack for attempt 1 (should NOT show) and attempt 2 (should show)
+        write_json(
+            task.ack_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "old",
+                "prompt_hash": "old-hash",
+                "acked_at": "2025-01-01T11:00:00",
+            },
+        )
+        write_json(
+            task.ack_path(1, 2),
+            {
+                "step": 1,
+                "attempt": 2,
+                "incarnation": "new",
+                "prompt_hash": "new-hash",
+                "acked_at": "2025-01-01T12:00:00",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "multi-att"])
+        assert result.exit_code == 0
+        assert "new-hash" in result.output
+        assert "old-hash" not in result.output
+
+
+# ---------------------------------------------------------------------------
 # _fmt_ts helper
 # ---------------------------------------------------------------------------
 

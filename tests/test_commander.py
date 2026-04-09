@@ -2496,3 +2496,65 @@ class TestCountCorrectionsEdgeCases:
         append_event(task, "correction_sent", {"step": 2, "attempt": 2})
         assert _count_corrections(task, 1) == 2
         assert _count_corrections(task, 2) == 1
+
+
+# ---------------------------------------------------------------------------
+# Additional edge-case tests
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBootstrapPromptEdgeCases:
+    def test_build_bootstrap_prompt_contains_task_dir(self):
+        """Bootstrap prompt must embed the full task directory path."""
+        task = _make_task("bp-dir")
+        prompt = build_bootstrap_prompt(task)
+        assert str(task.dir) in prompt
+
+    def test_build_bootstrap_prompt_contains_incarnation(self):
+        """Bootstrap prompt must embed the incarnation ID."""
+        task = _make_task("bp-inc")
+        prompt = build_bootstrap_prompt(task)
+        assert task.incarnation_id in prompt
+
+
+class TestSendTaskPromptEdgeCases:
+    @patch("duo.commander.transition")
+    @patch("duo.commander.append_event")
+    @patch("duo.commander.save_task")
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander._check_pr_budget", return_value=True)
+    def test_send_task_prompt_empty_prompt(
+        self, mock_budget, mock_wait, mock_select, mock_save, mock_event, mock_trans
+    ):
+        """Sending an empty string prompt still writes the file and sends."""
+        task = _make_task("empty-prompt")
+        _advance_to_prompt_sent(task)
+
+        send_task_prompt(task, "")
+
+        # Prompt file should exist with empty content
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        assert prompt_path.exists()
+        assert prompt_path.read_text() == ""
+        mock_select.assert_called_once_with(task.pane_label, "")
+
+
+class TestPollTaskEdgeCases:
+    def _make_poller(self, poll_result: PollResult) -> AdaptivePoller:
+        poller = AdaptivePoller()
+        poller.poll = MagicMock(return_value=poll_result)
+        return poller
+
+    @patch("duo.commander.verify_and_advance")
+    @patch("duo.commander.read_result_for_step", return_value=None)
+    def test_poll_task_no_result_yet(self, mock_read_result, mock_verify):
+        """RESULT_READY but no result file → verify_and_advance not called."""
+        task = _make_task("no-res")
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.RESULT_READY)
+
+        ret = poll_task(task, poller)
+
+        assert ret == PollResult.RESULT_READY
+        mock_verify.assert_not_called()
