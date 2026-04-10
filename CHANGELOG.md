@@ -24,6 +24,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 2 new tests: guard that all Click commands are in _COMMAND_SECTIONS (prevents orphaned commands)
 - 1 new test: command count documentation guard (verifies CLAUDE.md's 52-command claim)
 - 4 new JSON schema validation smoke tests: verify key presence in JSON output (114→118)
+- 5 new property tests: _parse_age multiplication correctness and unit relationships (76→81)
+- 6 new property tests: _validate_task_name and _fmt_ts edge cases (81→87, 27 classes)
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
