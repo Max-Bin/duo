@@ -13767,3 +13767,95 @@ class TestCliBranchGapsBatch6:
         assert result.exit_code == 0
         assert "selected option 1" in result.output
         mock_select.assert_called_once_with("test-pane", "1")
+
+
+class TestCliBranchGapsBatch7:
+    """Batch 7: close the final 5 branch gaps in cli.py."""
+
+    # -- 96→87: formatter section with no valid commands (empty rows) --
+    def test_help_formatter_empty_section(self, runner: CliRunner, monkeypatch):
+        """Help formatter skips sections where all commands are None."""
+        import duo.cli as cli_mod
+
+        original = cli_mod._COMMAND_SECTIONS
+        patched = dict(original)
+        patched["Phantom"] = ["nonexistent-cmd-xyz"]
+        monkeypatch.setattr(cli_mod, "_COMMAND_SECTIONS", patched)
+
+        result = runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        # "Phantom" section should not appear in output
+        assert "Phantom" not in result.output
+
+    # -- 2970→2966: watch loop new file with empty JSON (False branch) --
+    def test_events_tail_loop_empty_json(self, monkeypatch, tmp_path: Path):
+        """events tail while-loop skips new files with empty JSON."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "_WATCH_EVENTS_DIR", tmp_path)
+
+        call_count = [0]
+
+        def mock_sleep(s):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # Create a new file during the loop with empty content
+                (tmp_path / "evt-new.json").write_text("{}", encoding="utf-8")
+            elif call_count[0] >= 2:
+                raise KeyboardInterrupt
+
+        runner = CliRunner()
+        with patch("time.sleep", side_effect=mock_sleep):
+            result = runner.invoke(main, ["events", "tail", "-n", "0"])
+        assert "Stopped" in result.output
+
+    # -- 4493→4502: ceo-restart shell prompt not matching (False branch) --
+    def test_ceo_restart_no_shell_prompt(
+        self, runner: CliRunner, monkeypatch, tmp_path: Path
+    ):
+        """ceo-restart when shell prompt is not found → timeout error."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", tmp_path)
+
+        t = _make_task("restask")
+        t.pane_label = "test-pane"
+        save_task(t)
+
+        # Monotonic: first call sets deadline, second enters loop, third exits
+        mono_values = iter([100.0, 100.0, 100.0, 100.0, 200.0, 300.0])
+
+        with (
+            patch("duo.transport.get_pane_pid", return_value=12345),
+            patch("duo.cli._get_pid_fd_count", return_value=5),
+            patch("duo.cli._get_pid_kqueue_count", return_value=2),
+            patch("duo.cli._find_idle_children", return_value=[]),
+            patch("duo.transport.cancel_current"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.read_pane", return_value="copilot running"),
+            patch("time.sleep"),
+            patch("time.monotonic", side_effect=lambda: next(mono_values)),
+        ):
+            result = runner.invoke(main, ["ceo-restart", "restask", "--timeout", "10"])
+        assert result.exit_code != 0
+        assert "did not exit" in result.output
+
+    # -- 5302→5310: plan_path doesn't exist yet during wait loop --
+    def test_think_finalize_plan_not_exist_yet(self, monkeypatch, tmp_path: Path):
+        """_think_finalize waits when plan.md doesn't exist yet."""
+        import duo.cli as cli_mod
+
+        # time.time: first call sets deadline, then loop enters, then exceeds
+        time_values = iter([100.0, 100.0, 100.0, 200.0, 300.0])
+
+        with (
+            patch("duo.thinking.ensure_pane", return_value="think-pane"),
+            patch("duo.thinking.thinking_dir", return_value=tmp_path),
+            patch("duo.thinking.wait_for_response_stable", return_value="idle"),
+            patch("duo.transport.type_text"),
+            patch("duo.transport.send_keys"),
+            patch("time.time", side_effect=lambda: next(time_values)),
+            patch("time.sleep"),
+        ):
+            with pytest.raises(cli_mod.DuoUserError, match="didn't produce plan.md"):
+                cli_mod._think_finalize("test-think")
