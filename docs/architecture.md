@@ -273,20 +273,23 @@ The journal auto-rotates when it exceeds 10 MB (keeps the last half).
 ### Transition Table
 
 ```
-CREATED          → { SESSION_STARTING, QUEUED }
-QUEUED           → { SESSION_STARTING, FAILED }
-SESSION_STARTING → { PROMPT_SENT, FAILED }
+CREATED          → { SESSION_STARTING, QUEUED, BLOCKED }
+QUEUED           → { SESSION_STARTING, FAILED, BLOCKED }
+SESSION_STARTING → { PROMPT_SENT, FAILED, BLOCKED }
 PROMPT_SENT      → { ACKED, PROMPT_SENT, FAILED, VERIFYING, RUNNING, BLOCKED }
-ACKED            → { RUNNING, RESULT_REPORTED, FAILED }
+ACKED            → { RUNNING, RESULT_REPORTED, FAILED, BLOCKED }
 RUNNING          → { RESULT_REPORTED, BLOCKED, FAILED }
-RESULT_REPORTED  → { VERIFYING, FAILED }
+RESULT_REPORTED  → { VERIFYING, FAILED, BLOCKED }
 VERIFYING        → { PROMPT_SENT, CORRECTING, COMPLETED, ESCALATED, BLOCKED, FAILED }
-CORRECTING       → { ACKED, ESCALATED, PROMPT_SENT, FAILED }
+CORRECTING       → { ACKED, ESCALATED, PROMPT_SENT, FAILED, BLOCKED }
 BLOCKED          → { SESSION_STARTING, PROMPT_SENT, ESCALATED, FAILED }
-ESCALATED        → { PROMPT_SENT, FAILED }
+ESCALATED        → { PROMPT_SENT, FAILED, BLOCKED }
 FAILED           → { SESSION_STARTING }
 COMPLETED        → { }   ← terminal, no outgoing transitions
 ```
+
+> **Note:** BLOCKED is reachable from nearly every non-terminal state because
+> dialog/permission prompts can appear at any time during Executor operation.
 
 ### State Diagram
 
@@ -371,18 +374,16 @@ rejection** and triggers the correction loop.
 ### Layer 2 — Secret Leak Detection
 
 The verifier scans **added diff lines** (lines starting with `+`, excluding
-`+++` headers) for literal patterns:
+`+++` headers) for 63 literal patterns covering:
 
-```python
-[
-    "API_KEY=", "api_key=", "apikey=",
-    "PASSWORD=", "password=",
-    "TOKEN=", "token=",
-    "SECRET=", "secret=",
-    "PRIVATE_KEY", "private_key",
-    "Authorization: Bearer",
-]
-```
+- Generic credentials: `API_KEY=`, `PASSWORD=`, `TOKEN=`, `SECRET=`, `PRIVATE_KEY`, `Authorization: Bearer`
+- GitHub tokens: `github_pat_`, `ghp_`, `gho_`, `ghs_`, `ghr_`, `ghu_`, `GITHUB_TOKEN=`, `GH_TOKEN=`
+- AI platform keys: `sk-proj-`, `sk-ant-`, `ANTHROPIC_API_KEY=`, `OPENAI_API_KEY=`, `HF_TOKEN=`, `REPLICATE_API_TOKEN=`
+- Cloud credentials: `AKIA`, `ASIA`, `AWS_SECRET_ACCESS_KEY=`, `AZURE_CLIENT_SECRET=`, `ya29.`
+- Private keys: `-----BEGIN RSA PRIVATE KEY`, `-----BEGIN OPENSSH PRIVATE KEY`, `-----BEGIN PGP PRIVATE KEY BLOCK`, etc.
+- Service tokens: `xoxb-`, `xoxp-`, `glpat-`, `npm_`, `SG.`, `sq0csp-`, `sq0atp-`
+- Database URIs: `DATABASE_URL=`, `REDIS_URL=`, `MONGODB_URI=`
+- JWT tokens: `eyJhbGci` (Base64 JWT header)
 
 Matching uses `re.escape()` + `re.IGNORECASE`, so patterns are treated as
 literal strings.  A match is a **hard rejection**.
@@ -639,7 +640,11 @@ validation.
 
 ### CEO Workflow
 
-`ceo-wait` · `ceo-select` · `ceo-approve` · `ceo-status`
+`ceo-wait` · `ceo-select` · `ceo-approve` · `ceo-status` · `ceo-now` · `ceo-loop` · `ceo-dispatch` · `ceo-resume` · `ceo-restart` · `ceo-cleanup` · `ceo-focus` · `ceo-focus-show` · `ceo-focus-clear` · `ceo-smart` · `ceo-smart-config` · `ceo-metrics`
+
+### CEO Sessions
+
+`ceo-session-start` · `ceo-session-list` · `ceo-session-replay` · `ceo-session-stats`
 
 ### Recovery
 
@@ -647,12 +652,12 @@ validation.
 
 ### Data & Audit
 
-`export` · `audit` · `cleanup` · `events` (subcommands: `list` · `show` · `tail` · `clear`)
+`export` · `audit` · `cost` · `cleanup` · `events` (subcommands: `list` · `show` · `tail` · `clear`)
 
-### Setup
+### Planning & Setup
 
-`init` · `doctor` · `config` (subcommands: `get` · `set` · `list` · `reset`)
+`think` · `go` · `init` · `doctor` · `config` (subcommands: `get` · `set` · `list` · `reset`)
 
 ### Miscellaneous
 
-`version` · `completion`
+`version` · `completion` · `bench`
