@@ -107,6 +107,7 @@ _LOCKS_DIR = Path.home() / ".duo" / "locks"
 # approve_permission calls select_dialog_option in the same thread).
 _THREAD_LOCKS: dict[str, threading.RLock] = {}
 _THREAD_LOCKS_GUARD = threading.Lock()
+_MAX_CACHED_LOCKS = 256
 
 # Track which thread holds the flock for each label so nested
 # pane_lock calls skip the (non-reentrant) fcntl.flock.
@@ -516,11 +517,27 @@ def _validate_label(label: str) -> None:
 
 
 def _get_thread_lock(label: str) -> threading.RLock:
-    """Get or create a per-label reentrant thread lock."""
+    """Get or create a per-label reentrant thread lock.
+
+    When the cache exceeds ``_MAX_CACHED_LOCKS``, idle entries (labels
+    not currently held via flock) are evicted to prevent unbounded growth.
+    """
     with _THREAD_LOCKS_GUARD:
         if label not in _THREAD_LOCKS:
+            if len(_THREAD_LOCKS) >= _MAX_CACHED_LOCKS:
+                _evict_idle_locks()
             _THREAD_LOCKS[label] = threading.RLock()
         return _THREAD_LOCKS[label]
+
+
+def _evict_idle_locks() -> None:
+    """Remove cached locks for labels with no active flock owner.
+
+    Must be called while holding ``_THREAD_LOCKS_GUARD``.
+    """
+    idle = [lbl for lbl in _THREAD_LOCKS if lbl not in _FLOCK_OWNERS]
+    for lbl in idle:
+        del _THREAD_LOCKS[lbl]
 
 
 @contextlib.contextmanager

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import threading
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -3014,6 +3015,91 @@ class TestCleanupPaneState:
 
         # Should not raise even if label was never used
         cleanup_pane_state("never-existed-label")
+
+
+class TestEvictIdleLocks:
+    """_evict_idle_locks removes entries not in _FLOCK_OWNERS."""
+
+    def test_evicts_idle_locks(self):
+        """Idle locks (no flock owner) are evicted."""
+        import duo.transport
+
+        saved = duo.transport._MAX_CACHED_LOCKS
+        try:
+            duo.transport._MAX_CACHED_LOCKS = 2
+
+            with duo.transport._THREAD_LOCKS_GUARD:
+                duo.transport._THREAD_LOCKS.clear()
+                duo.transport._FLOCK_OWNERS.clear()
+                duo.transport._THREAD_LOCKS["a"] = threading.RLock()
+                duo.transport._THREAD_LOCKS["b"] = threading.RLock()
+
+            # Getting a third lock triggers eviction
+            lock_c = duo.transport._get_thread_lock("c")
+            assert lock_c is not None
+
+            with duo.transport._THREAD_LOCKS_GUARD:
+                # a and b should be evicted, c remains
+                assert "c" in duo.transport._THREAD_LOCKS
+                assert "a" not in duo.transport._THREAD_LOCKS
+                assert "b" not in duo.transport._THREAD_LOCKS
+        finally:
+            duo.transport._MAX_CACHED_LOCKS = saved
+            with duo.transport._THREAD_LOCKS_GUARD:
+                duo.transport._THREAD_LOCKS.pop("c", None)
+
+    def test_preserves_active_flock_owners(self):
+        """Locks with active flock owners are NOT evicted."""
+        import duo.transport
+
+        saved = duo.transport._MAX_CACHED_LOCKS
+        try:
+            duo.transport._MAX_CACHED_LOCKS = 2
+
+            with duo.transport._THREAD_LOCKS_GUARD:
+                duo.transport._THREAD_LOCKS.clear()
+                duo.transport._FLOCK_OWNERS.clear()
+                duo.transport._THREAD_LOCKS["active"] = threading.RLock()
+                duo.transport._THREAD_LOCKS["idle"] = threading.RLock()
+                duo.transport._FLOCK_OWNERS["active"] = threading.get_ident()
+
+            lock_new = duo.transport._get_thread_lock("new-label")
+            assert lock_new is not None
+
+            with duo.transport._THREAD_LOCKS_GUARD:
+                assert "active" in duo.transport._THREAD_LOCKS
+                assert "idle" not in duo.transport._THREAD_LOCKS
+                assert "new-label" in duo.transport._THREAD_LOCKS
+        finally:
+            duo.transport._MAX_CACHED_LOCKS = saved
+            with duo.transport._THREAD_LOCKS_GUARD:
+                duo.transport._THREAD_LOCKS.pop("active", None)
+                duo.transport._THREAD_LOCKS.pop("new-label", None)
+                duo.transport._FLOCK_OWNERS.pop("active", None)
+
+    def test_no_eviction_below_threshold(self):
+        """No eviction when below _MAX_CACHED_LOCKS."""
+        import duo.transport
+
+        saved = duo.transport._MAX_CACHED_LOCKS
+        try:
+            duo.transport._MAX_CACHED_LOCKS = 100
+
+            with duo.transport._THREAD_LOCKS_GUARD:
+                duo.transport._THREAD_LOCKS.clear()
+                duo.transport._THREAD_LOCKS["keep-me"] = threading.RLock()
+
+            lock = duo.transport._get_thread_lock("also-keep")
+
+            with duo.transport._THREAD_LOCKS_GUARD:
+                assert "keep-me" in duo.transport._THREAD_LOCKS
+                assert "also-keep" in duo.transport._THREAD_LOCKS
+                assert lock is duo.transport._THREAD_LOCKS["also-keep"]
+        finally:
+            duo.transport._MAX_CACHED_LOCKS = saved
+            with duo.transport._THREAD_LOCKS_GUARD:
+                duo.transport._THREAD_LOCKS.pop("keep-me", None)
+                duo.transport._THREAD_LOCKS.pop("also-keep", None)
 
 
 class TestWaitForIdleMonotonic:

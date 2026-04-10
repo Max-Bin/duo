@@ -308,10 +308,10 @@ to miss them and `ceo-loop` to spin without handling them.
   with post-send detection logging (CRITICAL level). Full fix would
   require tmux-side atomic "read-and-send-if-match" which doesn't exist.
 
-- **`_THREAD_LOCKS` unbounded growth** (MED): One `RLock` per unique pane
-  label, never cleaned up. `cleanup_pane_state()` added for manual cleanup
-  but no automatic eviction. In practice, labels are task IDs — bounded
-  by number of tasks in a session.
+- **`_THREAD_LOCKS` unbounded growth** (MED → RESOLVED): Added automatic
+  eviction in `_get_thread_lock()` — when cache exceeds `_MAX_CACHED_LOCKS`
+  (256), idle entries (no active flock owner) are evicted. Combined with
+  existing `cleanup_pane_state()` for deterministic cleanup.
 
 - **`read_pane()` output not sanitized** (LOW): Raw tmux pane capture may
   contain ANSI escape sequences. Consumers handle this ad-hoc. A central
