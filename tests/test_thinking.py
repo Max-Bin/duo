@@ -262,8 +262,8 @@ class TestWaitForResponseStable:
         content = "❯ Type @\nshift+tab"
         with (
             patch("duo.transport.read_pane", return_value=content),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE),
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("time.sleep"),
             patch("time.time", side_effect=[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5]),
         ):
@@ -275,8 +275,8 @@ class TestWaitForResponseStable:
     def test_dialog_detected(self) -> None:
         with (
             patch("duo.transport.read_pane", return_value="╭─ some dialog"),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.OPTION),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("time.sleep"),
             patch("time.time", side_effect=[0, 0.5]),
         ):
@@ -295,8 +295,8 @@ class TestWaitForResponseStable:
 
         with (
             patch("duo.transport.read_pane", return_value=content),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("time.sleep"),
             patch("time.time", side_effect=mock_time),
         ):
@@ -323,8 +323,8 @@ class TestWaitForResponseStable:
 
         with (
             patch("duo.transport.read_pane", side_effect=mock_read_pane),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE),
-            patch("duo.transport._is_at_main_prompt", side_effect=mock_at_prompt),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE),
+            patch("duo.transport.is_at_main_prompt", side_effect=mock_at_prompt),
             patch("time.sleep"),
             patch("time.time", side_effect=[0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.5, 5.0, 8.0]),
         ):

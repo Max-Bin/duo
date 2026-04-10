@@ -60,9 +60,9 @@ class TestTransportEdgeCasesNew:
         assert len(log) == initial_count + 1
         assert log[-1]["context"] == "99"
 
-    def test_detect_dialog_kind_with_ansi_256_color(self) -> None:
-        """_detect_dialog_kind strips ANSI 256-color codes inside dialog box."""
-        from duo.transport import _detect_dialog_kind
+    def testdetect_dialog_kind_with_ansi_256_color(self) -> None:
+        """detect_dialog_kind strips ANSI 256-color codes inside dialog box."""
+        from duo.transport import detect_dialog_kind
 
         content = (
             "\x1b[38;5;82m\u256d\u2500 Choose \u2500\u256e\x1b[0m\n"
@@ -70,7 +70,7 @@ class TestTransportEdgeCasesNew:
             "\x1b[38;5;214m  2.\x1b[0m Reject\n"
             "\x1b[38;5;82m\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\x1b[0m"
         )
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_strip_ansi_truecolor_sequences(self) -> None:
         """strip_ansi removes truecolor RGB escape sequences."""
@@ -105,7 +105,7 @@ class TestTransportEdgeCasesNew:
             with pytest.raises(TmuxServerDownError):
                 read_pane("nonexistent-pane")
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
@@ -122,7 +122,7 @@ class TestTransportEdgeCasesNew:
         assert result is True
         mock_type.assert_called_once_with("test", "")
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")

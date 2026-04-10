@@ -321,3 +321,16 @@ class TestRunDashboard:
         _make_task("skip-me")
         # Should not raise; only "keep-me" would be displayed
         run_dashboard(task_ids=["keep-me"])
+
+
+class TestStatusColorsExhaustiveness:
+    """Verify STATUS_COLORS covers every TaskStatus."""
+
+    def test_every_status_has_color(self) -> None:
+        from duo.dashboard import STATUS_COLORS
+        from duo.protocol import TaskStatus
+
+        for status in TaskStatus:
+            assert status.value in STATUS_COLORS, (
+                f"STATUS_COLORS missing entry for {status.name}"
+            )

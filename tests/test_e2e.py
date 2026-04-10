@@ -850,7 +850,7 @@ class TestCeoE2EScenarios:
         # Step 3: ceo-approve
         with (
             _patch("duo.transport.is_permission_dialog", return_value=True),
-            _patch("duo.transport._is_at_main_prompt", return_value=False),
+            _patch("duo.transport.is_at_main_prompt", return_value=False),
             _patch("duo.transport.read_pane", return_value=""),
             _patch("duo.transport.approve_permission"),
         ):
@@ -871,7 +871,7 @@ class TestCeoE2EScenarios:
 
         with (
             _patch("duo.transport.is_in_dialog_stable", return_value=True),
-            _patch("duo.transport._is_at_main_prompt", return_value=False),
+            _patch("duo.transport.is_at_main_prompt", return_value=False),
             _patch("duo.transport.read_pane", return_value=""),
             _patch("duo.transport.send_option_other_message", return_value=True),
         ):
@@ -912,7 +912,7 @@ class TestCeoE2EScenarios:
 
         with (
             _patch("duo.transport.is_permission_dialog", return_value=False),
-            _patch("duo.transport._is_at_main_prompt", return_value=False),
+            _patch("duo.transport.is_at_main_prompt", return_value=False),
             _patch("duo.transport.read_pane", return_value=""),
         ):
             result = runner.invoke(main, ["ceo-approve", task.id])

@@ -49,15 +49,21 @@ __all__ = [
     "cancel_current",
     "clear_bootstrap_done",
     "cleanup_pane_state",
+    "count_bullet_items",
+    "detect_copilot_api_error",
+    "detect_dialog_kind",
     "diagnose_pane",
     "doctor",
     "ensure_minimum_pane_size",
+    "extract_last_box_lines",
     "get_dialog_kind",
     "get_pane_id",
     "get_pane_pid",
     "get_pane_size",
     "get_pr_log",
     "get_tmux_session_target",
+    "is_at_main_prompt",
+    "is_capi_context_error",
     "is_in_dialog",
     "is_in_dialog_stable",
     "is_likely_stuck",
@@ -88,8 +94,6 @@ __all__ = [
     "set_pr_callback",
     "strip_ansi",
     "type_text",
-    "detect_copilot_api_error",
-    "is_capi_context_error",
     "wait_for_dialog",
     "wait_for_idle",
 ]
@@ -908,7 +912,7 @@ def strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
-def _is_at_main_prompt(content: str) -> bool:
+def is_at_main_prompt(content: str) -> bool:
     """True if pane is IDLE at Copilot ❯ prompt. ANY input here = PR consumed.
 
     The ❯ prompt is always rendered at the bottom of Copilot CLI, even while
@@ -934,7 +938,7 @@ def _is_at_main_prompt(content: str) -> bool:
     return False
 
 
-def _extract_last_box_lines(content: str) -> list[str] | None:
+def extract_last_box_lines(content: str) -> list[str] | None:
     """Return lines inside the last ╭─…╰─ dialog box, or None if not found.
 
     For tall dialogs where ╭─ scrolled off-screen, if we see ╰─ without ╭─
@@ -960,7 +964,7 @@ def _extract_last_box_lines(content: str) -> list[str] | None:
     return None
 
 
-def _detect_dialog_kind(content: str) -> DialogKind:
+def detect_dialog_kind(content: str) -> DialogKind:
     """Classify dialog kind from pane content (no I/O).
 
     Only examines content within the last dialog box (╭─ … ╰─).
@@ -975,7 +979,7 @@ def _detect_dialog_kind(content: str) -> DialogKind:
     contains box-drawing characters.
     """
     content = strip_ansi(content)
-    if _is_at_main_prompt(content):
+    if is_at_main_prompt(content):
         return DialogKind.NONE
 
     # --- Bottom-anchor check ---
@@ -991,7 +995,7 @@ def _detect_dialog_kind(content: str) -> DialogKind:
         if len(trailing) > 5:
             return DialogKind.NONE
 
-    box_lines = _extract_last_box_lines(content)
+    box_lines = extract_last_box_lines(content)
     if box_lines is None:
         return DialogKind.NONE
 
@@ -1026,7 +1030,7 @@ def _detect_dialog_kind(content: str) -> DialogKind:
 def get_dialog_kind(label: str) -> DialogKind:
     """Read pane and classify the dialog kind."""
     content = read_pane(label, 100)
-    return _detect_dialog_kind(content)
+    return detect_dialog_kind(content)
 
 
 def is_in_dialog(label: str) -> bool:
@@ -1082,7 +1086,7 @@ def safe_enter(label: str) -> None:
     critical warning if this is detected.
     """
     content = read_pane(label, 20)
-    if _is_at_main_prompt(content):
+    if is_at_main_prompt(content):
         raise RuntimeError(
             f"BLOCKED: '{label}' at ❯ prompt. Enter = PR consumed. REFUSED."
         )
@@ -1091,7 +1095,7 @@ def safe_enter(label: str) -> None:
     # AND no dialog appeared, a PR may have been consumed by the race.
     _time.sleep(0.15)
     post = read_pane(label, 20)
-    if _is_at_main_prompt(post):
+    if is_at_main_prompt(post):
         logger.critical(
             "TOCTOU: Enter sent to '%s' but pane is now at ❯ prompt — "
             "a Premium Request may have been consumed by a race condition",
@@ -1244,13 +1248,13 @@ def select_dialog_option(label: str, option: str) -> None:
         _record_pr(label, "dialog_option", option[:80])
 
 
-def _count_bullet_items(content: str) -> tuple[int, int]:
+def count_bullet_items(content: str) -> tuple[int, int]:
     """Count bullet items and find current cursor position in a BULLET dialog.
 
     Returns (total_items, current_position) where position is 1-based.
     The cursor position is the item with ❯ prefix.
     """
-    box_lines = _extract_last_box_lines(content)
+    box_lines = extract_last_box_lines(content)
     if box_lines is None:
         return 0, 0
 
@@ -1280,7 +1284,7 @@ def select_bullet_option(label: str, position: int) -> None:
 
         content = read_pane(label, 40)
         content = strip_ansi(content)
-        total, current = _count_bullet_items(content)
+        total, current = count_bullet_items(content)
 
         if total == 0:
             raise RuntimeError(f"SAFETY: '{label}' no bullet items found.")
@@ -1309,7 +1313,7 @@ def send_option_other_message(label: str, text: str) -> bool:
     """
     with pane_lock(label):
         content = read_pane(label, 20)
-        if _is_at_main_prompt(content):
+        if is_at_main_prompt(content):
             raise RuntimeError(f"BLOCKED: '{label}' at ❯ prompt. REFUSED.")
         if not is_in_dialog(label):
             raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
@@ -1359,7 +1363,7 @@ def send_option_other_message(label: str, text: str) -> bool:
         # Verify dialog dismissed; retry Enter up to 2 times
         for _retry in range(2):
             content = read_pane(label, 20)
-            dialog_kind = _detect_dialog_kind(content)
+            dialog_kind = detect_dialog_kind(content)
             if dialog_kind == DialogKind.NONE:
                 _record_pr(label, "dialog_other", text[:80])
                 return True
@@ -1368,7 +1372,7 @@ def send_option_other_message(label: str, text: str) -> bool:
 
         # Final check
         content = read_pane(label, 20)
-        if _detect_dialog_kind(content) == DialogKind.NONE:
+        if detect_dialog_kind(content) == DialogKind.NONE:
             _record_pr(label, "dialog_other", text[:80])
             return True
         return False
@@ -1424,7 +1428,7 @@ def send_text_dialog_message(label: str, text: str) -> bool:
         # Verify dialog was dismissed; retry Enter up to 2 times
         for _retry in range(2):
             content = read_pane(label, 20)
-            dialog_kind = _detect_dialog_kind(content)
+            dialog_kind = detect_dialog_kind(content)
             if dialog_kind == DialogKind.NONE:
                 return True
             # Dialog still showing — retry Enter
@@ -1433,7 +1437,7 @@ def send_text_dialog_message(label: str, text: str) -> bool:
 
         # Final check
         content = read_pane(label, 20)
-        return _detect_dialog_kind(content) == DialogKind.NONE
+        return detect_dialog_kind(content) == DialogKind.NONE
 
 
 # === Composite operations ===
@@ -1445,7 +1449,7 @@ def send_shell_command(label: str, command: str) -> None:
     Safety: rejects if pane is at Copilot's main ❯ prompt.
     """
     content = read_pane(label, 5)
-    if _is_at_main_prompt(content):
+    if is_at_main_prompt(content):
         raise RuntimeError(
             f"BLOCKED: '{label}' at ❯ prompt. "
             "send_shell_command is for shell-only. Use select_dialog_option."

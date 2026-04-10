@@ -366,8 +366,8 @@ class TestWaitForResponseStable:
 
         with (
             patch("duo.transport.read_pane", side_effect=fake_read_pane),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE),
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("time.time", side_effect=[0, 0.5, 1, 1.5, 2, 2.5, 3, 5, 10]),
             patch("time.sleep"),
         ):
@@ -383,7 +383,7 @@ class TestWaitForResponseStable:
             patch(
                 "duo.transport.read_pane", return_value="╭─ dialog ─╮\n1. Yes\n2. No"
             ),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.OPTION),
             patch("time.time", side_effect=[0, 0.5]),
         ):
             result = wait_for_response_stable("test", timeout=30)
@@ -404,8 +404,8 @@ class TestWaitForResponseStable:
 
         with (
             patch("duo.transport.read_pane", side_effect=fake_read),
-            patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE),
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("time.time", side_effect=[0, 0.5, 1, 1.5, 2, 2.5, 3, 5, 10]),
             patch("time.sleep"),
         ):

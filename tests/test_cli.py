@@ -8048,7 +8048,7 @@ class TestPrBudgetSafety:
         from duo.cli import assert_not_at_main_prompt
 
         with (
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("duo.transport.read_pane", return_value="❯ Type @"),
         ):
             with pytest.raises(click.exceptions.ClickException, match="REFUSED"):
@@ -8059,7 +8059,7 @@ class TestPrBudgetSafety:
         from duo.cli import assert_not_at_main_prompt
 
         with (
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
         ):
             assert assert_not_at_main_prompt("duo:test-label") is None
@@ -8079,7 +8079,7 @@ class TestPrBudgetSafety:
         from duo.cli import _enforce_not_at_main_prompt
 
         with (
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("duo.transport.read_pane", return_value="❯ Type @"),
         ):
             with pytest.raises(click.exceptions.ClickException, match="REFUSED"):
@@ -8103,7 +8103,7 @@ class TestCeoSelect:
         task = make_task("sel-nodlg")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=False),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
         ):
             result = runner.invoke(main, ["ceo-select", task.id, "1"])
@@ -8114,7 +8114,7 @@ class TestCeoSelect:
         task = make_task("sel-num")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.select_dialog_option") as mock_sel,
         ):
@@ -8127,7 +8127,7 @@ class TestCeoSelect:
         task = make_task("sel-other")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch(
                 "duo.transport.send_option_other_message", return_value=True
@@ -8147,7 +8147,7 @@ class TestCeoSelect:
         task = make_task("sel-other-fail")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.send_option_other_message", return_value=False),
         ):
@@ -8179,7 +8179,7 @@ class TestCeoSelect:
         """ceo-select REFUSES if pane is at main ❯ prompt."""
         task = make_task("sel-prompt")
         with (
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("duo.transport.read_pane", return_value="❯ Type @"),
         ):
             result = runner.invoke(main, ["ceo-select", task.id, "1"])
@@ -8194,7 +8194,7 @@ class TestCeoSelect:
         task = make_task("sel-force")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("duo.transport.read_pane", return_value="❯ Type @"),
             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
             patch("duo.transport.select_dialog_option"),
@@ -8219,7 +8219,7 @@ class TestCeoSelect:
         task = make_task("sel-text-num")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch(
                 "duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"
             ),
@@ -8234,7 +8234,7 @@ class TestCeoSelect:
         task = make_task("sel-text-ok")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch(
                 "duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"
             ),
@@ -8257,7 +8257,7 @@ class TestCeoSelect:
         task = make_task("sel-text-retry")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch(
                 "duo.transport.read_pane", return_value="╭─ Q ─╮\n Type your answer\n╰─"
             ),
@@ -8275,7 +8275,7 @@ class TestCeoSelect:
         task = make_task("sel-bullet")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.get_dialog_kind", return_value=DialogKind.BULLET),
             patch("duo.transport.select_bullet_option") as mock_sel,
@@ -8290,7 +8290,7 @@ class TestCeoSelect:
         task = make_task("sel-bullet-other")
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.get_dialog_kind", return_value=DialogKind.BULLET),
             patch(
@@ -8315,7 +8315,7 @@ class TestCeoSelect:
         task = make_task("appr-ok")
         with (
             patch("duo.transport.is_permission_dialog", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.approve_permission") as mock_approve,
         ):
@@ -8328,7 +8328,7 @@ class TestCeoSelect:
         task = make_task("appr-ask")
         with (
             patch("duo.transport.is_permission_dialog", return_value=False),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
         ):
             result = runner.invoke(main, ["ceo-approve", task.id])
@@ -8340,7 +8340,7 @@ class TestCeoSelect:
         task = make_task("appr-fail")
         with (
             patch("duo.transport.is_permission_dialog", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch(
                 "duo.transport.approve_permission",
@@ -8354,7 +8354,7 @@ class TestCeoSelect:
         task = make_task("appr-os")
         with (
             patch("duo.transport.is_permission_dialog", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.approve_permission", side_effect=OSError("pane gone")),
         ):
@@ -8369,7 +8369,7 @@ class TestCeoSelect:
         """ceo-approve REFUSES if pane is at main ❯ prompt."""
         task = make_task("appr-prompt")
         with (
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("duo.transport.read_pane", return_value="❯ Type @"),
         ):
             result = runner.invoke(main, ["ceo-approve", task.id])
@@ -8384,7 +8384,7 @@ class TestCeoSelect:
         task = make_task("appr-force")
         with (
             patch("duo.transport.is_permission_dialog", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=True),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
             patch("duo.transport.read_pane", return_value="❯ Type @"),
             patch("duo.transport.approve_permission"),
         ):
@@ -8414,7 +8414,7 @@ class TestCeoSelect:
         task = make_task("appr-log")
         with (
             patch("duo.transport.is_permission_dialog", return_value=True),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.approve_permission"),
         ):
@@ -8442,7 +8442,7 @@ class TestCeoSelect:
         with (
             patch("duo.transport.is_in_dialog_stable", return_value=True),
             patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
-            patch("duo.transport._is_at_main_prompt", return_value=False),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
             patch("duo.transport.read_pane", return_value=""),
             patch("duo.transport.select_dialog_option"),
         ):

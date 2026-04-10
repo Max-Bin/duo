@@ -15,13 +15,12 @@ from duo.transport import (
     MINIMUM_PANE_ROWS,
     DialogKind,
     PaneInfo,
-    _count_bullet_items,
     _find_bridge,
-    _is_at_main_prompt,
     _retry,
     approve_permission,
     bridge,
     cancel_current,
+    count_bullet_items,
     diagnose_pane,
     doctor,
     ensure_minimum_pane_size,
@@ -29,6 +28,7 @@ from duo.transport import (
     get_pane_id,
     get_pane_pid,
     get_pane_size,
+    is_at_main_prompt,
     is_in_dialog,
     is_in_dialog_stable,
     is_pane_process_alive,
@@ -731,24 +731,24 @@ class TestPRAudit:
             duo.transport._PR_LOG.extend(original)
 
 
-# ── _is_at_main_prompt ───────────────────────────────────────────────
+# ── is_at_main_prompt ───────────────────────────────────────────────
 
 
 class TestIsAtMainPrompt:
     def test_skips_remaining_reqs_line(self):
         """Lines with 'Remaining reqs' are skipped to find prompt (line 231)."""
         content = "Remaining reqs: 42\n❯ Type @ to mention files"
-        assert _is_at_main_prompt(content) is True
+        assert is_at_main_prompt(content) is True
 
     def test_skips_shift_tab_line(self):
         """Lines with 'shift+tab' are skipped to find prompt (line 231)."""
         content = "Press shift+tab for options\n❯"
-        assert _is_at_main_prompt(content) is True
+        assert is_at_main_prompt(content) is True
 
     def test_remaining_reqs_without_prompt(self):
         """'Remaining reqs' line alone, no prompt below → False."""
         content = "some output\nRemaining reqs: 10"
-        assert _is_at_main_prompt(content) is False
+        assert is_at_main_prompt(content) is False
 
 
 # ── is_in_dialog ─────────────────────────────────────────────────────
@@ -1059,57 +1059,57 @@ class TestListPanesLogging:
         assert any("Skipping unparseable tmux line" in m for m in caplog.messages)
 
 
-# ── _is_at_main_prompt edge cases ────────────────────────────────────
+# ── is_at_main_prompt edge cases ────────────────────────────────────
 
 
 class TestIsAtMainPromptEdgeCases:
     def test_empty_content(self):
         """Empty string is not at prompt."""
-        assert _is_at_main_prompt("") is False
+        assert is_at_main_prompt("") is False
 
     def test_only_separators(self):
         """Content with only separator lines is not at prompt."""
-        assert _is_at_main_prompt("─────\n─────") is False
+        assert is_at_main_prompt("─────\n─────") is False
 
     def test_chevron_without_menu_text(self):
         """❯ with non-menu text is not at prompt."""
-        assert _is_at_main_prompt("❯ some random text here") is False
+        assert is_at_main_prompt("❯ some random text here") is False
 
     def test_chevron_after_separators(self):
         """❯ prompt preceded by separator lines IS at prompt."""
         content = "─────\nRemaining reqs: 10\n❯ Type @ to mention files"
-        assert _is_at_main_prompt(content) is True
+        assert is_at_main_prompt(content) is True
 
     def test_spinner_suppresses_prompt(self) -> None:
         """Spinner marker means Copilot is processing — not idle."""
         content = "◉ Processing...\n❯ Type @ to mention files"
-        assert _is_at_main_prompt(content) is False
+        assert is_at_main_prompt(content) is False
 
     def test_spinner_variants(self) -> None:
         """All spinner markers suppress the prompt."""
         for marker in ("◉ ", "◎ ", "○ "):
             content = f"{marker}Thinking\n❯ Type @ to mention files"
-            assert _is_at_main_prompt(content) is False, marker
+            assert is_at_main_prompt(content) is False, marker
 
     def test_shift_tab_skipped(self) -> None:
         """shift+tab line is skipped when scanning for prompt."""
         content = "shift+tab to switch\n❯ Type @ to mention files"
-        assert _is_at_main_prompt(content) is True
+        assert is_at_main_prompt(content) is True
 
     def test_remaining_reqs_skipped(self) -> None:
         """Remaining reqs line is skipped when scanning for prompt."""
         content = "Remaining reqs: 5\n❯"
-        assert _is_at_main_prompt(content) is True
+        assert is_at_main_prompt(content) is True
 
     def test_non_prompt_text_breaks_scan(self) -> None:
         """Non-separator, non-prompt text between bottom and ❯ stops scan."""
         # ❯ is NOT the last stripped line — 'Some output' appears below
         content = "❯ Type @ to mention files\nSome output"
-        assert _is_at_main_prompt(content) is False
+        assert is_at_main_prompt(content) is False
 
     def test_mention_files_prompt(self) -> None:
         """❯ with 'mention files' text is at prompt."""
-        assert _is_at_main_prompt("❯ mention files to include") is True
+        assert is_at_main_prompt("❯ mention files to include") is True
 
 
 # ── is_permission_dialog ──────────────────────────────────────────────
@@ -1266,7 +1266,7 @@ class TestSendOptionOtherMessage:
     """Tests for send_option_other_message — reliable Enter for Other option."""
 
     @patch("duo.transport._record_pr")
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
@@ -1295,7 +1295,7 @@ class TestSendOptionOtherMessage:
         mock_pr.assert_called_once()
 
     @patch("duo.transport._record_pr")
-    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.detect_dialog_kind")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
@@ -1313,7 +1313,7 @@ class TestSendOptionOtherMessage:
         ]
         assert len(enter_calls) == 2
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.OPTION)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.OPTION)
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
@@ -1332,7 +1332,7 @@ class TestSendOptionOtherMessage:
         assert len(enter_calls) == 3
 
     @patch("duo.transport.read_pane")
-    @patch("duo.transport._is_at_main_prompt", return_value=True)
+    @patch("duo.transport.is_at_main_prompt", return_value=True)
     def test_send_option_other_message_at_prompt_blocked(self, mock_prompt, mock_read):
         """Raises RuntimeError when at main ❯ prompt."""
         mock_read.return_value = "❯ "
@@ -1356,7 +1356,7 @@ class TestSendOptionOtherMessage:
             send_option_other_message("test", "text")
 
     @patch("duo.transport._record_pr")
-    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.detect_dialog_kind")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
@@ -1375,7 +1375,7 @@ class TestSendOptionOtherMessage:
         assert len(down_calls) == 1
 
     @patch("duo.transport._record_pr")
-    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.detect_dialog_kind")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
     @patch("duo.transport.send_keys")
@@ -1435,7 +1435,7 @@ class TestSelectOtherOption:
 class TestSendTextDialogMessage:
     """Tests for send_text_dialog_message — reliable Enter for text dialogs."""
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
@@ -1448,7 +1448,7 @@ class TestSendTextDialogMessage:
         # Enter sent once
         mock_keys.assert_called_once_with("test", "Enter")
 
-    @patch("duo.transport._detect_dialog_kind")
+    @patch("duo.transport.detect_dialog_kind")
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
@@ -1462,7 +1462,7 @@ class TestSendTextDialogMessage:
         # Enter sent twice (initial + 1 retry)
         assert mock_keys.call_count == 2
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.TEXT)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.TEXT)
     @patch("duo.transport.send_keys")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
@@ -1474,7 +1474,7 @@ class TestSendTextDialogMessage:
         # Enter sent 3 times: initial + 2 retries
         assert mock_keys.call_count == 3
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")
     @patch("duo.transport.resolve_label", return_value="%42")
     @patch("duo.transport.read_pane")
@@ -1502,7 +1502,7 @@ class TestSendTextDialogMessage:
         # os.kill should have been called with SIGWINCH
         assert mock_kill.call_count >= 1
 
-    @patch("duo.transport._detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")
     @patch("duo.transport.resolve_label", side_effect=RuntimeError("no pane"))
     @patch("duo.transport.read_pane")
@@ -1586,25 +1586,25 @@ class TestAnsiInDialogDetection:
     """Ensure dialog detection works with ANSI-colored pane output."""
 
     def test_main_prompt_with_ansi_colored_prompt(self) -> None:
-        from duo.transport import _is_at_main_prompt
+        from duo.transport import is_at_main_prompt
 
         content = "\x1b[32m❯\x1b[0m \x1b[90mType @ to mention files\x1b[0m"
-        assert _is_at_main_prompt(content) is True
+        assert is_at_main_prompt(content) is True
 
     def test_main_prompt_with_ansi_spinner_detected(self) -> None:
-        from duo.transport import _is_at_main_prompt
+        from duo.transport import is_at_main_prompt
 
         content = "\x1b[33m◉ \x1b[0mProcessing...\n❯"
-        assert _is_at_main_prompt(content) is False
+        assert is_at_main_prompt(content) is False
 
     def test_main_prompt_with_ansi_box_chars(self) -> None:
-        from duo.transport import _is_at_main_prompt
+        from duo.transport import is_at_main_prompt
 
         content = "\x1b[1m╭─\x1b[0m question\n1. Yes\n\x1b[1m╰─\x1b[0m\n❯"
-        assert _is_at_main_prompt(content) is False
+        assert is_at_main_prompt(content) is False
 
     def test_detect_option_dialog_with_ansi(self) -> None:
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "\x1b[1m╭─ Choose ─╮\x1b[0m\n"
@@ -1612,23 +1612,23 @@ class TestAnsiInDialogDetection:
             "  2. Reject\n"
             "\x1b[1m╰─────────╯\x1b[0m"
         )
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_detect_text_dialog_with_ansi(self) -> None:
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "\x1b[1m╭─ Input ─╮\x1b[0m\n"
             "\x1b[90mType your answer\x1b[0m\n"
             "\x1b[1m╰─────────╯\x1b[0m"
         )
-        assert _detect_dialog_kind(content) == DialogKind.TEXT
+        assert detect_dialog_kind(content) == DialogKind.TEXT
 
     def test_detect_no_dialog_with_ansi_noise(self) -> None:
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = "\x1b[32m❯\x1b[0m \x1b[90mType @ to mention files\x1b[0m"
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_read_pane_strips_ansi(self) -> None:
         """read_pane() should return ANSI-free text."""
@@ -1639,11 +1639,11 @@ class TestAnsiInDialogDetection:
 
 
 class TestDialogBoundaryDetection:
-    """Tests that _detect_dialog_kind only considers content within box boundaries."""
+    """Tests that detect_dialog_kind only considers content within box boundaries."""
 
     def test_numbered_list_outside_box_not_dialog(self) -> None:
         """Numbered list in scrollback above a spinner → NONE, not OPTION."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "Here is my plan:\n"
@@ -1653,20 +1653,20 @@ class TestDialogBoundaryDetection:
             "\n"
             "◉ Working on step 1..."
         )
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_numbered_list_inside_box_is_dialog(self) -> None:
         """Numbered list inside ╭─…╰─ box → OPTION."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "╭─ Choose an action ─╮\n1. Fix this\n2. Fix that\n╰────────────────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_mixed_content_only_box_counted(self) -> None:
         """Numbered list outside box + text input inside box → TEXT (not OPTION)."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "Here is my plan:\n"
@@ -1678,14 +1678,14 @@ class TestDialogBoundaryDetection:
             "Type your answer below\n"
             "╰────────────────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.TEXT
+        assert detect_dialog_kind(content) == DialogKind.TEXT
 
     def test_box_with_options_after_scrollback_plan(self) -> None:
         """Copilot printed a plan, then shows a Yes/No dialog → OPTION with 2 opts."""
         from duo.transport import (
             DialogKind,
-            _detect_dialog_kind,
-            _extract_last_box_lines,
+            detect_dialog_kind,
+            extract_last_box_lines,
         )
 
         content = (
@@ -1701,8 +1701,8 @@ class TestDialogBoundaryDetection:
             "  2. No\n"
             "╰─────────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
-        box_lines = _extract_last_box_lines(content)
+        assert detect_dialog_kind(content) == DialogKind.OPTION
+        box_lines = extract_last_box_lines(content)
         assert box_lines is not None
         # Only 2 options inside the box, not the 5 from the plan
         opt_count = sum(
@@ -1714,21 +1714,21 @@ class TestDialogBoundaryDetection:
 
     def test_unclosed_box_returns_none(self) -> None:
         """Only ╭─ with no ╰─ → NONE (dialog still rendering)."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = "╭─ Loading ─╮\nPlease wait...\n1. Option A"
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_empty_box_returns_none(self) -> None:
         """╭─╰─ with nothing between → NONE."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = "╭─ Empty ─╮\n╰──────────╯"
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_multiple_boxes_uses_last(self) -> None:
         """Two dialog boxes in content → uses the last one."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "╭─ Old dialog ─╮\n"
@@ -1741,44 +1741,44 @@ class TestDialogBoundaryDetection:
             "╰───────────────╯"
         )
         # Last box has text input, not options → TEXT
-        assert _detect_dialog_kind(content) == DialogKind.TEXT
+        assert detect_dialog_kind(content) == DialogKind.TEXT
 
     def test_tall_dialog_partial_box_option(self) -> None:
         """Tall dialog where ╭─ scrolled off: only ╰─ visible → detect OPTION."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         body = "\n".join([f"  line {i}" for i in range(40)])
         content = body + "\n  1. Yes\n  2. No\n╰────────────────────╯"
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_tall_dialog_partial_box_text(self) -> None:
         """Tall dialog where ╭─ scrolled off: only ╰─ visible → detect TEXT."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         body = "\n".join([f"  line {i}" for i in range(40)])
         content = body + "\nType your answer\n╰────────────────────╯"
-        assert _detect_dialog_kind(content) == DialogKind.TEXT
+        assert detect_dialog_kind(content) == DialogKind.TEXT
 
     def test_tall_dialog_full_box_still_works(self) -> None:
         """Normal dialog with both ╭─ and ╰─ visible still works."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = "╭─ Choose ─╮\n1. Yes\n2. No\n╰────────────╯"
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_partial_box_no_false_positive(self) -> None:
         """╰─ without dialog indicators → NONE."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = "some old output\n╰────╯\n\n❯ mention files"
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_extract_partial_box_lines(self) -> None:
-        """_extract_last_box_lines returns lines above ╰─ when ╭─ is missing."""
-        from duo.transport import _extract_last_box_lines
+        """extract_last_box_lines returns lines above ╰─ when ╭─ is missing."""
+        from duo.transport import extract_last_box_lines
 
         content = "  1. Option A\n  2. Option B\n╰────────╯"
-        result = _extract_last_box_lines(content)
+        result = extract_last_box_lines(content)
         assert result is not None
         assert len(result) == 2
 
@@ -1788,7 +1788,7 @@ class TestDialogFalsePositiveReduction:
 
     def test_narration_with_box_chars_not_dialog(self) -> None:
         """Copilot narrating about dialogs (with ╭─╰─ in text) → NONE."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "I found the dialog detection code. Here's how it works:\n"
@@ -1796,7 +1796,7 @@ class TestDialogFalsePositiveReduction:
             "Some example content\n"
             "╰───────────────────╯\n"
             "\n"
-            "The function `_detect_dialog_kind` checks for numbered options\n"
+            "The function `detect_dialog_kind` checks for numbered options\n"
             "inside the box. Let me now implement the fix:\n"
             "\n"
             "First, I'll update the detection logic...\n"
@@ -1806,11 +1806,11 @@ class TestDialogFalsePositiveReduction:
             "Let me start with the transport.py changes.\n"
             "Opening the file now...\n"
         )
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_stats_table_with_box_chars_not_dialog(self) -> None:
         """Stats table using box-drawing chars → NONE."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "╭──────────────────────────╮\n"
@@ -1826,11 +1826,11 @@ class TestDialogFalsePositiveReduction:
             "Reading the file structure...\n"
             "Analyzing patterns...\n"
         )
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
     def test_real_option_dialog_at_bottom(self) -> None:
         """Real option dialog at pane bottom (no trailing content) → OPTION."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "I've made the changes. Here are the results:\n"
@@ -1842,11 +1842,11 @@ class TestDialogFalsePositiveReduction:
             "  2. No\n"
             "╰─────────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_real_bullet_dialog_at_bottom(self) -> None:
         """Bullet dialog at pane bottom → BULLET."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "Which branch should I use?\n"
@@ -1857,27 +1857,27 @@ class TestDialogFalsePositiveReduction:
             "  ↑↓ select · Enter accept\n"
             "╰──────────────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.BULLET
+        assert detect_dialog_kind(content) == DialogKind.BULLET
 
     def test_real_text_dialog_at_bottom(self) -> None:
         """Text dialog at pane bottom → TEXT."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "Please provide the API key:\n╭─ Input ─╮\nType your answer\n╰──────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.TEXT
+        assert detect_dialog_kind(content) == DialogKind.TEXT
 
     def test_dialog_with_few_trailing_lines_still_detected(self) -> None:
         """Dialog with ≤5 trailing empty/prompt lines → still detected."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = "╭─ Run? ─╮\n❯ 1. Yes\n  2. No\n╰─────────╯\n\n\n\n"
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_permission_dialog_with_long_command(self) -> None:
         """Permission dialog wrapping a long shell command → OPTION."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         content = (
             "╭─ Allow this? ─╮\n"
@@ -1886,18 +1886,18 @@ class TestDialogFalsePositiveReduction:
             '  python -c "print(hello)"  \n'
             "╰────────────────╯"
         )
-        assert _detect_dialog_kind(content) == DialogKind.OPTION
+        assert detect_dialog_kind(content) == DialogKind.OPTION
 
     def test_old_dialog_in_scrollback_with_new_output(self) -> None:
         """Old dialog in scrollback + lots of new output → NONE."""
-        from duo.transport import DialogKind, _detect_dialog_kind
+        from duo.transport import DialogKind, detect_dialog_kind
 
         dialog_part = (
             "╭─ Old question ─╮\n❯ 1. Approve\n  2. Deny\n╰─────────────────╯\n"
         )
         new_output = "\n".join([f"Processing step {i}..." for i in range(20)])
         content = dialog_part + "\n" + new_output
-        assert _detect_dialog_kind(content) == DialogKind.NONE
+        assert detect_dialog_kind(content) == DialogKind.NONE
 
 
 class TestTmuxServerDownError:
@@ -2525,7 +2525,7 @@ class TestPreemptiveDialogResize:
 
 
 class TestBulletDialogDetection:
-    """Tests for DialogKind.BULLET detection in _detect_dialog_kind."""
+    """Tests for DialogKind.BULLET detection in detect_dialog_kind."""
 
     @patch("subprocess.run")
     def test_bullet_footer_markers(self, mock_run):
@@ -2593,38 +2593,38 @@ class TestBulletDialogDetection:
         assert DialogKind.BULLET.value == "bullet"
 
 
-# ── _count_bullet_items ─────────────────────────────────────────────
+# ── count_bullet_items ─────────────────────────────────────────────
 
 
 class TestCountBulletItems:
-    """Tests for _count_bullet_items parsing logic."""
+    """Tests for count_bullet_items parsing logic."""
 
     def test_basic_three_items(self):
         content = "╭─ Question ─╮\n❯ Alpha\n  Beta\n  Gamma\n╰────────────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 3
         assert cursor == 1
 
     def test_cursor_on_second_item(self):
         content = "╭─ Question ─╮\n  Alpha\n❯ Beta\n  Gamma\n╰────────────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 3
         assert cursor == 2
 
     def test_cursor_on_last_item(self):
         content = "╭─ Question ─╮\n  Alpha\n  Beta\n❯ Gamma\n╰────────────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 3
         assert cursor == 3
 
     def test_no_box(self):
-        total, cursor = _count_bullet_items("just some text")
+        total, cursor = count_bullet_items("just some text")
         assert total == 0
         assert cursor == 0
 
     def test_empty_box(self):
         content = "╭─ Title ─╮\n╰────────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 0
         assert cursor == 0
 
@@ -2636,26 +2636,26 @@ class TestCountBulletItems:
             "  ↑↓ select · Enter accept · ctrl+d decline\n"
             "╰────────╯"
         )
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 2
         assert cursor == 1
 
     def test_single_item(self):
         content = "╭─ Q ─╮\n❯ Only option\n╰─────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 1
         assert cursor == 1
 
     def test_pipe_borders(self):
         content = "╭─ Dialog ─╮\n│ ❯ First  │\n│   Second │\n│   Third  │\n╰──────────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 3
         assert cursor == 1
 
     def test_blank_lines_between_items(self):
         """Blank lines inside the box are ignored."""
         content = "╭─ Q ─╮\n❯ A\n\n  B\n\n  C\n╰─────╯"
-        total, cursor = _count_bullet_items(content)
+        total, cursor = count_bullet_items(content)
         assert total == 3
         assert cursor == 1
 

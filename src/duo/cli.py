@@ -3061,10 +3061,10 @@ def assert_not_at_main_prompt(label: str) -> None:
     ANY input at the main prompt creates a new Premium Request.  This is a
     hard safety gate — callers must abort or require ``--force-new-session``.
     """
-    from duo.transport import _is_at_main_prompt, read_pane
+    from duo.transport import is_at_main_prompt, read_pane
 
     content = read_pane(label, 20)
-    if _is_at_main_prompt(content):
+    if is_at_main_prompt(content):
         raise DuoUserError(
             f"REFUSED: '{label}' is at Copilot main ❯ prompt. "
             "Sending any input here would create a NEW Premium Request "
@@ -3880,9 +3880,9 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
         return
 
     if kind == DialogKind.BULLET:
-        from duo.transport import _count_bullet_items
+        from duo.transport import count_bullet_items
 
-        total, cursor = _count_bullet_items(strip_ansi(content))
+        total, cursor = count_bullet_items(strip_ansi(content))
         click.echo(
             json.dumps(
                 {
@@ -4029,10 +4029,10 @@ def _handle_dialog(
             # Count options only within dialog box boundaries
             import re
 
-            from duo.transport import _extract_last_box_lines, strip_ansi
+            from duo.transport import extract_last_box_lines, strip_ansi
 
             max_opt = 1
-            box_lines = _extract_last_box_lines(strip_ansi(content)) or []
+            box_lines = extract_last_box_lines(strip_ansi(content)) or []
             opt_re = re.compile(r"\s*[│]?\s*(❯\s*)?(\d+)\.\s")
             for line in box_lines:
                 m = opt_re.match(line)
@@ -5378,7 +5378,7 @@ def _think_list_all() -> None:
 
 def _bench_dialog_detection(iterations: int) -> dict[str, Any]:
     """Benchmark dialog detection functions."""
-    from duo.transport import _detect_dialog_kind, _is_at_main_prompt
+    from duo.transport import detect_dialog_kind, is_at_main_prompt
 
     # Realistic pane content samples
     option_dialog = (
@@ -5405,10 +5405,10 @@ def _bench_dialog_detection(iterations: int) -> dict[str, Any]:
     spinner_content = "◉ Processing your request...\n  Working on file changes\n❯\n"
 
     samples: dict[str, tuple[str, str]] = {
-        "option_dialog_detect": (option_dialog, "_detect_dialog_kind"),
-        "text_dialog_detect": (text_dialog, "_detect_dialog_kind"),
-        "main_prompt_detect": (main_prompt, "_is_at_main_prompt"),
-        "spinner_detect": (spinner_content, "_is_at_main_prompt"),
+        "option_dialog_detect": (option_dialog, "detect_dialog_kind"),
+        "text_dialog_detect": (text_dialog, "detect_dialog_kind"),
+        "main_prompt_detect": (main_prompt, "is_at_main_prompt"),
+        "spinner_detect": (spinner_content, "is_at_main_prompt"),
     }
 
     results: dict[str, dict[str, float]] = {}
@@ -5416,9 +5416,9 @@ def _bench_dialog_detection(iterations: int) -> dict[str, Any]:
 
     for name, (content, func_name) in samples.items():
         func = (
-            _detect_dialog_kind
-            if func_name == "_detect_dialog_kind"
-            else _is_at_main_prompt
+            detect_dialog_kind
+            if func_name == "detect_dialog_kind"
+            else is_at_main_prompt
         )
         timings: list[int] = []
         for _ in range(iterations):

@@ -269,8 +269,8 @@ def wait_for_response_stable(
     """
     from duo.transport import (
         DialogKind,
-        _detect_dialog_kind,
-        _is_at_main_prompt,
+        detect_dialog_kind,
+        is_at_main_prompt,
         read_pane,
     )
 
@@ -287,12 +287,12 @@ def wait_for_response_stable(
         )
 
         # Dialog detection
-        dialog_kind = _detect_dialog_kind(content)
+        dialog_kind = detect_dialog_kind(content)
         if dialog_kind != DialogKind.NONE:
             return "dialog"
 
         # Main prompt = idle
-        at_prompt = _is_at_main_prompt(content)
+        at_prompt = is_at_main_prompt(content)
         if at_prompt and not has_spinner:
             current_hash = hash(content)
             if current_hash == last_hash:
