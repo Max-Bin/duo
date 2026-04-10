@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
+- `duo start --immediate` flag to skip defer mode and send bootstrap immediately
+- `bypass_permissions` config (default: true) — controls `--yolo` for Copilot CLI and `--dangerously-skip-permissions` for Claude Code
 - `duo logs --filter TYPE` — filter journal events by event type substring
 - `duo diff --stat` — show diffstat summary for task changes
 - `duo diff --name-only` — list changed file names only
