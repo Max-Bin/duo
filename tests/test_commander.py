@@ -32,6 +32,7 @@ from duo.commander import (
     verify_and_advance,
     watch_tasks,
     write_commander_claude_md,
+    write_project_claude_md,
 )
 from duo.poller import AdaptivePoller, PollResult
 from duo.protocol import (
@@ -1606,6 +1607,100 @@ class TestClaudeCommander:
                 start_session(task)
                 # Task still succeeds
                 assert task.status == TaskStatus.PROMPT_SENT
+
+
+# ---------------------------------------------------------------------------
+# write_project_claude_md
+# ---------------------------------------------------------------------------
+
+
+class TestWriteProjectClaudeMd:
+    def test_creates_new_claude_md(self, tmp_path):
+        """Creates CLAUDE.md when none exists."""
+        write_project_claude_md(str(tmp_path))
+        claude_md = tmp_path / "CLAUDE.md"
+        assert claude_md.exists()
+        content = claude_md.read_text()
+        assert "CEO" in content
+        assert "duo-managed-start" in content
+        assert "duo-managed-end" in content
+        assert "duo send" in content
+        assert "Premium Request" in content
+
+    def test_content_has_all_sections(self, tmp_path):
+        """Generated CLAUDE.md has all required CEO sections."""
+        write_project_claude_md(str(tmp_path))
+        content = (tmp_path / "CLAUDE.md").read_text()
+        # Phase workflow
+        assert "Phase 1" in content
+        assert "Phase 2" in content
+        assert "duo start" in content
+        assert "reuse-pane" in content
+        # Commands
+        assert "duo ceo-select" in content
+        assert "duo ceo-approve" in content
+        assert "duo watch" in content
+        assert "duo doctor" in content
+        assert "duo merge" in content
+        # Budget table
+        assert "FREE" in content
+        assert "1 PR" in content
+        # Rubber-duck
+        assert "Mode A" in content or "rubber-duck" in content.lower()
+        # Pitfalls
+        assert "CAPIError" in content
+
+    def test_preserves_existing_with_markers(self, tmp_path):
+        """Updates duo section, preserves user content around markers."""
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text(
+            "# My Project\n\nUser content before.\n\n"
+            "<!-- duo-managed-start -->\nOLD DUO CONTENT\n<!-- duo-managed-end -->\n\n"
+            "User content after.\n"
+        )
+        write_project_claude_md(str(tmp_path))
+        content = claude_md.read_text()
+        assert "User content before." in content
+        assert "User content after." in content
+        assert "OLD DUO CONTENT" not in content
+        assert "CEO" in content
+
+    def test_prepends_to_existing_without_markers(self, tmp_path):
+        """Prepends duo section to existing CLAUDE.md without markers."""
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.write_text("# My Existing CLAUDE.md\n\nCustom rules here.\n")
+        write_project_claude_md(str(tmp_path))
+        content = claude_md.read_text()
+        assert "duo-managed-start" in content
+        assert "My Existing CLAUDE.md" in content
+        assert "Custom rules here." in content
+        # Duo section should come first
+        assert content.index("duo-managed-start") < content.index(
+            "My Existing CLAUDE.md"
+        )
+
+    def test_includes_project_context(self, tmp_path):
+        """Includes auto-detected project context."""
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='test'\n")
+        write_project_claude_md(str(tmp_path))
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "Python" in content
+
+    def test_handles_write_failure(self, caplog):
+        """Handles write failure gracefully."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="duo.commander"):
+            write_project_claude_md("/nonexistent/path/does/not/exist")
+        assert "Failed" in caplog.text
+
+    def test_idempotent(self, tmp_path):
+        """Running twice produces same result."""
+        write_project_claude_md(str(tmp_path))
+        content1 = (tmp_path / "CLAUDE.md").read_text()
+        write_project_claude_md(str(tmp_path))
+        content2 = (tmp_path / "CLAUDE.md").read_text()
+        assert content1 == content2
 
 
 # ---------------------------------------------------------------------------

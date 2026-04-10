@@ -26,6 +26,7 @@ __all__ = [
     "start_session",
     "watch_tasks",
     "write_commander_claude_md",
+    "write_project_claude_md",
 ]
 
 logger = logging.getLogger(__name__)
@@ -279,6 +280,152 @@ duo doctor
 - Protect the PR budget — every `duo send` costs 1 PR.
 """
 
+_DUO_MANAGED_START = "<!-- duo-managed-start -->"
+_DUO_MANAGED_END = "<!-- duo-managed-end -->"
+
+PROJECT_CEO_TEMPLATE = """\
+{marker_start}
+# Duo CEO Mode
+
+You are the **CEO** (Commander). The user talks to you naturally about what
+they want to build. A Copilot CLI executor is running in an adjacent tmux
+pane, ready to write code on your command.
+
+## Your Workflow
+
+### Phase 1: Understand (FREE — no Premium Requests burned)
+Chat with the user. Clarify requirements. Design the approach. Take your time.
+
+### Phase 2: Start a Task
+```bash
+duo start <task-name> --reuse-pane duo-copilot-standby
+```
+This creates a task + worktree and reuses the existing Copilot pane. No PR burned yet.
+
+### Phase 3: Execute (costs 1 PR per instruction)
+```bash
+duo send <task> "Your detailed instruction to Copilot"
+```
+Each `duo send` = 1 Premium Request. Make each instruction count.
+
+### Phase 4: Monitor & Guide (FREE)
+```bash
+duo watch --once                    # Watch for dialog events
+duo ceo-select <task> N             # Pick option N in a dialog (FREE)
+duo ceo-approve <task>              # Accept current dialog (FREE)
+duo ceo-status <task>               # Check Copilot state
+```
+
+### Phase 5: Review & Iterate
+```bash
+duo diff <task>                     # See code changes
+duo send <task> "Fix: add rate limiting"  # Correction (1 PR)
+```
+
+### Phase 6: Finish
+```bash
+duo merge <task>                    # Merge changes to main branch
+```
+
+## Premium Request Budget (IRON RULES)
+
+| Action | PR Cost |
+|--------|---------|
+| `duo send` (instruction at ❯ prompt) | **1 PR** |
+| `duo ceo-select` (pick dialog option) | FREE |
+| `duo ceo-approve` (accept dialog) | FREE |
+| Dialog "Other" text input | FREE |
+| `duo watch/status/diff/inspect/logs` | FREE |
+| Chatting with user (Phase 1) | FREE |
+
+**NEVER type directly at Copilot's ❯ prompt.** Use `duo send` only.
+
+## Command Reference
+
+| Command | Purpose |
+|---------|---------|
+| `duo start <name> --reuse-pane duo-copilot-standby` | Create task, reuse standby pane |
+| `duo send <task> "..."` | Send instruction to Copilot (1 PR) |
+| `duo watch` | Watch for Copilot dialogs |
+| `duo ceo-select <task> N` | Select dialog option N (FREE) |
+| `duo ceo-approve <task>` | Approve dialog (FREE) |
+| `duo ceo-status <task>` | Copilot pane state (JSON) |
+| `duo ceo-now` | Dashboard: age, fds, risk |
+| `duo diff <task>` | Show code changes |
+| `duo inspect <task>` | Detailed task info |
+| `duo logs <task>` | Task journal events |
+| `duo doctor` | Health check |
+| `duo ceo-cleanup <task>` | Kill idle processes |
+| `duo ceo-restart <task>` | Restart Copilot (pane only, not memory) |
+| `duo merge <task>` | Merge changes to main |
+| `duo list` | List all tasks |
+
+## Rubber-duck Quality Protocol
+
+- **Mode A (Before)**: Critique your plan BEFORE sending to Copilot
+- **Mode B (After)**: Review Copilot's output BEFORE accepting
+- **Mode C (Sandwich)**: Both for critical changes
+
+Use for: architectural decisions, security code, multi-file changes.
+
+## Known Pitfalls
+
+1. **Long sessions leak fds** — run `duo doctor` periodically, `duo ceo-restart` to recover
+2. **CAPIError = context full** — restart the Copilot session
+3. **No parallel same-file edits** — don't let sub-agents edit one file concurrently
+4. **One task at a time** recommended for best results
+
+{marker_end}
+"""
+
+
+def write_project_claude_md(repo_root: str) -> None:
+    """Write or update project-level CLAUDE.md with CEO operating manual.
+
+    Merge strategy:
+    - No existing CLAUDE.md → create with full template
+    - Existing with duo markers → replace duo section, preserve rest
+    - Existing without markers → prepend duo section with markers
+    """
+    from pathlib import Path
+
+    claude_md = Path(repo_root) / "CLAUDE.md"
+    duo_section = PROJECT_CEO_TEMPLATE.format(
+        marker_start=_DUO_MANAGED_START,
+        marker_end=_DUO_MANAGED_END,
+    )
+
+    # Insert auto-detected project context before the end marker
+    project_ctx = _detect_project_context(repo_root)
+    if project_ctx.strip():
+        ctx_block = "\n## Project Context\n\n" + project_ctx + "\n\n"
+        duo_section = duo_section.replace(
+            _DUO_MANAGED_END, ctx_block + _DUO_MANAGED_END
+        )
+
+    try:
+        if claude_md.exists():
+            existing = claude_md.read_text()
+            if _DUO_MANAGED_START in existing and _DUO_MANAGED_END in existing:
+                # Replace existing duo section
+                before = existing[: existing.index(_DUO_MANAGED_START)]
+                after = existing[
+                    existing.index(_DUO_MANAGED_END) + len(_DUO_MANAGED_END) :
+                ]
+                before_stripped = before.rstrip("\n")
+                prefix = before_stripped + "\n" if before_stripped else ""
+                content = prefix + duo_section + after.lstrip("\n")
+            else:
+                # Prepend duo section, preserve existing content
+                content = duo_section + "\n" + existing
+        else:
+            content = duo_section
+
+        atomic_write_text(claude_md, content)
+        logger.info("Wrote project CLAUDE.md to %s", claude_md)
+    except OSError as exc:
+        logger.warning("Failed to write project CLAUDE.md: %s", exc)
+
 
 def build_bootstrap_prompt(task: Task, *, override_prompt: str = "") -> str:
     """Build the initial session bootstrap prompt with file protocol instructions.
@@ -356,9 +503,13 @@ def _detect_project_context(worktree: str) -> str:
                 pass
             break
 
-    # List top-level directory structure
+    # List top-level directory structure (exclude CLAUDE.md to keep idempotent)
     try:
-        entries = sorted(p.name for p in root.iterdir() if not p.name.startswith("."))
+        entries = sorted(
+            p.name
+            for p in root.iterdir()
+            if not p.name.startswith(".") and p.name != "CLAUDE.md"
+        )
         if entries:
             tree = "  ".join(entries[:30])
             sections.append(f"\n### Directory\n\n`{tree}`")
