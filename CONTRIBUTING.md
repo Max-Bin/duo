@@ -19,7 +19,7 @@ make check  # runs lint + format-check + type-check + coverage
 | Tool | Purpose | Command |
 |------|---------|---------|
 | **ruff format** | Auto-formatter | `ruff format src/duo/ tests/` |
-| **ruff check** | Linter (rules: F, E, W, I, UP, B, RET, SIM, PIE, PERF) | `ruff check src/duo/ tests/` |
+| **ruff check** | Linter (rules: F, E, W, I, UP, B, RET, SIM, PIE, PERF, FURB) | `ruff check src/duo/ tests/` |
 | **mypy --strict** | Type checker on all source | `mypy src/duo/ --ignore-missing-imports` |
 | **pytest + coverage** | 100% coverage enforced | `make coverage` |
 
