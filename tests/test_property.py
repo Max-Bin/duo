@@ -26,6 +26,7 @@ from duo.protocol import (
     new_incarnation,
     prompt_hash,
     read_jsonl,
+    save_task,
 )
 from duo.thinking import (
     THINKING_DIR,
@@ -1347,3 +1348,35 @@ class TestPromptBuilderProperties:
         )
         result = build_correction_prompt(task, reason)
         assert reason in result
+
+
+class TestNormalizeForRestartProperty:
+    """Property tests for normalize_for_restart invariants."""
+
+    @given(status=st.sampled_from(list(TaskStatus)))
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_normalize_returns_bool(self, status: TaskStatus, tmp_path: Path) -> None:
+        """normalize_for_restart always returns a bool."""
+        from duo.commander import normalize_for_restart
+        from duo.protocol import Subtask, create_task
+
+        task = create_task(
+            task_id=f"norm-{status.value}",
+            description="test",
+            worktree=str(tmp_path),
+            branch="main",
+            base_commit="abc",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="s",
+                    target_files=["a.py"],
+                    writable_paths=["*"],
+                )
+            ],
+        )
+        # Force to desired status via internal mutation (bypasses FSM for testing)
+        task.status = status
+        save_task(task)
+        result = normalize_for_restart(task)
+        assert isinstance(result, bool)
