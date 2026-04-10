@@ -320,9 +320,7 @@ def _tmux_send_hex(target: str, hex_code: str) -> None:
                 f"tmux server is down. Start a new session: tmux new -s duo\n"
                 f"  Detail: {stderr}"
             ) from exc
-        raise RuntimeError(
-            f"tmux send-keys -H failed for {target}: {stderr}"
-        ) from exc
+        raise RuntimeError(f"tmux send-keys -H failed for {target}: {stderr}") from exc
 
 
 def send_keys(label: str, *keys: str) -> None:

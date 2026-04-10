@@ -70,16 +70,29 @@ _MAX_ERROR_CHARS = 500
 
 
 def _run_git(cmd: list[str], worktree: str) -> subprocess.CompletedProcess[str]:
-    """Run a git command in *worktree*, raising on non-zero exit."""
+    """Run a git command in *worktree*, raising on non-zero exit.
+
+    All subprocess exceptions (timeout, missing executable, OS errors) are
+    normalized to ``RuntimeError`` so callers only need one except clause.
+    """
     real = os.path.realpath(worktree)
-    proc = subprocess.run(
-        cmd,
-        cwd=real,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=_GIT_TIMEOUT,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=real,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=_GIT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"{' '.join(cmd)} timed out after {_GIT_TIMEOUT}s in {real}"
+        ) from None
+    except FileNotFoundError:
+        raise RuntimeError(f"{cmd[0]!r} not found — is git installed?") from None
+    except OSError as exc:
+        raise RuntimeError(f"{' '.join(cmd)} OS error in {real}: {exc}") from None
     if proc.returncode != 0:
         raise RuntimeError(
             f"{' '.join(cmd)} failed in {real}: {proc.stderr.strip()[:_MAX_ERROR_CHARS]}"
@@ -99,13 +112,15 @@ _MAX_DIFF_BYTES = 10 * 1024 * 1024  # 10 MB — reject diffs larger than this
 def git_diff(worktree: str) -> str:
     """Return the full unified diff relative to HEAD.
 
-    Limits output to ``_MAX_DIFF_BYTES`` to prevent OOM from large
-    binary files checked into the worktree.
+    Limits output to ``_MAX_DIFF_BYTES`` (measured in UTF-8 bytes, not
+    characters) to prevent OOM from large binary files checked into the
+    worktree.
     """
     proc = _run_git(["git", "diff", "HEAD"], worktree)
-    if len(proc.stdout) > _MAX_DIFF_BYTES:
+    byte_len = len(proc.stdout.encode("utf-8"))
+    if byte_len > _MAX_DIFF_BYTES:
         raise RuntimeError(
-            f"Diff too large ({len(proc.stdout)} bytes > {_MAX_DIFF_BYTES} limit). "
+            f"Diff too large ({byte_len} bytes > {_MAX_DIFF_BYTES} limit). "
             "Binary files or very large changes should be reviewed manually."
         )
     return proc.stdout
@@ -343,7 +358,10 @@ def verify_step(task: Task, result: StepResult) -> VerifyResult:
         return err
 
     # (d) Untracked files — HARD
-    err = _check_untracked(task, worktree)
+    try:
+        err = _check_untracked(task, worktree)
+    except RuntimeError as exc:
+        return Correction(f"Git operation failed: {exc}")
     if err is not None:
         return err
 

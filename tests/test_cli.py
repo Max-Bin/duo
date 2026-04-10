@@ -466,7 +466,9 @@ class TestStart:
         assert result.exit_code != 0
         assert "not a git repo" in result.output
 
-    def test_git_worktree_dot_git_file_accepted(self, runner: CliRunner, tmp_path: Path):
+    def test_git_worktree_dot_git_file_accepted(
+        self, runner: CliRunner, tmp_path: Path
+    ):
         """Repos where .git is a file (git worktrees) should pass the .git check."""
         repo = tmp_path / "worktree-repo"
         repo.mkdir()

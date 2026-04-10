@@ -1003,9 +1003,7 @@ class TestBypassPermissions:
             layout_result.returncode = 0
             mock_run.side_effect = [split_result, layout_result]
             start_session(task)
-            copilot_calls = [
-                c for c in mock_send.call_args_list if "--yolo" in str(c)
-            ]
+            copilot_calls = [c for c in mock_send.call_args_list if "--yolo" in str(c)]
             assert len(copilot_calls) == 1
 
     def test_copilot_no_yolo_when_bypass_disabled(self):
@@ -1037,9 +1035,7 @@ class TestBypassPermissions:
             layout_result.returncode = 0
             mock_run.side_effect = [split_result, layout_result]
             start_session(task)
-            copilot_calls = [
-                c for c in mock_send.call_args_list if "--yolo" in str(c)
-            ]
+            copilot_calls = [c for c in mock_send.call_args_list if "--yolo" in str(c)]
             assert len(copilot_calls) == 0
 
 
@@ -1230,6 +1226,37 @@ class TestClaudeCommander:
 
                 events = read_jsonl(task.journal_path)
                 assert any(e.get("event") == "claude_commander_started" for e in events)
+
+    def test_start_claude_commander_no_bypass(self) -> None:
+        """Claude command omits --dangerously-skip-permissions when bypass_permissions=False."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch("duo.commander.send_shell_command") as mock_send,
+                patch("duo.commander.time.sleep"),
+                patch("duo.commander.get_config", return_value=False),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%50\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result]
+
+                result = start_claude_commander(task)
+                assert result == "%50"
+
+                # Verify "claude" was sent WITHOUT --dangerously-skip-permissions
+                claude_calls = [
+                    c for c in mock_send.call_args_list if "claude" in str(c)
+                ]
+                assert claude_calls
+                assert "--dangerously-skip-permissions" not in str(claude_calls[-1])
 
     def test_start_claude_commander_tmux_failure(self) -> None:
         """start_claude_commander returns None when tmux fails."""

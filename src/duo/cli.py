@@ -540,7 +540,13 @@ def send(name: str, prompt: str, *, as_json: bool = False) -> None:
     if task.status == TaskStatus.SESSION_STARTING:
         # Deferred start — Copilot is idle at ❯ prompt, send as bootstrap
         from duo.commander import build_bootstrap_prompt
-        from duo.protocol import append_event, atomic_write_text, now_iso, save_task, transition
+        from duo.protocol import (
+            append_event,
+            atomic_write_text,
+            now_iso,
+            save_task,
+            transition,
+        )
         from duo.transport import send_bootstrap
 
         # Persist prompt file (like normal send path) for resume/replay

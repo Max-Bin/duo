@@ -655,3 +655,74 @@ class TestRunInWorktreeShlex:
             result = run_in_worktree(str(tmp_path), "echo 'unterminated")
         assert result == 127
         assert "Failed to parse" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Round: _run_git exception normalization tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunGitExceptionNormalization:
+    """_run_git normalizes all subprocess exceptions to RuntimeError."""
+
+    @patch(
+        "duo.verifier.subprocess.run",
+        side_effect=subprocess.TimeoutExpired(["git"], 30),
+    )
+    def test_timeout_normalized(self, _mock):
+        with pytest.raises(RuntimeError, match="timed out"):
+            git_diff_names("/w")
+
+    @patch("duo.verifier.subprocess.run", side_effect=FileNotFoundError("git"))
+    def test_file_not_found_normalized(self, _mock):
+        with pytest.raises(RuntimeError, match="not found"):
+            git_diff_names("/w")
+
+    @patch("duo.verifier.subprocess.run", side_effect=OSError("disk full"))
+    def test_os_error_normalized(self, _mock):
+        with pytest.raises(RuntimeError, match="OS error"):
+            git_diff_names("/w")
+
+
+class TestGitDiffByteCheck:
+    """git_diff checks byte length, not character length."""
+
+    @patch("duo.verifier.subprocess.run")
+    def test_multibyte_chars_measured_as_bytes(self, mock_run):
+        """A string of multibyte chars should be measured by UTF-8 byte count."""
+        from duo.verifier import _MAX_DIFF_BYTES
+
+        # Each '中' = 3 UTF-8 bytes. Create string with chars < limit but bytes > limit.
+        char_count = (_MAX_DIFF_BYTES // 3) + 1
+        huge_output = "中" * char_count
+        assert len(huge_output) < _MAX_DIFF_BYTES  # chars under limit
+        assert len(huge_output.encode("utf-8")) > _MAX_DIFF_BYTES  # bytes over limit
+        mock_run.return_value = _mock_proc(huge_output)
+        with pytest.raises(RuntimeError, match="Diff too large"):
+            git_diff("/w")
+
+
+class TestVerifyStepUntrackedGitFailure:
+    """verify_step catches RuntimeError from _check_untracked."""
+
+    @patch("duo.verifier.git_diff_names", return_value=set())
+    @patch("duo.verifier.git_diff", return_value="")
+    @patch(
+        "duo.verifier.git_untracked",
+        side_effect=RuntimeError("git ls-files timed out"),
+    )
+    def test_untracked_failure_returns_correction(self, _untrack, _diff, _names):
+        task = _make_task()
+        result = verify_step(
+            task,
+            StepResult(
+                step=0,
+                attempt=0,
+                incarnation="test",
+                status="done",
+                files_changed=[],
+                summary="ok",
+            ),
+        )
+        assert isinstance(result, Correction)
+        assert "Git operation failed" in result.reason
