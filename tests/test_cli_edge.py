@@ -634,3 +634,28 @@ class TestDeadCodeGuard:
             text=True,
         )
         assert result.returncode == 0, f"vulture found dead code:\n{result.stdout}"
+
+
+class TestImportCycleGuard:
+    """Guard: no circular imports among duo modules."""
+
+    def test_no_import_cycles(self) -> None:
+        """Import every duo module in a subprocess to catch circular imports."""
+        modules = [
+            "duo.cli",
+            "duo.commander",
+            "duo.config",
+            "duo.poller",
+            "duo.protocol",
+            "duo.scheduler",
+            "duo.thinking",
+            "duo.transport",
+            "duo.verifier",
+        ]
+        for mod in modules:
+            result = subprocess.run(
+                ["python", "-c", f"import {mod}"],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, f"Failed to import {mod}: {result.stderr}"
