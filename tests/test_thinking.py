@@ -490,3 +490,106 @@ class TestClosePane:
             patch("duo.transport.kill_pane", return_value=False),
         ):
             assert close_pane("my-app") is False
+
+
+# ---------------------------------------------------------------------------
+# Name validation (rubber-duck audit — path traversal prevention)
+# ---------------------------------------------------------------------------
+
+
+class TestNameValidation:
+    """Defence-in-depth: thinking_dir rejects unsafe names."""
+
+    @pytest.mark.parametrize(
+        "bad_name",
+        [
+            "..",
+            "../evil",
+            "../../etc",
+            ".hidden",
+            "has space",
+            "has;semi",
+            "has$dollar",
+            "",
+            "-starts-dash",
+            "_starts-under",
+        ],
+    )
+    def test_rejects_unsafe_names(self, bad_name: str) -> None:
+        with pytest.raises(ValueError, match="Invalid thinking session name"):
+            thinking_dir(bad_name)
+
+    @pytest.mark.parametrize("good_name", ["myapp", "my-app", "app2", "A_b-C3"])
+    def test_accepts_safe_names(self, good_name: str) -> None:
+        d = thinking_dir(good_name)
+        assert d.name == good_name
+
+
+class TestNamePaneFailureCleanup:
+    """Pane is killed if name_pane raises (audit: pane leak)."""
+
+    def test_name_pane_failure_kills_pane(self) -> None:
+        split_result = MagicMock(returncode=0, stdout="%77\n", stderr="")
+
+        def run_side_effect(cmd: list[str], **kwargs: object) -> MagicMock:
+            if "split-window" in cmd:
+                return split_result
+            return MagicMock(returncode=0)
+
+        with (
+            patch("subprocess.run", side_effect=run_side_effect),
+            patch("duo.transport.name_pane", side_effect=RuntimeError("bridge fail")),
+            patch("duo.transport.kill_pane") as mock_kill,
+            patch("time.sleep"),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
+                _spawn_claude_pane("think-x", "/tmp/test")
+            mock_kill.assert_called_once_with("%77")
+
+
+class TestAppendSessionLogMissingDir:
+    """append_session_log creates directory if missing (audit: FileNotFoundError)."""
+
+    def test_creates_dir_on_append(self) -> None:
+        append_session_log("brand-new", "hello", "world")
+        log = thinking_dir("brand-new") / "session.log"
+        assert log.exists()
+        assert "[user] hello" in log.read_text()
+
+
+class TestEnsurePaneSpawnFailure:
+    """ensure_pane propagates spawn errors cleanly."""
+
+    def test_spawn_failure_propagates(self) -> None:
+        with (
+            patch("duo.thinking._pane_exists", return_value=False),
+            patch(
+                "duo.thinking._spawn_claude_pane",
+                side_effect=RuntimeError("no tmux"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="no tmux"):
+                ensure_pane("my-app")
+
+
+class TestShellQuoting:
+    """working_dir is shell-quoted (audit: spaces in path)."""
+
+    def test_working_dir_is_quoted(self) -> None:
+        split_result = MagicMock(returncode=0, stdout="%88\n", stderr="")
+
+        def run_side_effect(cmd: list[str], **kwargs: object) -> MagicMock:
+            if "split-window" in cmd:
+                return split_result
+            return MagicMock(returncode=0)
+
+        with (
+            patch("subprocess.run", side_effect=run_side_effect),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command") as mock_cmd,
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("time.sleep"),
+        ):
+            _spawn_claude_pane("think-x", "/path/with spaces/dir")
+            cd_call = mock_cmd.call_args_list[0]
+            assert "'/path/with spaces/dir'" in cd_call[0][1]

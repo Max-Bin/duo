@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -37,9 +39,21 @@ _CD_WAIT = 0.3
 _STABLE_THRESHOLD = 2.0
 _POLL_INTERVAL = 0.5
 
+_SAFE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+
+
+def _validate_name(name: str) -> None:
+    """Reject names that could cause path traversal or label injection."""
+    if not _SAFE_NAME.match(name):
+        raise ValueError(
+            f"Invalid thinking session name: {name!r} "
+            "(must start with alphanumeric, then alphanumeric/underscore/hyphen)"
+        )
+
 
 def thinking_dir(name: str) -> Path:
     """Return ``~/.duo/thinking/{name}/``."""
+    _validate_name(name)
     return THINKING_DIR / name
 
 
@@ -198,19 +212,19 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
         )
 
     pane_id = result.stdout.strip()
-    name_pane(pane_id, label)
-
-    # Tile layout — target the new pane to resolve correct window
-    subprocess.run(
-        ["tmux", "select-layout", "-t", pane_id, "tiled"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-
-    time.sleep(_SPLIT_WAIT)
     try:
-        send_shell_command(label, f"cd {working_dir}")
+        name_pane(pane_id, label)
+
+        # Tile layout — target the new pane to resolve correct window
+        subprocess.run(
+            ["tmux", "select-layout", "-t", pane_id, "tiled"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        time.sleep(_SPLIT_WAIT)
+        send_shell_command(label, f"cd {shlex.quote(working_dir)}")
         time.sleep(_CD_WAIT)
         send_shell_command(label, "claude")
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
@@ -277,7 +291,7 @@ def wait_for_response_stable(
     )
 
     deadline = time.time() + timeout
-    last_hash: int | None = None
+    last_content: str | None = None
     stable_since: float | None = None
 
     while time.time() < deadline:
@@ -296,18 +310,17 @@ def wait_for_response_stable(
         # Main prompt = idle
         at_prompt = is_at_main_prompt(content)
         if at_prompt and not has_spinner:
-            current_hash = hash(content)
-            if current_hash == last_hash:
+            if content == last_content:
                 if (
                     stable_since is not None
                     and time.time() - stable_since > stable_threshold
                 ):
                     return "idle"
             else:
-                last_hash = current_hash
+                last_content = content
                 stable_since = time.time()
         else:
-            last_hash = None
+            last_content = None
             stable_since = None
 
         time.sleep(_POLL_INTERVAL)
@@ -355,7 +368,7 @@ def extract_response(content_before: str, content_after: str, user_message: str)
 
 def append_session_log(name: str, user_message: str, response: str) -> None:
     """Append a timestamped ask entry to session.log."""
-    tdir = thinking_dir(name)
+    tdir = _ensure_thinking_dir(name)
     log_file = tdir / "session.log"
     entry = (
         f"--- ask at {now_iso()} ---\n[user] {user_message}\n[response]\n{response}\n\n"
