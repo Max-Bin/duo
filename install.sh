@@ -78,7 +78,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 printf "\n${BOLD}🚀 Duo — Agent Orchestration Runtime Installer${RESET}\n"
-printf "   ${CYAN}v0.5.0${RESET}\n"
+printf "   ${CYAN}v1.0.0${RESET}\n"
 printf "   %s\n" "$SCRIPT_DIR"
 if [ "$CHECK_ONLY" = true ]; then
     printf "   ${YELLOW}(--check mode: prerequisites only, no install)${RESET}\n"
