@@ -64,6 +64,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `read_jsonl` resilient to `OSError` (permission denied) and invalid byte sequences
 - `transition()` saves task.json before journal append (crash consistency)
 - 10 new modern secret patterns in `SecurityPolicy` defaults (encrypted PK, PGP, ghu_, xoxc/a, ya29, etc.)
+- `SecurityPolicy` patterns now merged with defaults on `load_task()` (older tasks get new patterns)
+- `verify_and_advance()` accepts pre-read result, eliminating double I/O in poll→verify path
+- `DUO_COPILOT_MODEL` env var length bounded to 64 chars
 
 ### Changed
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`

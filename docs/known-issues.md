@@ -558,11 +558,11 @@ Some failure paths call `append_event` before `transition()`,
 others after. This creates inconsistent journal ordering. Not a
 correctness issue but makes journal replay analysis harder.
 
-### S5 — Env model value length unbounded (LOW)
+### S5 — Env model value length unbounded (LOW) — RESOLVED
 
-`_get_copilot_model()` validates character set but not length.
-A very long `DUO_COPILOT_MODEL` value would be accepted and
-passed to the shell command. Impractical attack vector.
+**Status: Fixed** in commit `5bee5bf` (Round EX).
+
+`_get_copilot_model()` now rejects env var values exceeding 64 chars.
 
 ### MED — Pane leaks on start_session post-split failures — RESOLVED
 
