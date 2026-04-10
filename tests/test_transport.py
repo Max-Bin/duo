@@ -3101,11 +3101,19 @@ class TestKillPane:
             kill_pane("bad;rm -rf /")
 
     def test_kill_nonzero_returncode_still_returns_true(self):
-        """Even if kill-pane returns non-zero, the function returns True."""
+        """Even if kill-pane returns non-zero, the function returns True and logs."""
         from duo.transport import kill_pane
 
         with patch("duo.transport.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1)
+            mock_run.return_value = MagicMock(returncode=1, stderr="no pane found")
+            assert kill_pane("gone-pane") is True
+
+    def test_kill_nonzero_returncode_bytes_stderr(self):
+        """Debug logging handles bytes stderr from subprocess."""
+        from duo.transport import kill_pane
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr=b"no pane found")
             assert kill_pane("gone-pane") is True
 
 

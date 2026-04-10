@@ -487,14 +487,25 @@ def kill_pane(target: str) -> bool:
     if not re.match(r"^[%a-zA-Z0-9_.-]+$", target):
         raise ValueError(f"Unsafe pane target: {target!r}")
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["tmux", "kill-pane", "-t", target],
             capture_output=True,
             check=False,
             timeout=10,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.debug("kill_pane(%s) failed: %s", target, exc)
         return False
+    if result.returncode != 0:
+        raw_stderr = result.stderr
+        msg = (
+            raw_stderr.decode(errors="replace")
+            if isinstance(raw_stderr, bytes)
+            else raw_stderr
+        )
+        logger.debug(
+            "kill_pane(%s) exited %d: %s", target, result.returncode, msg.strip()
+        )
     return True
 
 
