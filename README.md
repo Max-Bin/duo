@@ -45,6 +45,17 @@ duo doctor               # verify tmux, git, Copilot CLI are available
 ```
 
 ```bash
+# The simplest way — one command does everything:
+tmux new -s work         # start tmux (if not already inside)
+cd your-project
+duo go                   # sets up CEO (Claude Code) + Executor (Copilot)
+# Now just chat with Claude Code about what you want to build!
+```
+
+<details>
+<summary>Manual step-by-step (advanced)</summary>
+
+```bash
 # Inside a tmux session:
 cd your-project
 duo init --repo .
@@ -54,6 +65,7 @@ duo watch                # blocks until dialog → prints it → exits
 duo ceo-approve fix-auth # approve the permission dialog
 duo merge fix-auth       # fast-forward merge when done
 ```
+</details>
 
 ## Core Concepts
 
@@ -69,6 +81,7 @@ duo merge fix-auth       # fast-forward merge when done
 
 | Command | Description |
 |---------|-------------|
+| `duo go` | **One-command setup** — CEO (Claude Code) + Executor (Copilot) side by side |
 | `duo start <task> --repo . --desc "..."` | Create worktree + executor session |
 | `duo send <task> "instruction"` | Send a follow-up prompt to a running task |
 | `duo stop <task>` | Gracefully stop a task and its pane |
@@ -85,7 +98,7 @@ duo merge fix-auth       # fast-forward merge when done
 ## Full Command Reference
 
 ```bash
-duo --help               # 52 commands in 10 groups
+duo --help               # 57 commands in 10 groups
 ```
 
 ## Examples

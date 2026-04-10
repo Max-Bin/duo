@@ -45,6 +45,17 @@ duo doctor               # 检查 tmux、git、Copilot CLI 是否就绪
 ```
 
 ```bash
+# 最简方式 — 一条命令搞定一切：
+tmux new -s work         # 启动 tmux（如果还没在 tmux 里）
+cd your-project
+duo go                   # 自动设置 CEO (Claude Code) + Executor (Copilot)
+# 直接和 Claude Code 聊你想做什么！
+```
+
+<details>
+<summary>手动步骤（进阶）</summary>
+
+```bash
 # 在 tmux 会话中：
 cd your-project
 duo init --repo .
@@ -54,6 +65,7 @@ duo watch                # 阻塞等待弹窗 → 打印内容 → 退出
 duo ceo-approve fix-auth # 批准权限弹窗
 duo merge fix-auth       # 完成后 fast-forward 合并
 ```
+</details>
 
 ## 核心概念
 
@@ -69,6 +81,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 
 | 命令 | 说明 |
 |------|------|
+| `duo go` | **一键启动** — CEO (Claude Code) + Executor (Copilot) 并排工作 |
 | `duo start <task> --repo . --desc "..."` | 创建 worktree + executor 会话 |
 | `duo send <task> "指令"` | 给运行中的任务发送后续 prompt |
 | `duo stop <task>` | 优雅停止任务及其 pane |
@@ -85,7 +98,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 ## 完整命令参考
 
 ```bash
-duo --help               # 10 组共 52 个命令
+duo --help               # 10 组共 57 个命令
 ```
 
 ## 示例
