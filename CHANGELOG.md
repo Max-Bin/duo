@@ -3,6 +3,29 @@
 All notable changes to Duo are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- `duo logs --filter TYPE` — filter journal events by event type substring
+- `duo diff --stat` — show diffstat summary for task changes
+- `duo diff --name-only` — list changed file names only
+- `duo list --status STATUS` — filter tasks by status with validation
+- `duo queue --json-output` — machine-readable queue status
+- `duo recover --json-output` — structured recovery results with change details
+- `duo retry` now supports ESCALATED tasks (transitions to PROMPT_SENT)
+
+### Fixed
+- Duplicate task ID detection in `create_task()` — raises ValueError instead of silently overwriting
+- Extracted `kill_pane()` into transport layer — all 7 direct tmux subprocess calls now routed through validated transport function
+- Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
+- Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
+- Resolved fnmatch case sensitivity known-issue (implementation uses PurePosixPath.match, always case-sensitive)
+
+### Changed
+- `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
+- Removed last `@pytest.mark.xfail` — all tests now pass without expected failures
+- All modules now export `__all__` (added to `errors.py`)
+
 ## [1.0.0] — 2026-04-09
 
 ### Added
