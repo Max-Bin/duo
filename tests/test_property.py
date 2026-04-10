@@ -536,6 +536,40 @@ class TestFSMTransitionsProperty:
             if source not in allowed_self:
                 assert source not in targets, f"{source} has unexpected self-transition"
 
+    def test_terminal_states_absorbing(self) -> None:
+        """COMPLETED is absorbing; FAILED only transitions to SESSION_STARTING (restart)."""
+        assert TaskStatus.COMPLETED in TRANSITIONS
+        assert TRANSITIONS[TaskStatus.COMPLETED] == frozenset(), (
+            "COMPLETED should have no outgoing transitions"
+        )
+        # FAILED allows restart via SESSION_STARTING only
+        failed_targets = TRANSITIONS.get(TaskStatus.FAILED, frozenset())
+        assert failed_targets <= {TaskStatus.SESSION_STARTING}, (
+            f"FAILED should only transition to SESSION_STARTING, got {failed_targets}"
+        )
+
+    def test_every_state_can_reach_terminal(self) -> None:
+        """Every non-terminal state can reach COMPLETED or FAILED via BFS."""
+        terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED}
+        for start in TaskStatus:
+            if start in terminal:
+                continue
+            visited: set[TaskStatus] = set()
+            queue = [start]
+            reached_terminal = False
+            while queue:
+                current = queue.pop(0)
+                if current in visited:
+                    continue
+                visited.add(current)
+                if current in terminal:
+                    reached_terminal = True
+                    break
+                queue.extend(
+                    t for t in TRANSITIONS.get(current, frozenset()) if t not in visited
+                )
+            assert reached_terminal, f"{start} cannot reach any terminal state"
+
 
 # ---------------------------------------------------------------------------
 # _validate_label: path-safety on transport labels

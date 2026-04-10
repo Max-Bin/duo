@@ -5,7 +5,6 @@ help: ## Show this help
 
 install: ## Install project in development mode
 	uv sync
-	uv pip install -e .
 
 test: ## Run tests
 	uv run python -m pytest tests/ -q

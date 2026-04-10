@@ -17,6 +17,7 @@ class DuoUserError(click.ClickException):
         self.fix = fix
 
     def format_message(self) -> str:
+        """Return the error message with an appended fix suggestion if present."""
         msg = self.message
         if self.fix:
             msg += f"\n  Fix: {self.fix}"
