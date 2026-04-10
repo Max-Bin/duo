@@ -21,7 +21,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo start --json-output` — task creation results for scripting
 - `duo resume --json-output` — session recovery results with per-task details
 - `duo cleanup --json-output` — structured cleanup results (normal and corrupted)
+- `duo events list --json-output` — machine-readable event listing
+- `duo events clear --json-output` — structured clear results
 - `duo doctor` stale-locks check — warns about orphaned `.lock` files in TASKS_DIR
+- `duo doctor` orphan-worktrees check — detects stale `duo-*` git worktrees
+- `duo doctor --fix` — auto-resolve stale locks, quarantined tasks, and orphan worktrees
 - `__all__` exports on all modules (cli.py was the last)
 
 ### Fixed

@@ -96,17 +96,29 @@ Edit `.duo/instructions.md` to describe your project's conventions — Duo inclu
 duo doctor
 ```
 
-`duo doctor` verifies 9 checks:
+`duo doctor` verifies 13 checks:
 
 1. Python version (≥ 3.12)
-2. tmux is installed
+2. tmux is installed (version ≥ 3.0)
 3. tmux-bridge (smux) is installed
-4. Copilot CLI is installed
-5. uv is installed
-6. `~/.duo` directory exists
+4. Claude Code CLI is installed
+5. Copilot CLI is installed
+6. `~/.duo` directory exists and is writable
 7. Config file is valid JSON
 8. An active tmux session exists
 9. Task timeout configuration is valid
+10. Corrupted task detection
+11. Stale lock file detection
+12. Orphan worktree detection
+13. Git is installed
+
+Flags:
+
+```bash
+duo doctor --strict     # exit non-zero on warnings too
+duo doctor --fix        # auto-fix stale locks, quarantined tasks, orphan worktrees
+duo doctor --json-output  # machine-readable JSON diagnostics
+```
 
 Fix any issues it reports before continuing.
 
