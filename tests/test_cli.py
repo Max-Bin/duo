@@ -979,6 +979,47 @@ class TestCleanup:
         assert not symlink.exists()
         assert (target / "precious.txt").exists()
 
+    def test_cleanup_json_completed(self, runner: CliRunner, make_task):
+        """--json-output returns JSON for completed cleanup."""
+        task = make_task("json-done")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["cleanup", "--force", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cleaned"] == 1
+        assert "json-done" in data["tasks"]
+
+    def test_cleanup_json_no_tasks(self, runner: CliRunner):
+        """--json-output returns empty result when nothing to clean."""
+        result = runner.invoke(main, ["cleanup", "--force", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cleaned"] == 0
+        assert data["tasks"] == []
+
+    def test_cleanup_json_corrupted(self, runner: CliRunner, make_task):
+        """--json-output with --corrupted returns purge result."""
+        from duo.protocol import quarantine_task
+
+        task = make_task("bad-task")
+        quarantine_task(task.id, "corrupt")
+        result = runner.invoke(
+            main, ["cleanup", "--corrupted", "--force", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cleaned"] == 1
+        assert data["corrupted"] is True
+
+    def test_cleanup_json_corrupted_empty(self, runner: CliRunner):
+        """--json-output with --corrupted returns zero when nothing quarantined."""
+        result = runner.invoke(main, ["cleanup", "--corrupted", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cleaned"] == 0
+        assert data["corrupted"] is True
+
 
 class TestAudit:
     def test_audit_no_tasks(self, runner: CliRunner):

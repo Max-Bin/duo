@@ -4731,8 +4731,15 @@ def _parse_age(age_str: str) -> int:
 @click.option(
     "--corrupted", is_flag=True, help="List and purge quarantined corrupted tasks"
 )
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def cleanup(
-    clean_all: bool, force: bool, keep_journal: bool, age: str | None, corrupted: bool
+    clean_all: bool,
+    force: bool,
+    keep_journal: bool,
+    age: str | None,
+    corrupted: bool,
+    *,
+    as_json: bool = False,
 ) -> None:
     """Clean up completed and failed tasks."""
     import shutil
@@ -4742,16 +4749,31 @@ def cleanup(
 
         items = list_corrupted()
         if not items:
-            click.echo("No quarantined tasks.")
+            if as_json:
+                click.echo(json.dumps({"cleaned": 0, "tasks": [], "corrupted": True}))
+            else:
+                click.echo("No quarantined tasks.")
             return
-        click.echo(f"Quarantined tasks ({len(items)}):")
-        for p in items:
-            click.echo(f"  {p.name}")
-        if not force:
+        if not as_json:
+            click.echo(f"Quarantined tasks ({len(items)}):")
+            for p in items:
+                click.echo(f"  {p.name}")
+        if not force and not as_json:
             click.confirm("Delete all quarantined tasks?", abort=True)
         for p in items:
             shutil.rmtree(p, ignore_errors=True)
-        click.echo(f"Purged {len(items)} quarantined task(s).")
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "cleaned": len(items),
+                        "tasks": [p.name for p in items],
+                        "corrupted": True,
+                    }
+                )
+            )
+        else:
+            click.echo(f"Purged {len(items)} quarantined task(s).")
         return
 
     tasks = list_tasks()
@@ -4778,36 +4800,38 @@ def cleanup(
         targets = [t for t in targets if task_age(t.created_at) > max_age]
 
     if not targets:
-        click.echo("No tasks to clean up.")
+        if as_json:
+            click.echo(json.dumps({"cleaned": 0, "tasks": []}))
+        else:
+            click.echo("No tasks to clean up.")
         return
 
-    click.echo(f"Tasks to clean up ({len(targets)}):")
-    for t in targets:
-        click.echo(f"  {t.id} ({t.status.value})")
+    if not as_json:
+        click.echo(f"Tasks to clean up ({len(targets)}):")
+        for t in targets:
+            click.echo(f"  {t.id} ({t.status.value})")
 
-    if not force:
+    if not force and not as_json:
         click.confirm("Proceed?", abort=True)
 
     cleaned = 0
+    cleaned_ids: list[str] = []
     for task in targets:
-        # Remove worktree if it exists
         if os.path.exists(task.worktree):
             r = _run_git(
                 ["worktree", "remove", "--force", task.worktree], cwd=".", check=False
             )
-            if r.returncode != 0:
+            if r.returncode != 0 and not as_json:
                 click.echo(
                     f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
                 )
 
-        # Remove branch
         r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
-        if r.returncode != 0:
+        if r.returncode != 0 and not as_json:
             click.echo(
                 f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True
             )
 
-        # Remove task directory (or just non-journal files)
         if keep_journal:
             for item in task.dir.iterdir():
                 if item.name != "journal.jsonl":
@@ -4821,9 +4845,14 @@ def cleanup(
             shutil.rmtree(task.dir)
 
         cleaned += 1
-        click.echo(f"  ✓ {task.id}")
+        cleaned_ids.append(task.id)
+        if not as_json:
+            click.echo(f"  ✓ {task.id}")
 
-    click.echo(f"\nCleaned {cleaned} tasks.")
+    if as_json:
+        click.echo(json.dumps({"cleaned": cleaned, "tasks": cleaned_ids}))
+    else:
+        click.echo(f"\nCleaned {cleaned} tasks.")
 
 
 @main.command("diff")
