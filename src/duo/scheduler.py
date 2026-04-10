@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["enqueue_or_start", "promote_queued", "queue_status"]
+__all__ = [
+    "ACTIVE_STATUSES",
+    "active_count",
+    "enqueue_or_start",
+    "has_slot",
+    "max_parallel",
+    "promote_queued",
+    "queue_status",
+]
 
 from duo.config import get_config
 from duo.protocol import (

@@ -10,7 +10,15 @@ import logging
 from datetime import UTC, datetime
 from enum import StrEnum
 
-__all__ = ["AdaptivePoller", "PollResult", "age"]
+__all__ = [
+    "AdaptivePoller",
+    "BASE_INTERVAL",
+    "HEARTBEAT_TIMEOUT",
+    "MAX_INTERVAL",
+    "PollResult",
+    "RAMP_FACTOR",
+    "age",
+]
 
 logger = logging.getLogger(__name__)
 

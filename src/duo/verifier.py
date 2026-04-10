@@ -6,7 +6,15 @@ checks against the worktree.  Returns Pass or Correction.
 
 from __future__ import annotations
 
-__all__ = ["Correction", "Pass", "run_in_worktree", "verify_step"]
+__all__ = [
+    "Correction",
+    "Pass",
+    "git_diff",
+    "git_diff_names",
+    "git_untracked",
+    "run_in_worktree",
+    "verify_step",
+]
 
 import fnmatch
 import logging

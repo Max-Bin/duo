@@ -17,8 +17,10 @@ from duo.protocol import DUO_DIR, atomic_write_text, now_iso
 __all__ = [
     "THINKING_DIR",
     "append_session_log",
+    "close_pane",
     "ensure_pane",
     "extract_response",
+    "list_sessions",
     "thinking_dir",
     "wait_for_response_stable",
     "write_plan_template",
