@@ -429,7 +429,81 @@ duo think my-feature --close            # Close pane, keep files
 
 ---
 
-## 10. Next Steps
+## 10. Quick Start with `duo go`
+
+For the fastest setup, use `duo go` to launch both CEO (Claude Code) and Executor (Copilot) side by side in a single command:
+
+```bash
+duo go                              # Interactive setup in tmux
+duo go --repo .                     # Use current directory as repo
+```
+
+This sets up everything needed: checks tmux, creates panes, and starts both agents.
+
+---
+
+## 11. Performance Benchmarks
+
+Run built-in benchmarks to measure protocol performance:
+
+```bash
+duo bench                           # Run all benchmarks
+duo bench dialog-detection          # Benchmark dialog detection speed
+duo bench file-protocol             # Benchmark file I/O operations
+duo bench journal-append            # Benchmark journal write speed
+duo bench all                       # Run all benchmarks
+```
+
+---
+
+## 12. Export & Events
+
+### Export task reports
+
+```bash
+duo export fix-auth                 # Export task report (events, files, summary)
+duo export fix-auth --json-output   # Machine-readable JSON export
+```
+
+### Watch events
+
+The `events` subcommand manages watch-event signal files:
+
+```bash
+duo events list                     # List recent watch events
+duo events show latest              # Show the latest event
+duo events tail                     # Follow events in real-time (Ctrl-C to stop)
+duo events clear                    # Delete all event signal files
+```
+
+---
+
+## 13. Shell Completion
+
+Generate shell completion scripts for tab-completion of all `duo` commands:
+
+```bash
+duo completion bash                 # Generate bash completion
+duo completion zsh                  # Generate zsh completion
+duo completion fish                 # Generate fish completion
+```
+
+Add to your shell profile:
+
+```bash
+# Bash (~/.bashrc)
+eval "$(duo completion bash)"
+
+# Zsh (~/.zshrc)
+eval "$(duo completion zsh)"
+
+# Fish (~/.config/fish/config.fish)
+duo completion fish | source
+```
+
+---
+
+## 14. Next Steps
 
 - **[`docs/ceo-workflow.md`](ceo-workflow.md)** — CEO command reference with bash loop examples and safety model documentation
 - **[`docs/architecture.md`](architecture.md)** — Deep dive into the FSM, file-based protocol, and security model
