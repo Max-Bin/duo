@@ -148,6 +148,16 @@ class TestJsonIO:
         write_json(path, {"ok": True})
         assert read_json(path) == {"ok": True}
 
+    def test_read_permission_denied(self, tmp_path: Path):
+        """read_json returns None on PermissionError (not just FileNotFoundError)."""
+        path = tmp_path / "locked.json"
+        path.write_text('{"secret": true}')
+        path.chmod(0o000)
+        try:
+            assert read_json(path) is None
+        finally:
+            path.chmod(0o644)
+
 
 # ---------------------------------------------------------------------------
 # read_jsonl

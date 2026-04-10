@@ -323,7 +323,7 @@ def read_json(path: Path) -> dict[str, Any] | None:
     """Read a JSON file, return None if missing or invalid."""
     try:
         data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     else:
         return data
