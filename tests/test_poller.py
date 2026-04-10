@@ -344,3 +344,47 @@ class TestAgePropertyBased:
         """age() returns 0.0 for timestamps in the future."""
         future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
         assert age(future) == 0.0
+
+
+class TestPollerHardening:
+    """Tests for rubber-duck audit findings."""
+
+    def test_max_interval_below_heartbeat_timeout(self) -> None:
+        """MAX_INTERVAL must be < HEARTBEAT_TIMEOUT for timely detection."""
+        assert MAX_INTERVAL < HEARTBEAT_TIMEOUT
+
+    def test_heartbeat_at_exact_timeout_is_timeout(self, tmp_path: Path) -> None:
+        """Heartbeat age exactly at timeout threshold triggers timeout."""
+        task = _make_task(tmp_path)
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": _ago_iso(HEARTBEAT_TIMEOUT),
+                "incarnation": task.incarnation_id,
+                "step": 1,
+                "status": "working",
+                "current_file": "test.py",
+            },
+        )
+        poller = AdaptivePoller()
+        result = poller.poll(task)
+        assert result == PollResult.HEARTBEAT_TIMEOUT
+
+    def test_grace_period_resets_interval(self, tmp_path: Path) -> None:
+        """Grace period (no heartbeat, recent prompt) resets to fast polling."""
+        task = _make_task(tmp_path)
+        task.last_prompt_sent_at = _now_iso()
+        protocol.save_task(task)
+
+        poller = AdaptivePoller()
+        poller.interval = 50.0
+        result = poller.poll(task)
+        assert result == PollResult.WORKING
+        assert poller.interval == BASE_INTERVAL
+
+    def test_custom_max_interval_respected_by_ramp(self) -> None:
+        """Ramp never exceeds the configured max_interval."""
+        poller = AdaptivePoller(max_interval=10.0)
+        for _ in range(100):
+            poller._ramp()
+        assert poller.interval == 10.0

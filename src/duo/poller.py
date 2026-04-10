@@ -27,7 +27,7 @@ from duo.protocol import Task, read_heartbeat, read_result_for_step
 # === Constants ===
 
 BASE_INTERVAL = 5.0  # seconds, right after sending a prompt
-MAX_INTERVAL = 120.0  # seconds, stable cruising period
+MAX_INTERVAL = 60.0  # seconds, must stay below HEARTBEAT_TIMEOUT for timely detection
 RAMP_FACTOR = 1.5  # multiply interval each cycle when heartbeat is active
 HEARTBEAT_TIMEOUT = 90.0  # seconds without heartbeat before declaring timeout
 
@@ -121,7 +121,7 @@ class AdaptivePoller:
 
         if hb is not None and hb.incarnation == inc:
             hb_age = age(hb.ts)
-            if hb_age > self.heartbeat_timeout:
+            if hb_age >= self.heartbeat_timeout:
                 self._reset()
                 return PollResult.HEARTBEAT_TIMEOUT
             # Active heartbeat — ramp up (slow down) interval.
@@ -133,7 +133,9 @@ class AdaptivePoller:
         if task.last_prompt_sent_at is not None:
             prompt_age = age(task.last_prompt_sent_at)
             if prompt_age < self.heartbeat_timeout:
-                # Still within grace period, stay at current interval.
+                # Still within grace period — reset to fast polling so we
+                # detect the first heartbeat/result promptly.
+                self._reset()
                 return PollResult.WORKING
 
             # Prompt sent long ago, no heartbeat — timeout.
