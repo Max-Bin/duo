@@ -148,6 +148,8 @@ Additional options:
 ```bash
 duo status fix-auth    # Show status of a single task
 duo list               # List all tasks
+duo list --status running    # Filter by status
+duo list --json-output       # Machine-readable JSON
 ```
 
 ### Watch for dialogs (CEO workflow)
@@ -200,6 +202,8 @@ duo dashboard              # Live Rich terminal dashboard
 duo logs fix-auth          # Show last 20 journal events
 duo logs fix-auth --all    # Show all events
 duo logs fix-auth -n 50    # Show last 50 events
+duo logs fix-auth --filter error    # Only show error events
+duo logs fix-auth --json-output     # Machine-readable JSON
 ```
 
 ### Inspect a task in detail
@@ -208,6 +212,8 @@ duo logs fix-auth -n 50    # Show last 50 events
 duo inspect fix-auth                # Detailed task info
 duo inspect fix-auth --include-files  # Include changed files and diff preview
 duo diff fix-auth                   # Show git diff for worktree changes
+duo diff fix-auth --stat            # Show diffstat summary
+duo diff fix-auth --name-only       # List changed file names only
 ```
 
 ### When the task completes
@@ -268,6 +274,7 @@ Monitor the queue:
 
 ```bash
 duo queue                          # See queued tasks and active slots
+duo queue --json-output            # Machine-readable JSON
 duo dashboard                      # Live monitoring of all tasks
 duo stats                          # Task statistics summary
 ```
@@ -312,7 +319,7 @@ Configuration is stored at `~/.duo/config.json`.
 
 ```bash
 duo ceo-status my-task    # Check pane state (idle, processing, dialog, dead)
-duo retry my-task          # Retry from current step (requires FAILED or BLOCKED status)
+duo retry my-task          # Retry from current step (FAILED, BLOCKED, or ESCALATED)
 duo stop my-task           # Graceful stop (preserves worktree for resume)
 duo kill my-task           # Force kill — removes pane, worktree, and branch
 ```
@@ -344,9 +351,10 @@ duo config set pr_budget 200       # Increase the budget
 ### Recovering from crashes
 
 ```bash
-duo recover    # Replay journals, restore FSM state for all interrupted tasks
-duo resume     # Resume all interrupted sessions
-duo resume my-task   # Resume a specific task
+duo recover                  # Replay journals, restore FSM state
+duo recover --json-output    # Machine-readable recovery report
+duo resume                   # Resume all interrupted sessions
+duo resume my-task           # Resume a specific task
 ```
 
 ### Cleaning up old tasks
