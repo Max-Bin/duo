@@ -336,6 +336,21 @@ class TestDuoUserErrorFixSuggestion:
         assert missing == [], f"DuoUserError at lines {missing} missing fix= parameter"
 
 
+class TestCommandHelpText:
+    """Guard: every CLI command must have meaningful help text."""
+
+    def test_all_commands_have_help(self) -> None:
+        """Every registered Click command must have help text >= 10 chars."""
+        ctx = click.Context(main)
+        commands = main.list_commands(ctx)
+        short_help: list[str] = []
+        for name in commands:
+            cmd = main.get_command(ctx, name)
+            if not cmd or not cmd.help or len(cmd.help.strip()) < 10:
+                short_help.append(name)
+        assert short_help == [], f"Commands with missing/short help text: {short_help}"
+
+
 class TestNoDuplicateTestClasses:
     """Guard against duplicate class names within the same test file."""
 
