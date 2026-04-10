@@ -41,6 +41,8 @@ from duo.protocol import (
 
 BENCH_DIR = DUO_DIR / "bench-results"
 
+__all__ = ["main"]
+
 _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
     "Thinking": ["think"],
@@ -2339,17 +2341,22 @@ def doctor(json_output: bool, strict: bool) -> None:
 
 @main.command()
 @click.argument("name", required=False)
-def resume(name: str | None) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def resume(name: str | None, *, as_json: bool = False) -> None:
     """Resume interrupted task sessions."""
     from duo.commander import restart_session, start_session
     from duo.transport import cleanup_pane_state, is_process_alive, kill_pane
 
     TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+    results: list[dict[str, Any]] = []
 
     if name is not None:
         task = _load_task_or_fail(name)
         if task.status in TERMINAL_STATES:
-            click.echo(f"Task '{name}' is already completed.")
+            if as_json:
+                click.echo(json.dumps({"resumed": [], "already_complete": [name]}))
+            else:
+                click.echo(f"Task '{name}' is already completed.")
             return
         targets = [task]
     else:
@@ -2357,7 +2364,12 @@ def resume(name: str | None) -> None:
         SKIP_STATES = TERMINAL_STATES | {TaskStatus.QUEUED}
         targets = [t for t in all_tasks if t.status not in SKIP_STATES]
         if not targets:
-            click.echo("No interrupted tasks found.")
+            if as_json:
+                click.echo(
+                    json.dumps({"resumed": [], "message": "no interrupted tasks"})
+                )
+            else:
+                click.echo("No interrupted tasks found.")
             return
 
     for task in targets:
@@ -2365,30 +2377,43 @@ def resume(name: str | None) -> None:
         try:
             pane_alive = is_process_alive(task.pane_label)
         except (RuntimeError, OSError):
-            click.echo(
-                f"  Warning: could not check pane status for '{task.id}', assuming dead",
-                err=True,
-            )
+            if not as_json:
+                click.echo(
+                    f"  Warning: could not check pane status for '{task.id}', assuming dead",
+                    err=True,
+                )
 
         if pane_alive:
-            # Kill old pane first to prevent duplicate executors
             if kill_pane(task.pane_label):
                 cleanup_pane_state(task.pane_label)
             try:
                 restart_session(task)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-                click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
+                if as_json:
+                    results.append(
+                        {"task": task.id, "resumed": False, "error": str(exc)}
+                    )
+                else:
+                    click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
                 continue
-            click.echo(f"Resumed task '{task.id}' — restarted session")
+            if not as_json:
+                click.echo(f"Resumed task '{task.id}' — restarted session")
+            results.append({"task": task.id, "resumed": True, "method": "restart"})
         else:
             try:
                 start_session(task)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-                click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
+                if as_json:
+                    results.append(
+                        {"task": task.id, "resumed": False, "error": str(exc)}
+                    )
+                else:
+                    click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
                 continue
-            click.echo(f"Resumed task '{task.id}' — started new session")
+            if not as_json:
+                click.echo(f"Resumed task '{task.id}' — started new session")
+            results.append({"task": task.id, "resumed": True, "method": "new_session"})
 
-        # Replay the last prompt so the executor has work to do
         from duo.commander import build_task_prompt, send_task_prompt
 
         prompt_path = task.prompt_path(task.current_step, task.current_attempt)
@@ -2398,9 +2423,14 @@ def resume(name: str | None) -> None:
             prompt = build_task_prompt(task)
         try:
             send_task_prompt(task, prompt)
-            click.echo(f"  Replayed prompt for step {task.current_step}")
+            if not as_json:
+                click.echo(f"  Replayed prompt for step {task.current_step}")
         except (RuntimeError, OSError) as exc:
-            click.echo(f"  Warning: could not replay prompt: {exc}", err=True)
+            if not as_json:
+                click.echo(f"  Warning: could not replay prompt: {exc}", err=True)
+
+    if as_json:
+        click.echo(json.dumps({"resumed": results}))
 
 
 @main.command()

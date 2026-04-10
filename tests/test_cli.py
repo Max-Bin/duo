@@ -4342,6 +4342,81 @@ class TestResume:
         assert result.exit_code == 0
         assert "Failed to resume" in result.output
 
+    def test_resume_completed_json(self, runner: CliRunner):
+        """resume --json-output on completed task returns already_complete."""
+        task = _make_task("resume-done-json")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["resume", "resume-done-json", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["already_complete"] == ["resume-done-json"]
+
+    def test_resume_no_tasks_json(self, runner: CliRunner):
+        """resume --json-output with no interrupted tasks returns empty."""
+        result = runner.invoke(main, ["resume", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["resumed"] == []
+        assert "message" in data
+
+    def test_resume_json_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """resume --json-output returns structured result."""
+        task = _make_task("resume-json")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        monkeypatch.setattr("duo.commander.start_session", MagicMock())
+        monkeypatch.setattr("duo.commander.send_task_prompt", MagicMock())
+        result = runner.invoke(main, ["resume", "resume-json", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["resumed"]) == 1
+        assert data["resumed"][0]["task"] == "resume-json"
+        assert data["resumed"][0]["resumed"] is True
+
+    def test_resume_restart_error_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """resume --json-output captures restart errors in JSON."""
+        task = _make_task("resume-rerr-json")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: True)
+        monkeypatch.setattr("duo.cli.subprocess.run", MagicMock(returncode=0))
+        monkeypatch.setattr(
+            "duo.commander.restart_session",
+            MagicMock(side_effect=OSError("restart failed")),
+        )
+        result = runner.invoke(main, ["resume", "resume-rerr-json", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["resumed"][0]["resumed"] is False
+        assert "restart failed" in data["resumed"][0]["error"]
+
+    def test_resume_start_error_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """resume --json-output captures start errors in JSON."""
+        task = _make_task("resume-serr-json")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        monkeypatch.setattr(
+            "duo.commander.start_session",
+            MagicMock(side_effect=OSError("start failed")),
+        )
+        result = runner.invoke(main, ["resume", "resume-serr-json", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["resumed"][0]["resumed"] is False
+        assert "start failed" in data["resumed"][0]["error"]
+
 
 class TestHelpTexts:
     """Verify --help works for every registered command."""
