@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-import duo.config as config_mod
-import duo.protocol as protocol_mod
 from duo.protocol import (
     Subtask,
     Task,
@@ -26,14 +22,6 @@ from duo.scheduler import (
     promote_queued,
     queue_status,
 )
-
-
-@pytest.fixture(autouse=True)
-def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Redirect TASKS_DIR and CONFIG_PATH to temp directories."""
-    monkeypatch.setattr(protocol_mod, "TASKS_DIR", tmp_path / "tasks")
-    fake_config = tmp_path / "config.json"
-    monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
 
 
 def _make_subtask(step_id: int = 1) -> Subtask:
