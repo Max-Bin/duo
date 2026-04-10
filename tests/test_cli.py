@@ -4854,6 +4854,50 @@ class TestDiffCommand:
             assert "src/foo.py" in result.output
             assert "src/bar.py" in result.output
 
+    def test_diff_json_output(self, runner: CliRunner, tmp_path: Path):
+        """diff --json-output returns structured diff info."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
+        create_task(
+            task_id="diff-json",
+            description="desc",
+            worktree=str(wt),
+            branch="duo/diff-json",
+            base_commit="abc123",
+            subtasks=[sub],
+        )
+
+        import subprocess
+
+        original_run = subprocess.run
+
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "git" and "diff" in cmd:
+                if "--name-only" in cmd:
+                    return subprocess.CompletedProcess(
+                        cmd, 0, stdout="src/foo.py\nsrc/bar.py\n", stderr=""
+                    )
+                if "--stat" in cmd:
+                    return subprocess.CompletedProcess(
+                        cmd, 0, stdout=" 2 files changed", stderr=""
+                    )
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="diff output", stderr=""
+                )
+            return original_run(cmd, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["diff", "diff-json", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["task"] == "diff-json"
+            assert data["branch"] == "duo/diff-json"
+            assert data["base_commit"] == "abc123"
+            assert data["files_changed"] == ["src/foo.py", "src/bar.py"]
+            assert data["has_changes"] is True
+
 
 # ---------------------------------------------------------------------------
 # --json-output flag

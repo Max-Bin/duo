@@ -5034,7 +5034,10 @@ def cleanup(
 @click.option(
     "--name-only", "name_only", is_flag=True, help="List changed file names only"
 )
-def diff_cmd(name: str, *, show_stat: bool, name_only: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def diff_cmd(
+    name: str, *, show_stat: bool, name_only: bool, as_json: bool = False
+) -> None:
     """Show git diff for a task's worktree changes."""
     task = _load_task_or_fail(name)
 
@@ -5043,6 +5046,28 @@ def diff_cmd(name: str, *, show_stat: bool, name_only: bool) -> None:
             f"worktree '{task.worktree}' not found",
             fix="It may have been cleaned up. Run 'duo cleanup' to remove stale tasks.",
         )
+
+    if as_json:
+        r_names = _run_git(
+            ["diff", task.base_commit, "--name-only"], cwd=task.worktree, check=False
+        )
+        r_stat = _run_git(
+            ["diff", task.base_commit, "--stat"], cwd=task.worktree, check=False
+        )
+        files = [f for f in r_names.stdout.strip().splitlines() if f]
+        click.echo(
+            json.dumps(
+                {
+                    "task": task.id,
+                    "branch": task.branch,
+                    "base_commit": task.base_commit,
+                    "files_changed": files,
+                    "stat": r_stat.stdout.strip(),
+                    "has_changes": len(files) > 0,
+                }
+            )
+        )
+        return
 
     git_args = ["diff", task.base_commit]
     if show_stat:
