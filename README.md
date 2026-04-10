@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2251%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2257%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -16,7 +16,7 @@ AI coding agents are powerful but expensive — every interaction costs a Premiu
 
 ## How Duo Solves It
 
-Duo splits the work into **Commander** (a Python CLI that makes decisions) and **Executor** (Copilot CLI that writes code), connected by a JSON file protocol over tmux. Each task gets an isolated git worktree so agents work in parallel without conflicts. A 16-state FSM tracks every task from creation to merge, with automatic verification, correction budgets, and crash recovery via journal replay.
+Duo splits the work into **Commander** (a Python CLI that makes decisions) and **Executor** (Copilot CLI that writes code), connected by a JSON file protocol over tmux. Each task gets an isolated git worktree so agents work in parallel without conflicts. A 13-state FSM tracks every task from creation to merge, with automatic verification, correction budgets, and crash recovery via journal replay.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ duo merge fix-auth       # fast-forward merge when done
 | Concept | Description |
 |---------|-------------|
 | **Task** | An isolated unit of work with its own git worktree, tmux pane, and state directory. |
-| **FSM** | 16-state machine tracking each task from CREATED to COMPLETED, with CORRECTING loops (up to 3 retries) and ESCALATED for failures. |
+| **FSM** | 13-state machine tracking each task from CREATED to COMPLETED, with CORRECTING loops (up to 3 retries) and ESCALATED for failures. |
 | **CEO** | The `ceo-*` commands let an orchestrating agent handle permission dialogs, select options, and drive approval flows programmatically. |
 | **Pane** | Each executor runs in a dedicated tmux pane. The Commander communicates via file reads/writes, never by typing into the terminal. |
 | **Premium Request** | The billable unit of AI agent interaction. Duo's entire design minimizes how many PRs are spent per task. |
