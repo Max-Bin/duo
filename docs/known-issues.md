@@ -569,12 +569,15 @@ through, so threads wake up within one `interval` of stop being set instead of
 blocking for the full 300s timeout. Uses `event.wait(interval)` instead of
 `time.sleep(interval)` when a stop_event is provided.
 
-### HIGH (deferred) — No per-task cross-process lock — OPEN (PROMOTE)
+### HIGH (deferred) — No per-task cross-process lock — RESOLVED
 
-Multiple `duo monitor` processes can race on the same task's
-poll/verify/send cycle. The codebase already uses `fcntl`/lock patterns
-elsewhere, so the fix is less greenfield than originally thought.
-**Round BM verdict: PROMOTE — real correctness race, fix cost is moderate.**
+**Status: Fixed** in Round BU. Added `task_lock(task_id)` context manager in
+`protocol.py` using `fcntl.flock(LOCK_EX | LOCK_NB)` on `~/.duo/tasks/{id}/.lock`.
+Monitor wraps each per-task poll/verify cycle in `task_lock` — a second monitor
+process skips locked tasks with a log message. `_monitor_one_task` reloads the
+task from disk after acquiring the lock to avoid acting on stale state. Only
+contention-specific errnos (EAGAIN/EACCES/EWOULDBLOCK) are treated as lock
+contention; other OS errors propagate.
 
 ### HIGH (deferred) — No poll failure counter — RESOLVED
 

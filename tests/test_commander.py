@@ -16,6 +16,7 @@ from duo.commander import (
     _escalate_pr_budget,
     _get_copilot_model,
     _log_monitor,
+    _monitor_one_task,
     _watch_loop,
     _write_watch_event,
     build_bootstrap_prompt,
@@ -40,6 +41,7 @@ from duo.protocol import (
     TaskStatus,
     append_event,
     create_task,
+    load_task,
     now_iso,
     prompt_hash,
     read_jsonl,
@@ -3323,6 +3325,71 @@ class TestPollHeartbeatTimeoutSilent:
         events = read_jsonl(task.journal_path)
         error_events = [e for e in events if e.get("event") == "api_error"]
         assert len(error_events) == 0
+
+
+class TestMonitorTaskLock:
+    """Monitor skips locked tasks."""
+
+    @patch("duo.commander.time.sleep", side_effect=StopIteration)
+    @patch("duo.commander.poll_task", return_value=PollResult.WORKING)
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_skips_locked_task(
+        self, mock_list, mock_promote, mock_poll, mock_sleep, capsys
+    ):
+        """Monitor logs 'locked by another process' and skips."""
+        from duo.errors import TaskLockedError
+
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch(
+                "duo.commander.task_lock",
+                side_effect=TaskLockedError("locked"),
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        out = capsys.readouterr().out
+        assert "locked by another process" in out
+        mock_poll.assert_not_called()
+
+
+class TestMonitorOneTaskFreshLoad:
+    """_monitor_one_task reloads task from disk under lock."""
+
+    def test_vanished_task_skipped(self, capsys):
+        """Task deleted between list_tasks and lock → skip."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        pollers: dict = {}
+        errors: dict = {}
+        with patch("duo.commander.load_task", return_value=None):
+            _monitor_one_task(task, pollers, errors)
+        out = capsys.readouterr().out
+        assert "vanished" in out
+
+    def test_completed_task_skipped(self, capsys):
+        """Task completed by another monitor → skip."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        # Simulate fresh load returning a completed version
+        fresh = load_task(task.id)
+        assert fresh is not None
+        fresh.status = TaskStatus.COMPLETED
+        pollers: dict = {}
+        errors: dict = {}
+        with patch("duo.commander.load_task", return_value=fresh):
+            _monitor_one_task(task, pollers, errors)
+        out = capsys.readouterr().out
+        assert "now completed" in out
 
 
 class TestMonitorPollErrorResilience:

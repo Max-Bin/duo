@@ -35,4 +35,14 @@ class DuoDataError(DuoError):
         self.path = path
 
 
-__all__ = ["DuoDataError", "DuoError", "DuoSystemError", "DuoUserError"]
+class TaskLockedError(DuoError):
+    """Raised when a task lock cannot be acquired (another process holds it)."""
+
+
+__all__ = [
+    "DuoDataError",
+    "DuoError",
+    "DuoSystemError",
+    "DuoUserError",
+    "TaskLockedError",
+]

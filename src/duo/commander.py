@@ -32,6 +32,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 from duo.config import get_config
+from duo.errors import TaskLockedError
 from duo.poller import AdaptivePoller, PollResult, age
 from duo.protocol import (
     DUO_DIR,
@@ -49,6 +50,7 @@ from duo.protocol import (
     read_jsonl,
     read_result_for_step,
     save_task,
+    task_lock,
     transition,
     write_json,
 )
@@ -1433,6 +1435,112 @@ def _log_monitor(symbol: str, task_id: str, message: str) -> None:
         click.echo(line)
 
 
+def _monitor_one_task(
+    task: Task,
+    pollers: dict[str, AdaptivePoller],
+    poll_errors: dict[str, int],
+) -> None:
+    """Process a single task inside the monitor loop (under task_lock).
+
+    Reloads the task from disk to avoid acting on stale state — another
+    monitor process may have advanced the task between list_tasks() and
+    lock acquisition.  Updates the caller's *task* object in place so
+    that the outer loop's ``active`` filter sees any status changes.
+    """
+    fresh = load_task(task.id)
+    if fresh is None:
+        _log_monitor("·", task.id, "task vanished, skipping")
+        return
+    if fresh.status in (
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.ESCALATED,
+        TaskStatus.BLOCKED,
+        TaskStatus.QUEUED,
+    ):
+        task.status = fresh.status
+        _log_monitor("·", task.id, f"now {fresh.status.value}, skipping")
+        return
+    # Sync mutable fields so subsequent code uses the latest disk state
+    task.status = fresh.status
+    task.current_step = fresh.current_step
+    task.current_attempt = fresh.current_attempt
+    task.incarnation_id = fresh.incarnation_id
+
+    task_timeout = get_config("task_timeout")
+    if task_timeout and task_timeout > 0:
+        ref_time = task.session_started_at or task.created_at
+        elapsed = age(ref_time)
+        if elapsed > task_timeout:
+            logger.warning(
+                "Task %s exceeded timeout (%ds > %ds)",
+                task.id,
+                int(elapsed),
+                task_timeout,
+            )
+            _log_monitor("⏱", task.id, f"timeout ({int(elapsed)}s > {task_timeout}s)")
+            append_event(
+                task,
+                "timeout_exceeded",
+                {"elapsed": int(elapsed), "limit": task_timeout},
+            )
+            transition(task, TaskStatus.FAILED)
+            return
+
+    if task.id not in pollers:
+        pollers[task.id] = AdaptivePoller(
+            base_interval=float(get_config("poll_base_interval") or 5.0),
+            max_interval=float(get_config("poll_max_interval") or 120.0),
+            heartbeat_timeout=float(get_config("heartbeat_timeout") or 90),
+        )
+
+    poller = pollers[task.id]
+    try:
+        result = poll_task(task, poller)
+    except (
+        RuntimeError,
+        ValueError,
+        OSError,
+        subprocess.CalledProcessError,
+    ) as exc:
+        poll_errors[task.id] = poll_errors.get(task.id, 0) + 1
+        count = poll_errors[task.id]
+        _log_monitor(
+            "✗",
+            task.id,
+            f"poll error ({count}/{_MAX_CONSECUTIVE_POLL_ERRORS}): {exc}",
+        )
+        logger.exception("poll_task failed for %s", task.id)
+        append_event(
+            task,
+            "poll_error",
+            {"error": str(exc), "consecutive": count},
+        )
+        if count >= _MAX_CONSECUTIVE_POLL_ERRORS:
+            _log_monitor(
+                "✗",
+                task.id,
+                f"FAILED after {count} consecutive poll errors",
+            )
+            transition(task, TaskStatus.FAILED)
+            append_event(
+                task,
+                "poll_errors_exhausted",
+                {"consecutive": count, "last_error": str(exc)},
+            )
+        return
+
+    # Reset consecutive error counter on success
+    poll_errors.pop(task.id, None)
+
+    if result == PollResult.RESULT_READY:
+        _log_monitor("✓", task.id, f"result_ready (step={task.current_step})")
+    elif result == PollResult.HEARTBEAT_TIMEOUT:
+        _log_monitor("⚠", task.id, "heartbeat_timeout")
+    elif result == PollResult.UNKNOWN:
+        _log_monitor("?", task.id, "unknown state")
+
+
 def monitor(task_ids: list[str] | None = None) -> None:
     """Run the adaptive polling monitor loop.
 
@@ -1502,82 +1610,12 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 break
 
         for task in active:
-            # Enforce task_timeout before polling
-            task_timeout = get_config("task_timeout")
-            if task_timeout and task_timeout > 0:
-                ref_time = task.session_started_at or task.created_at
-                elapsed = age(ref_time)
-                if elapsed > task_timeout:
-                    logger.warning(
-                        "Task %s exceeded timeout (%ds > %ds)",
-                        task.id,
-                        int(elapsed),
-                        task_timeout,
-                    )
-                    _log_monitor(
-                        "⏱", task.id, f"timeout ({int(elapsed)}s > {task_timeout}s)"
-                    )
-                    append_event(
-                        task,
-                        "timeout_exceeded",
-                        {"elapsed": int(elapsed), "limit": task_timeout},
-                    )
-                    transition(task, TaskStatus.FAILED)
-                    continue
-
-            if task.id not in pollers:
-                pollers[task.id] = AdaptivePoller(
-                    base_interval=float(get_config("poll_base_interval") or 5.0),
-                    max_interval=float(get_config("poll_max_interval") or 120.0),
-                    heartbeat_timeout=float(get_config("heartbeat_timeout") or 90),
-                )
-
-            poller = pollers[task.id]
             try:
-                result = poll_task(task, poller)
-            except (
-                RuntimeError,
-                ValueError,
-                OSError,
-                subprocess.CalledProcessError,
-            ) as exc:
-                poll_errors[task.id] = poll_errors.get(task.id, 0) + 1
-                count = poll_errors[task.id]
-                _log_monitor(
-                    "✗",
-                    task.id,
-                    f"poll error ({count}/{_MAX_CONSECUTIVE_POLL_ERRORS}): {exc}",
-                )
-                logger.exception("poll_task failed for %s", task.id)
-                append_event(
-                    task,
-                    "poll_error",
-                    {"error": str(exc), "consecutive": count},
-                )
-                if count >= _MAX_CONSECUTIVE_POLL_ERRORS:
-                    _log_monitor(
-                        "✗",
-                        task.id,
-                        f"FAILED after {count} consecutive poll errors",
-                    )
-                    transition(task, TaskStatus.FAILED)
-                    append_event(
-                        task,
-                        "poll_errors_exhausted",
-                        {"consecutive": count, "last_error": str(exc)},
-                    )
+                with task_lock(task.id):
+                    _monitor_one_task(task, pollers, poll_errors)
+            except TaskLockedError:
+                _log_monitor("⊘", task.id, "locked by another process, skipping")
                 continue
-
-            # Reset consecutive error counter on success
-            poll_errors.pop(task.id, None)
-
-            if result == PollResult.RESULT_READY:
-                _log_monitor("✓", task.id, f"result_ready (step={task.current_step})")
-            elif result == PollResult.HEARTBEAT_TIMEOUT:
-                _log_monitor("⚠", task.id, "heartbeat_timeout")
-            elif result == PollResult.UNKNOWN:
-                _log_monitor("?", task.id, "unknown state")
-            # WORKING is silent (normal operation)
 
         # Use the minimum interval across all active tasks
         active_ids = {t.id for t in active}

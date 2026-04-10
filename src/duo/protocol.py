@@ -15,7 +15,7 @@ import os
 import shutil
 import uuid
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -945,3 +945,42 @@ def clear_go_session() -> None:
     """Remove go-session state file."""
     with contextlib.suppress(FileNotFoundError):
         _GO_SESSION_FILE.unlink()
+
+
+# ---------------------------------------------------------------------------
+# Cross-process task lock
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def task_lock(task_id: str) -> Iterator[None]:
+    """Non-blocking cross-process lock for a task.
+
+    Uses ``fcntl.flock(LOCK_EX | LOCK_NB)`` on ``~/.duo/tasks/{id}/.lock``.
+    Raises :class:`~duo.errors.TaskLockedError` if another process holds
+    the lock.  The lock is released when the context manager exits.
+
+    Only ``EAGAIN`` / ``EACCES`` are treated as contention; other OS errors
+    propagate so permission/IO failures aren't silently masked.
+    """
+    import errno as _errno
+
+    from duo.errors import TaskLockedError
+
+    lock_path = TASKS_DIR / task_id / ".lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = lock_path.open("w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        fd.close()
+        if exc.errno in (_errno.EAGAIN, _errno.EACCES, _errno.EWOULDBLOCK):
+            raise TaskLockedError(
+                f"Task '{task_id}' is locked by another process"
+            ) from None
+        raise
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        fd.close()

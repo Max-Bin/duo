@@ -42,6 +42,7 @@ from duo.protocol import (
     replay_state,
     save_go_session,
     save_task,
+    task_lock,
     transition,
     write_json,
 )
@@ -2008,3 +2009,80 @@ class TestGoSession:
         data = load_go_session()
         assert data is not None
         assert data["copilot_pane"] == ""
+
+
+# ---------------------------------------------------------------------------
+# task_lock
+# ---------------------------------------------------------------------------
+
+
+class TestTaskLock:
+    """Tests for cross-process task_lock."""
+
+    def test_acquires_and_releases(self, tmp_path, monkeypatch):
+        """Lock is acquired and released cleanly."""
+        import duo.protocol as proto
+
+        monkeypatch.setattr(proto, "TASKS_DIR", tmp_path)
+        (tmp_path / "my-task").mkdir()
+        with task_lock("my-task"):
+            assert (tmp_path / "my-task" / ".lock").exists()
+
+    def test_lock_contention_raises(self, tmp_path, monkeypatch):
+        """Second lock on same task raises TaskLockedError."""
+        import fcntl
+
+        import duo.protocol as proto
+        from duo.errors import TaskLockedError
+
+        monkeypatch.setattr(proto, "TASKS_DIR", tmp_path)
+        (tmp_path / "locked-task").mkdir()
+
+        lock_file = tmp_path / "locked-task" / ".lock"
+        fd = lock_file.open("w")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            with pytest.raises(TaskLockedError, match="locked by another process"):
+                with task_lock("locked-task"):
+                    pass  # pragma: no cover
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            fd.close()
+
+    def test_lock_creates_parent_directory(self, tmp_path, monkeypatch):
+        """task_lock creates the task directory if needed."""
+        import duo.protocol as proto
+
+        monkeypatch.setattr(proto, "TASKS_DIR", tmp_path)
+        with task_lock("new-task"):
+            assert (tmp_path / "new-task").is_dir()
+
+    def test_lock_released_after_exception(self, tmp_path, monkeypatch):
+        """Lock is released even if body raises."""
+        import duo.protocol as proto
+
+        monkeypatch.setattr(proto, "TASKS_DIR", tmp_path)
+        (tmp_path / "exc-task").mkdir()
+        with pytest.raises(ValueError, match="boom"):
+            with task_lock("exc-task"):
+                raise ValueError("boom")
+        # Lock should be released — can re-acquire
+        with task_lock("exc-task"):
+            pass
+
+    def test_non_contention_oserror_propagates(self, tmp_path, monkeypatch):
+        """OSError with errno != EAGAIN/EACCES propagates, not TaskLockedError."""
+        import errno as _errno
+
+        import duo.protocol as proto
+
+        monkeypatch.setattr(proto, "TASKS_DIR", tmp_path)
+        (tmp_path / "perm-task").mkdir()
+
+        def _bad_flock(fd: object, op: int) -> None:
+            raise OSError(_errno.EIO, "I/O error")
+
+        monkeypatch.setattr("duo.protocol.fcntl.flock", _bad_flock)
+        with pytest.raises(OSError, match="I/O error"):
+            with task_lock("perm-task"):
+                pass  # pragma: no cover
