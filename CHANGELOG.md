@@ -58,6 +58,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `_count_corrections()` bounded journal read with tail=200 (performance)
 - Consecutive poll error counter: tasks auto-fail after 10 consecutive poll errors (prevents indefinite stuck state)
 - `name_pane()` failure after split-window now kills orphaned pane and transitions to FAILED
+- Root-anchored path matching in verifier (fixes `PurePosixPath.match()` not anchoring from root)
+- Unicode NFC normalization for path matching in verifier
+- `read_json` uses explicit UTF-8 encoding + catches `UnicodeDecodeError`
+- `read_jsonl` resilient to `OSError` (permission denied) and invalid byte sequences
+- `transition()` saves task.json before journal append (crash consistency)
+- 10 new modern secret patterns in `SecurityPolicy` defaults (encrypted PK, PGP, ghu_, xoxc/a, ya29, etc.)
 
 ### Changed
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
