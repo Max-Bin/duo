@@ -1546,6 +1546,20 @@ class TestSafeJoin:
         with pytest.raises(click.BadParameter, match="traversal"):
             _safe_join(str(tmp_path), "../../../etc")
 
+    def test_safe_join_absolute_path_rejected(self, tmp_path: Path) -> None:
+        """Absolute path names are rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="traversal"):
+            _safe_join(str(tmp_path), "/etc/passwd")
+
+    def test_safe_join_dot_dot_embedded(self, tmp_path: Path) -> None:
+        """Embedded .. traversal is rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="traversal"):
+            _safe_join(str(tmp_path), "foo/../../../etc")
+
 
 # ---------------------------------------------------------------------------
 # _validate_task_name
