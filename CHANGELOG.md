@@ -56,6 +56,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Bootstrap now sets `last_prompt_sent_at` for correct monitor/retry state tracking
 - `subprocess.TimeoutExpired` caught in all session lifecycle paths (prevents monitor crash)
 - `_count_corrections()` bounded journal read with tail=200 (performance)
+- Consecutive poll error counter: tasks auto-fail after 10 consecutive poll errors (prevents indefinite stuck state)
+- `name_pane()` failure after split-window now kills orphaned pane and transitions to FAILED
 
 ### Changed
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
