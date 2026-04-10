@@ -3613,6 +3613,34 @@ class TestInit:
         content = (repo / ".gitignore").read_text()
         assert content == "foo\n.duo/\n"
 
+    def test_init_json_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """duo init --json-output returns JSON with status and created list."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo), "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["status"] == "initialized"
+        assert isinstance(data["created"], list)
+        assert len(data["created"]) > 0
+
+    def test_init_json_already_initialized(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Re-running init with --json-output returns already_initialized status."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".duo").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo), "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["status"] == "already_initialized"
+        assert data["created"] == []
+
 
 # ---------------------------------------------------------------------------
 # doctor command
