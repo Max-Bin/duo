@@ -538,12 +538,12 @@ two separate audit agents. CRITICAL and HIGH findings were fixed
 in commits `56f2fa2` and `cc27168`. The items below are MEDIUM/LOW
 severity and deferred.
 
-### S1 — Double result file read (MEDIUM, perf)
+### S1 — Double result file read (MEDIUM, perf) — RESOLVED
 
-`poll_task` reads the result file to check incarnation, then
-`verify_and_advance` reads it again. The result could be passed
-as a parameter to avoid the second I/O. Low impact since result
-files are small, but creates an unnecessary race window.
+**Status: Fixed** in commit `3b70270` (Round EW).
+
+`verify_and_advance()` now accepts an optional `result` parameter.
+`poll_task()` passes the already-read result, eliminating redundant I/O.
 
 ### S3 — Watch event filename collision (LOW)
 
