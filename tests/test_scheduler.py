@@ -19,6 +19,7 @@ from duo.scheduler import (
     ACTIVE_STATUSES,
     _next_queued,
     _queue_position,
+    _sorted_queued,
     active_count,
     enqueue_or_start,
     has_slot,
@@ -402,3 +403,35 @@ class TestSchedulerEdgeCases:
         # BLOCKED/ESCALATED don't have live executors — shouldn't consume slots
         assert TaskStatus.BLOCKED not in ACTIVE_STATUSES
         assert TaskStatus.ESCALATED not in ACTIVE_STATUSES
+
+
+class TestSortedQueuedWithPreFetchedTasks:
+    """Tests for _sorted_queued with optional pre-fetched task list."""
+
+    def test_pre_fetched_avoids_list_tasks(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When tasks list is provided, list_tasks() is NOT called."""
+        t1 = _make_task("q1")
+        _force_status(t1, TaskStatus.QUEUED)
+        t2 = _make_task("q2")
+        _force_status(t2, TaskStatus.RUNNING)
+
+        all_tasks = [t1, t2]
+        # Monkeypatch list_tasks to blow up — proves we don't call it
+        monkeypatch.setattr(
+            "duo.scheduler.list_tasks",
+            lambda: (_ for _ in ()).throw(AssertionError("should not be called")),
+        )
+
+        result = _sorted_queued(all_tasks)
+        assert len(result) == 1
+        assert result[0].id == "q1"
+
+    def test_none_falls_back_to_list_tasks(self) -> None:
+        """When tasks is None, falls back to list_tasks()."""
+        t1 = _make_task("fb1")
+        _force_status(t1, TaskStatus.QUEUED)
+
+        result = _sorted_queued(None)
+        assert any(t.id == "fb1" for t in result)

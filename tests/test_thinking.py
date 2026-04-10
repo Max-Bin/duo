@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from duo.thinking import (
+    _ensure_thinking_dir,
     _pane_alive,
     _pane_exists,
     _pane_label,
@@ -51,6 +52,17 @@ class TestThinkingDir:
 
     def test_pane_label(self) -> None:
         assert _pane_label("rate-limiter") == "think-rate-limiter"
+
+    def test_ensure_thinking_dir_creates_nested(self) -> None:
+        d = _ensure_thinking_dir("deep-session")
+        assert d.is_dir()
+        assert d.name == "deep-session"
+
+    def test_ensure_thinking_dir_idempotent(self) -> None:
+        d1 = _ensure_thinking_dir("idem")
+        d2 = _ensure_thinking_dir("idem")
+        assert d1 == d2
+        assert d2.is_dir()
 
 
 # ---------------------------------------------------------------------------

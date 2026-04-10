@@ -77,10 +77,7 @@ def promote_queued() -> list[Task]:
     mp = max_parallel()
     tasks = list_tasks()
     n_active = sum(1 for t in tasks if t.status in ACTIVE_STATUSES)
-    queued = sorted(
-        (t for t in tasks if t.status == TaskStatus.QUEUED),
-        key=lambda t: t.created_at,
-    )
+    queued = _sorted_queued(tasks)
 
     for next_task in queued:
         if n_active >= mp:
@@ -100,9 +97,14 @@ def promote_queued() -> list[Task]:
     return promoted
 
 
-def _sorted_queued() -> list[Task]:
-    """Get queued tasks sorted by creation time (FIFO)."""
-    queued = [t for t in list_tasks() if t.status == TaskStatus.QUEUED]
+def _sorted_queued(tasks: list[Task] | None = None) -> list[Task]:
+    """Get queued tasks sorted by creation time (FIFO).
+
+    If *tasks* is provided, filters from that list instead of
+    calling ``list_tasks()`` again — avoids redundant disk reads.
+    """
+    all_tasks = tasks if tasks is not None else list_tasks()
+    queued = [t for t in all_tasks if t.status == TaskStatus.QUEUED]
     queued.sort(key=lambda t: t.created_at)
     return queued
 
@@ -126,7 +128,7 @@ def queue_status() -> dict[str, Any]:
     """Get queue status summary."""
     tasks = list_tasks()
     active = [t for t in tasks if t.status in ACTIVE_STATUSES]
-    queued = _sorted_queued()
+    queued = _sorted_queued(tasks)
 
     return {
         "active_count": len(active),

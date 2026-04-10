@@ -12,7 +12,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from duo.protocol import DUO_DIR, atomic_write_text
+from duo.protocol import DUO_DIR, atomic_write_text, now_iso
 
 __all__ = [
     "THINKING_DIR",
@@ -111,14 +111,20 @@ decisions, data flow, dependencies.)
 """
 
 
+def _ensure_thinking_dir(name: str) -> Path:
+    """Return the thinking session directory, creating it if needed."""
+    tdir = thinking_dir(name)
+    tdir.mkdir(parents=True, exist_ok=True)
+    return tdir
+
+
 def write_thinking_claude_md(name: str) -> Path:
     """Write CLAUDE.md into the thinking session directory.
 
     Creates ``~/.duo/thinking/{name}/`` if it does not exist.
     Returns the path to the written CLAUDE.md.
     """
-    tdir = thinking_dir(name)
-    tdir.mkdir(parents=True, exist_ok=True)
+    tdir = _ensure_thinking_dir(name)
     claude_md = tdir / "CLAUDE.md"
     atomic_write_text(claude_md, _THINKING_CLAUDE_MD.format(name=name))
     logger.info("Wrote %s", claude_md)
@@ -131,8 +137,7 @@ def write_plan_template(name: str) -> Path:
     Creates ``~/.duo/thinking/{name}/`` if it does not exist.
     Returns the path to the written plan-template.md.
     """
-    tdir = thinking_dir(name)
-    tdir.mkdir(parents=True, exist_ok=True)
+    tdir = _ensure_thinking_dir(name)
     tmpl = tdir / "plan-template.md"
     atomic_write_text(tmpl, _PLAN_TEMPLATE.format(name=name))
     logger.info("Wrote %s", tmpl)
@@ -348,8 +353,6 @@ def extract_response(content_before: str, content_after: str, user_message: str)
 
 def append_session_log(name: str, user_message: str, response: str) -> None:
     """Append a timestamped ask entry to session.log."""
-    from duo.protocol import now_iso
-
     tdir = thinking_dir(name)
     log_file = tdir / "session.log"
     entry = (
