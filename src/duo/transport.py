@@ -131,19 +131,23 @@ class TransportBridge(Protocol):
 
     def __call__(
         self, cmd: list[str], *, check: bool = True
-    ) -> str: ...  # pragma: no cover
+    ) -> str: ...  # pragma: no cover — Protocol abstract stub
 
 
 class PaneReader(Protocol):
     """Protocol for reading tmux pane content."""
 
-    def __call__(self, label: str, lines: int = 50) -> str: ...  # pragma: no cover
+    def __call__(
+        self, label: str, lines: int = 50
+    ) -> str: ...  # pragma: no cover — Protocol abstract stub
 
 
 class DialogDetector(Protocol):
     """Protocol for detecting dialog state in a pane."""
 
-    def __call__(self, label: str) -> bool: ...  # pragma: no cover
+    def __call__(
+        self, label: str
+    ) -> bool: ...  # pragma: no cover — Protocol abstract stub
 
 
 def _find_bridge() -> str:

@@ -423,3 +423,19 @@ class TestConftestIsolation:
         """_CORRUPTED_DIR must point to a temp directory."""
         corrupted = duo.protocol._CORRUPTED_DIR
         assert "tmp" in str(corrupted).lower() or str(tmp_path) in str(corrupted)
+
+
+class TestPragmaNoCoverDocumented:
+    """Guard: every # pragma: no cover must have an explanation."""
+
+    def test_all_pragmas_have_rationale(self) -> None:
+        """Every pragma: no cover must have a comment explaining why."""
+        src_dir = Path(duo.cli.__file__).resolve().parent
+        undocumented: list[str] = []
+        for f in sorted(src_dir.glob("*.py")):
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                if "pragma: no cover" in line:
+                    after = line.split("pragma: no cover", 1)[1].strip()
+                    if not after or after == "#":
+                        undocumented.append(f"{f.name}:{i}")
+        assert undocumented == [], f"pragma: no cover without rationale: {undocumented}"
