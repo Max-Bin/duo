@@ -2543,6 +2543,23 @@ class TestQueueCommand:
             assert "3. task-c" in result.output
             assert "Active: 2 / max_parallel: 4" in result.output
 
+    def test_queue_json_output(self, runner: CliRunner):
+        """queue --json-output returns JSON."""
+        mock_qs = {
+            "active_count": 1,
+            "queued_count": 2,
+            "max_parallel": 3,
+            "active_tasks": ["run-a"],
+            "queued_tasks": ["q-a", "q-b"],
+        }
+        with patch("duo.scheduler.queue_status", return_value=mock_qs):
+            result = runner.invoke(main, ["queue", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["active_count"] == 1
+            assert data["queued_count"] == 2
+            assert data["queued_tasks"] == ["q-a", "q-b"]
+
 
 # ---------------------------------------------------------------------------
 # audit command — session log path

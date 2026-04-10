@@ -1024,11 +1024,16 @@ def batch(
 
 
 @main.command()
-def queue() -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def queue(as_json: bool) -> None:
     """Show queue status."""
     from duo.scheduler import queue_status
 
     qs = queue_status()
+
+    if as_json:
+        click.echo(json.dumps(qs, indent=2))
+        return
 
     queued = qs["queued_tasks"]
     if queued:
