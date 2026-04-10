@@ -332,12 +332,25 @@ def start_claude_commander(task: Task) -> str | None:
         logger.warning("Cannot determine tmux session for commander pane")
         return None
 
-    result = subprocess.run(
-        ["tmux", "split-window", "-v", "-P", "-F", "#{pane_id}", "-t", session_target],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "split-window",
+                "-v",
+                "-P",
+                "-F",
+                "#{pane_id}",
+                "-t",
+                session_target,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("tmux split-window timed out for Claude commander")
+        return None
     if result.returncode != 0:
         logger.warning("Failed to create Claude commander pane: %s", result.stderr)
         return None
@@ -347,19 +360,27 @@ def start_claude_commander(task: Task) -> str | None:
     name_pane(pane_id, commander_label)
 
     # Tile layout — target the new pane to resolve correct window
-    subprocess.run(
-        ["tmux", "select-layout", "-t", pane_id, "tiled"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        subprocess.run(
+            ["tmux", "select-layout", "-t", pane_id, "tiled"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("select-layout timed out for commander pane")
 
     time.sleep(_SESSION_SPLIT_WAIT)
     try:
         send_shell_command(commander_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
         send_shell_command(commander_label, "claude")
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
         logger.warning("Failed to start Claude commander: %s", exc)
         kill_pane(pane_id)
         return None
@@ -471,12 +492,28 @@ def start_session(task: Task) -> None:
 
     # Create tmux pane and start copilot
     # Note: tmux must already be running (user starts duo inside tmux)
-    result = subprocess.run(
-        ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}", "-t", session_target],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "split-window",
+                "-h",
+                "-P",
+                "-F",
+                "#{pane_id}",
+                "-t",
+                session_target,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        append_event(
+            task, "session_start_failed", {"error": "tmux split-window timeout"}
+        )
+        transition(task, TaskStatus.FAILED)
+        return
     if result.returncode != 0:
         append_event(task, "session_start_failed", {"error": result.stderr})
         transition(task, TaskStatus.FAILED)
@@ -488,87 +525,107 @@ def start_session(task: Task) -> None:
     name_pane(pane_id, task.pane_label)
 
     # Tile layout — target the new pane to resolve correct window
-    _layout = subprocess.run(
-        ["tmux", "select-layout", "-t", pane_id, "tiled"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if _layout.returncode != 0:
-        logger.warning("select-layout failed: %s", _layout.stderr.strip())
+    try:
+        _layout = subprocess.run(
+            ["tmux", "select-layout", "-t", pane_id, "tiled"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if _layout.returncode != 0:
+            logger.warning("select-layout failed: %s", _layout.stderr.strip())
+    except subprocess.TimeoutExpired:
+        logger.warning("select-layout timed out for %s", task.id)
 
-    # cd to worktree, then start copilot (no -C flag available)
+    # cd to worktree, start copilot, wait for readiness, and send bootstrap.
+    # All post-pane-creation steps share a single try/except so any failure
+    # (including subprocess.TimeoutExpired from tmux send-keys) cleans up
+    # the orphaned pane and transitions the task to FAILED.
     time.sleep(_SESSION_SPLIT_WAIT)
     copilot_cmd = f"copilot --model {shlex.quote(_get_copilot_model())} --yolo"
     try:
         send_shell_command(task.pane_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
         send_shell_command(task.pane_label, copilot_cmd)
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-        # Kill orphaned pane if it was created
+
+        append_event(
+            task,
+            "session_started",
+            {
+                "incarnation": task.incarnation_id,
+                "pane": task.pane_label,
+                "pane_id": pane_id,
+            },
+        )
+
+        # Record when the session actually started
+        task.session_started_at = now_iso()
+        save_task(task)
+
+        # Wait for copilot to start (adaptive instead of hardcoded sleep)
+        click.echo("Waiting for Copilot to start...")
+        if not wait_for_idle(
+            task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0
+        ):
+            logger.warning(
+                "Copilot did not stabilize within %ss for %s",
+                _IDLE_TIMEOUT_START,
+                task.id,
+            )
+            append_event(
+                task,
+                "startup_timeout",
+                {"timeout": _IDLE_TIMEOUT_START, "phase": "copilot_start"},
+            )
+            # Do NOT continue to /allow-all or bootstrap — Copilot may not
+            # be ready and we could be typing into a raw shell.
+            transition(task, TaskStatus.FAILED)
+            return
+
+        # Auto-approve all operations to avoid interactive prompts (configurable)
+        if get_config("auto_allow_all"):
+            click.echo("Sending /allow-all...")
+            send_shell_command(task.pane_label, "/allow-all")
+            if not wait_for_idle(
+                task.pane_label,
+                timeout=_IDLE_TIMEOUT_ALLOW_ALL,
+                poll_interval=1.0,
+            ):
+                logger.warning(
+                    "/allow-all did not stabilize within %ss for %s",
+                    _IDLE_TIMEOUT_ALLOW_ALL,
+                    task.id,
+                )
+        else:
+            click.echo("Skipping /allow-all (auto_allow_all=false)")
+
+        # Send bootstrap prompt (this is the first and only ❯ prompt message)
+        bootstrap = build_bootstrap_prompt(task)
+        send_bootstrap(task.pane_label, bootstrap)
+        task.last_prompt_sent_at = now_iso()
+        save_task(task)
+        append_event(
+            task,
+            "pr_consumed",
+            {
+                "action": "bootstrap",
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+            },
+        )
+
+        transition(task, TaskStatus.PROMPT_SENT)
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
         kill_pane(pane_id)
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_start_failed", {"error": str(exc)})
         raise
-
-    append_event(
-        task,
-        "session_started",
-        {
-            "incarnation": task.incarnation_id,
-            "pane": task.pane_label,
-            "pane_id": pane_id,
-        },
-    )
-
-    # Record when the session actually started (for accurate timeout calculation)
-    task.session_started_at = now_iso()
-    save_task(task)
-
-    # Wait for copilot to start (adaptive instead of hardcoded sleep)
-    click.echo("Waiting for Copilot to start...")
-    if not wait_for_idle(
-        task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0
-    ):
-        logger.warning(
-            "Copilot did not stabilize within %ss for %s", _IDLE_TIMEOUT_START, task.id
-        )
-        append_event(
-            task,
-            "startup_timeout",
-            {"timeout": _IDLE_TIMEOUT_START, "phase": "copilot_start"},
-        )
-
-    # Auto-approve all operations to avoid interactive prompts (configurable)
-    if get_config("auto_allow_all"):
-        click.echo("Sending /allow-all...")
-        send_shell_command(task.pane_label, "/allow-all")
-        if not wait_for_idle(
-            task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0
-        ):
-            logger.warning(
-                "/allow-all did not stabilize within %ss for %s",
-                _IDLE_TIMEOUT_ALLOW_ALL,
-                task.id,
-            )
-    else:
-        click.echo("Skipping /allow-all (auto_allow_all=false)")
-
-    # Send bootstrap prompt (this is the first and only ❯ prompt message)
-    bootstrap = build_bootstrap_prompt(task)
-    send_bootstrap(task.pane_label, bootstrap)
-    append_event(
-        task,
-        "pr_consumed",
-        {
-            "action": "bootstrap",
-            "step": task.current_step,
-            "attempt": task.current_attempt,
-        },
-    )
-
-    transition(task, TaskStatus.PROMPT_SENT)
 
     # Also start Claude Code CLI as commander (non-blocking, best-effort)
     if get_config("auto_claude_commander"):
@@ -610,7 +667,12 @@ def restart_session(task: Task) -> None:
 
     try:
         start_session(task)
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
         logger.warning("restart_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_restart_failed", {"error": str(exc)})
@@ -776,7 +838,12 @@ def verify_and_advance(task: Task) -> None:
             try:
                 prompt = build_continue_prompt(task)
                 send_task_prompt(task, prompt)
-            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            except (
+                RuntimeError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                OSError,
+            ) as exc:
                 logger.warning(
                     "Failed to send continuation for '%s': %s — rolling back",
                     task.id,
@@ -817,7 +884,12 @@ def verify_and_advance(task: Task) -> None:
         try:
             prompt = build_correction_prompt(task, verdict.reason)
             send_task_prompt(task, prompt)
-        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        except (
+            RuntimeError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            OSError,
+        ) as exc:
             logger.warning(
                 "Failed to send correction for '%s': %s — rolling back",
                 task.id,
@@ -973,13 +1045,14 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                     )
 
     elif poll_result == PollResult.UNKNOWN:
-        # Check if ack is missing
+        # UNKNOWN means no prompt was sent (last_prompt_sent_at is None).
+        # Use session_started_at or created_at as fallback to determine
+        # whether enough time has passed to attempt a resend.
         ack = read_ack_for_step(task, step, attempt)
-        if (
-            ack is None
-            and task.last_prompt_sent_at
-            and age(task.last_prompt_sent_at) > _IDLE_GRACE_SECONDS
-        ):
+        ref_time = (
+            task.last_prompt_sent_at or task.session_started_at or task.created_at
+        )
+        if ack is None and ref_time and age(ref_time) > _IDLE_GRACE_SECONDS:
             resend_last_prompt(task)
 
     return poll_result
@@ -1049,7 +1122,12 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 else:
                     prompt = build_task_prompt(task)
                 send_task_prompt(task, prompt)
-            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            except (
+                RuntimeError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                OSError,
+            ) as exc:
                 _log_monitor("✗", task.id, f"failed to start: {exc}")
                 logger.warning("Failed to start promoted task '%s': %s", task.id, exc)
 

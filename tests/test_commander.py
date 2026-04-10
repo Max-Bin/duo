@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -671,7 +672,7 @@ class TestStartSession:
             assert "cd " in cd_cmd
 
     def test_start_session_startup_timeout_logged(self):
-        """When wait_for_idle returns False, a startup_timeout event is appended."""
+        """When wait_for_idle returns False, task transitions to FAILED."""
         from unittest.mock import MagicMock
 
         task = _make_task()
@@ -687,6 +688,47 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle", return_value=False),
+            patch("duo.commander.send_bootstrap") as mock_bootstrap,
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            # Task transitions to FAILED — not PROMPT_SENT
+            assert task.status == TaskStatus.FAILED
+            # Bootstrap should NOT be sent when startup timed out
+            mock_bootstrap.assert_not_called()
+            # startup timeout is logged in journal
+            events = [
+                json.loads(line)
+                for line in task.journal_path.read_text().strip().split("\n")
+            ]
+            timeout_events = [e for e in events if e.get("event") == "startup_timeout"]
+            assert len(timeout_events) == 1
+            assert timeout_events[0]["data"]["phase"] == "copilot_start"
+
+    def test_start_session_allow_all_timeout_warning(self):
+        """When /allow-all wait_for_idle returns False, warning is logged."""
+        task = _make_task()
+
+        config_values = {
+            "auto_allow_all": True,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", side_effect=[True, False]),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -700,16 +742,96 @@ class TestStartSession:
 
             start_session(task)
 
-            # Session still proceeds (best-effort)
+            # Session still succeeds (allow-all timeout is non-fatal)
             assert task.status == TaskStatus.PROMPT_SENT
-            # But startup timeout is logged in journal
+
+    def test_start_session_split_window_timeout(self):
+        """TimeoutExpired on split-window transitions to FAILED."""
+        task = _make_task()
+
+        with (
+            patch(
+                "duo.commander.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(["tmux"], 10),
+            ),
+        ):
+            start_session(task)
+            assert task.status == TaskStatus.FAILED
             events = [
                 json.loads(line)
                 for line in task.journal_path.read_text().strip().split("\n")
             ]
-            timeout_events = [e for e in events if e.get("event") == "startup_timeout"]
-            assert len(timeout_events) == 1
-            assert timeout_events[0]["data"]["phase"] == "copilot_start"
+            fail_events = [
+                e for e in events if e.get("event") == "session_start_failed"
+            ]
+            assert len(fail_events) == 1
+            assert "timeout" in fail_events[0]["data"]["error"]
+
+    def test_start_session_layout_timeout_nonfatal(self):
+        """TimeoutExpired on select-layout is non-fatal — session continues."""
+        task = _make_task()
+
+        config_values = {
+            "auto_allow_all": True,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", return_value=True),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            mock_run.side_effect = [
+                split_result,
+                subprocess.TimeoutExpired(["tmux"], 10),
+            ]
+
+            start_session(task)
+            assert task.status == TaskStatus.PROMPT_SENT
+
+    def test_start_session_bootstrap_timeout_cleans_up(self):
+        """TimeoutExpired during bootstrap kills pane and transitions FAILED."""
+        task = _make_task()
+
+        config_values = {
+            "auto_allow_all": False,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", return_value=True),
+            patch(
+                "duo.commander.send_bootstrap",
+                side_effect=subprocess.TimeoutExpired(["tmux"], 10),
+            ),
+            patch("duo.commander.kill_pane") as mock_kill,
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            with pytest.raises(subprocess.TimeoutExpired):
+                start_session(task)
+
+            assert task.status == TaskStatus.FAILED
+            mock_kill.assert_called_once_with("%42")
 
 
 # ---------------------------------------------------------------------------
@@ -1016,10 +1138,85 @@ class TestClaudeCommander:
                 assert "'" in cd_cmd or "\\" in cd_cmd
                 assert "cd " in cd_cmd
 
+    def test_start_claude_commander_split_timeout(self) -> None:
+        """split-window TimeoutExpired returns None gracefully."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch(
+                    "duo.commander.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired(["tmux"], 10),
+                ),
+                patch("duo.commander.get_tmux_session_target", return_value="$0"),
+            ):
+                result = start_claude_commander(task)
+                assert result is None
+
+    def test_start_claude_commander_layout_timeout(self) -> None:
+        """select-layout TimeoutExpired is logged but doesn't block."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch("duo.commander.send_shell_command"),
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%50\n"
+                mock_run.side_effect = [
+                    split_result,
+                    subprocess.TimeoutExpired(["tmux"], 10),
+                ]
+
+                result = start_claude_commander(task)
+                assert result == "%50"
+
+    def test_start_claude_commander_send_timeout(self) -> None:
+        """TimeoutExpired from send_shell_command kills pane and returns None."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch("duo.commander.name_pane"),
+                patch(
+                    "duo.commander.send_shell_command",
+                    side_effect=subprocess.TimeoutExpired(["tmux"], 10),
+                ),
+                patch("duo.commander.kill_pane") as mock_kill,
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%50\n"
+                layout_result = MagicMock()
+                layout_result.returncode = 0
+                mock_run.side_effect = [split_result, layout_result]
+
+                result = start_claude_commander(task)
+                assert result is None
+                mock_kill.assert_called_once_with("%50")
+
     def test_start_session_with_claude_commander(self) -> None:
         """start_session also launches Claude commander when config enabled."""
         task = _make_task()
         import tempfile
+
+        config_vals = {
+            "auto_allow_all": True,
+            "auto_claude_commander": True,
+            "copilot_model": "claude-opus-4.6",
+        }
 
         with tempfile.TemporaryDirectory() as tmp:
             task.worktree = tmp
@@ -1027,10 +1224,13 @@ class TestClaudeCommander:
                 patch("duo.commander.subprocess.run") as mock_run,
                 patch("duo.commander.name_pane"),
                 patch("duo.commander.send_shell_command"),
-                patch("duo.commander.wait_for_idle"),
+                patch("duo.commander.wait_for_idle", return_value=True),
                 patch("duo.commander.send_bootstrap"),
                 patch("duo.commander.time.sleep"),
-                patch("duo.commander.get_config", return_value=True),
+                patch(
+                    "duo.commander.get_config",
+                    side_effect=lambda k: config_vals[k],
+                ),
                 patch(
                     "duo.commander.start_claude_commander", return_value="%99"
                 ) as mock_claude,
@@ -1050,16 +1250,25 @@ class TestClaudeCommander:
         task = _make_task()
         import tempfile
 
+        config_vals = {
+            "auto_allow_all": True,
+            "auto_claude_commander": True,
+            "copilot_model": "claude-opus-4.6",
+        }
+
         with tempfile.TemporaryDirectory() as tmp:
             task.worktree = tmp
             with (
                 patch("duo.commander.subprocess.run") as mock_run,
                 patch("duo.commander.name_pane"),
                 patch("duo.commander.send_shell_command"),
-                patch("duo.commander.wait_for_idle"),
+                patch("duo.commander.wait_for_idle", return_value=True),
                 patch("duo.commander.send_bootstrap"),
                 patch("duo.commander.time.sleep"),
-                patch("duo.commander.get_config", return_value=True),
+                patch(
+                    "duo.commander.get_config",
+                    side_effect=lambda k: config_vals[k],
+                ),
                 patch("duo.commander.start_claude_commander", return_value=None),
             ):
                 split_result = MagicMock()
@@ -1879,11 +2088,27 @@ class TestPollTask:
 
     @patch("duo.commander.resend_last_prompt")
     @patch("duo.commander.read_ack_for_step", return_value=None)
-    def test_poll_unknown_no_prompt_sent_at(self, mock_ack, mock_resend):
-        """UNKNOWN + no last_prompt_sent_at → no resend."""
+    def test_poll_unknown_no_prompt_sent_at_uses_fallback(self, mock_ack, mock_resend):
+        """UNKNOWN + no last_prompt_sent_at → falls back to session_started_at."""
         task = _make_task()
         _advance_to_prompt_sent(task)
         task.last_prompt_sent_at = None
+        task.session_started_at = "2000-01-01T00:00:00+00:00"  # very old
+        poller = self._make_poller(PollResult.UNKNOWN)
+
+        poll_task(task, poller)
+
+        mock_resend.assert_called_once_with(task)
+
+    @patch("duo.commander.resend_last_prompt")
+    @patch("duo.commander.read_ack_for_step", return_value=None)
+    def test_poll_unknown_no_timestamps_no_resend(self, mock_ack, mock_resend):
+        """UNKNOWN + no timestamps at all → no resend."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        task.last_prompt_sent_at = None
+        task.session_started_at = None
+        task.created_at = None
         poller = self._make_poller(PollResult.UNKNOWN)
 
         poll_task(task, poller)
