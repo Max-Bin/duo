@@ -1149,9 +1149,16 @@ def _create_single_task(
 @click.option(
     "--queue", "start_queued", is_flag=True, help="Create all tasks in queued state"
 )
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_context
 def batch(
-    ctx: click.Context, file: str, repo: str, dry_run: bool, start_queued: bool
+    ctx: click.Context,
+    file: str,
+    repo: str,
+    dry_run: bool,
+    start_queued: bool,
+    *,
+    as_json: bool = False,
 ) -> None:
     """Create multiple tasks from a file (JSON or YAML)."""
     from duo.scheduler import queue_status
@@ -1161,25 +1168,56 @@ def batch(
     task_defs = _load_batch_file(file)
 
     if dry_run:
-        click.echo(f"Would create {len(task_defs)} tasks:")
-        for i, td in enumerate(task_defs, 1):
+        if as_json:
             click.echo(
-                f"  {i}. {td['name']} — {td.get('description', '(no description)')}"
+                json.dumps(
+                    {
+                        "dry_run": True,
+                        "tasks": [
+                            {
+                                "name": td["name"],
+                                "description": td.get("description", ""),
+                            }
+                            for td in task_defs
+                        ],
+                    }
+                )
             )
+        else:
+            click.echo(f"Would create {len(task_defs)} tasks:")
+            for i, td in enumerate(task_defs, 1):
+                click.echo(
+                    f"  {i}. {td['name']} — {td.get('description', '(no description)')}"
+                )
         return
 
     created = 0
+    created_names: list[str] = []
     for task_def in task_defs:
         name = _create_single_task(task_def, repo, queue_only=start_queued)
         if name is not None:
             created += 1
+            created_names.append(name)
 
     qs = queue_status()
-    click.echo(f"\nBatch complete: {created} tasks created")
-    click.echo(f"  Active: {qs['active_count']}/{qs['max_parallel']}")
-    click.echo(f"  Queued: {qs['queued_count']}")
-    if qs["queued_count"] > 0:
-        click.echo("Run 'duo monitor' to process the queue.")
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "created": created,
+                    "tasks": created_names,
+                    "active": qs["active_count"],
+                    "max_parallel": qs["max_parallel"],
+                    "queued": qs["queued_count"],
+                }
+            )
+        )
+    else:
+        click.echo(f"\nBatch complete: {created} tasks created")
+        click.echo(f"  Active: {qs['active_count']}/{qs['max_parallel']}")
+        click.echo(f"  Queued: {qs['queued_count']}")
+        if qs["queued_count"] > 0:
+            click.echo("Run 'duo monitor' to process the queue.")
 
 
 @main.command()

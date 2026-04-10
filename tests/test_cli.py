@@ -2647,6 +2647,45 @@ class TestBatchCommand:
             assert "2 tasks created" in result.output
             assert mock_create.call_count == 2
 
+    def test_batch_json_output(self, runner: CliRunner, tmp_path: Path):
+        """batch --json-output returns structured creation result."""
+        f = tmp_path / "tasks.json"
+        f.write_text(json.dumps({"tasks": [{"name": "j1"}, {"name": "j2"}]}))
+
+        with (
+            patch("duo.cli._create_single_task") as mock_create,
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 2,
+                    "queued_count": 0,
+                    "max_parallel": 3,
+                    "active_tasks": ["j1", "j2"],
+                    "queued_tasks": [],
+                },
+            ),
+        ):
+            mock_create.side_effect = ["j1", "j2"]
+            result = runner.invoke(
+                main, ["batch", str(f), "--repo", str(tmp_path), "--json-output"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["created"] == 2
+            assert data["tasks"] == ["j1", "j2"]
+            assert data["active"] == 2
+
+    def test_batch_json_dry_run(self, runner: CliRunner, tmp_path: Path):
+        """batch --dry-run --json-output returns task preview."""
+        f = tmp_path / "tasks.json"
+        f.write_text(json.dumps({"tasks": [{"name": "d1", "description": "Desc 1"}]}))
+        result = runner.invoke(main, ["batch", str(f), "--dry-run", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["dry_run"] is True
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["name"] == "d1"
+
 
 # ---------------------------------------------------------------------------
 # queue command
