@@ -127,19 +127,21 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 class TransportBridge(Protocol):
     """Protocol for tmux-bridge command execution."""
 
-    def __call__(self, cmd: list[str], *, check: bool = True) -> str: ...
+    def __call__(
+        self, cmd: list[str], *, check: bool = True
+    ) -> str: ...  # pragma: no cover
 
 
 class PaneReader(Protocol):
     """Protocol for reading tmux pane content."""
 
-    def __call__(self, label: str, lines: int = 50) -> str: ...
+    def __call__(self, label: str, lines: int = 50) -> str: ...  # pragma: no cover
 
 
 class DialogDetector(Protocol):
     """Protocol for detecting dialog state in a pane."""
 
-    def __call__(self, label: str) -> bool: ...
+    def __call__(self, label: str) -> bool: ...  # pragma: no cover
 
 
 def _find_bridge() -> str:
