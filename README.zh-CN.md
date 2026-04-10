@@ -85,7 +85,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 ## 完整命令参考
 
 ```bash
-duo --help               # 10 组共 37 个命令
+duo --help               # 10 组共 52 个命令
 ```
 
 ## 示例

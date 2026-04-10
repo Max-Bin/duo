@@ -246,13 +246,15 @@ def _check_security_scope(
         # Match resolved relative path against writable_paths (root-anchored)
         rel_real = os.path.relpath(real_path, real_worktree)
         if not any(_match_writable(rel_real, pat) for pat in valid_paths):
-            reason = f"Security violation: '{path}' is outside writable paths {writable_paths}"
+            reason = (
+                f"Security violation: '{path}' is outside writable paths {valid_paths}"
+            )
             append_event(
                 task,
                 "security_violation",
                 {
                     "file": path,
-                    "writable_paths": writable_paths,
+                    "writable_paths": valid_paths,
                 },
             )
             return Correction(reason)
