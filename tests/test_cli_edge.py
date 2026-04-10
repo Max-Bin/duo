@@ -858,3 +858,34 @@ class TestDataclassConventionGuard:
             assert cls.__dataclass_params__.slots, (  # type: ignore[attr-defined]
                 f"{cls.__name__} missing slots=True"
             )
+
+
+class TestLoggerNamingGuard:
+    """Guard: all logger instances must use __name__ (not hardcoded strings)."""
+
+    def test_loggers_use_dunder_name(self) -> None:
+        bad = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            for i, line in enumerate(f.read_text().splitlines(), 1):
+                if "getLogger(" in line and "__name__" not in line:
+                    bad.append(f"{f.name}:{i} → {line.strip()}")
+        assert bad == [], "Loggers not using __name__:\n" + "\n".join(
+            f"  {b}" for b in bad
+        )
+
+
+class TestFStringLoggingGuard:
+    """Guard: production code must not use f-string logging (use lazy %s)."""
+
+    def test_no_fstring_logging(self) -> None:
+        import re
+
+        bad = []
+        pattern = re.compile(r'logger\.\w+\(f["\']')
+        for f in sorted(Path("src/duo").glob("*.py")):
+            for i, line in enumerate(f.read_text().splitlines(), 1):
+                if pattern.search(line):
+                    bad.append(f"{f.name}:{i} → {line.strip()}")
+        assert bad == [], "f-string logging (use lazy %s instead):\n" + "\n".join(
+            f"  {b}" for b in bad
+        )
