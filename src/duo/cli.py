@@ -413,7 +413,8 @@ def start(
 @main.command()
 @click.argument("name")
 @click.argument("prompt")
-def send(name: str, prompt: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def send(name: str, prompt: str, *, as_json: bool = False) -> None:
     """Send a prompt to a task's Copilot session."""
     from duo.commander import send_task_prompt
 
@@ -443,16 +444,31 @@ def send(name: str, prompt: str) -> None:
         from duo.protocol import atomic_write_text
 
         atomic_write_text(prompt_path, prompt)
-        click.echo(
-            f"Task '{name}' is queued — prompt saved and will be sent when task starts.",
-            err=True,
-        )
+        if as_json:
+            click.echo(json.dumps({"sent": False, "queued": True, "task": name}))
+        else:
+            click.echo(
+                f"Task '{name}' is queued — prompt saved and will be sent when task starts.",
+                err=True,
+            )
         return
 
     send_task_prompt(task, prompt)
-    click.echo(
-        f"Sent to {name} (step={task.current_step} attempt={task.current_attempt})"
-    )
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "sent": True,
+                    "task": name,
+                    "step": task.current_step,
+                    "attempt": task.current_attempt,
+                }
+            )
+        )
+    else:
+        click.echo(
+            f"Sent to {name} (step={task.current_step} attempt={task.current_attempt})"
+        )
 
 
 @main.command()

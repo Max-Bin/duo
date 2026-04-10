@@ -1809,6 +1809,34 @@ class TestSendSuccess:
             assert "queued" in result.output.lower()
             mock_send.assert_not_called()  # no transport for queued tasks
 
+    def test_send_json_output(self, runner: CliRunner):
+        """send --json-output returns structured JSON."""
+        _make_task("send-json")
+        with patch("duo.commander.send_task_prompt"):
+            result = runner.invoke(
+                main, ["send", "send-json", "do it", "--json-output"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["sent"] is True
+            assert data["task"] == "send-json"
+            assert "step" in data
+
+    def test_send_queued_json_output(self, runner: CliRunner):
+        """send --json-output on queued task returns queued status."""
+        task = _make_task("send-q-json")
+        task.status = TaskStatus.QUEUED
+        save_task(task)
+        with patch("duo.commander.send_task_prompt") as mock_send:
+            result = runner.invoke(
+                main, ["send", "send-q-json", "hello", "--json-output"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["sent"] is False
+            assert data["queued"] is True
+            mock_send.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # kill command — successful path
