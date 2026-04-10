@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import re
 import string
 import subprocess
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -13594,3 +13596,174 @@ class TestCliBranchGapsBatch5:
         with patch("duo.cli.subprocess.run", side_effect=mock_run):
             fixed = cli_mod._doctor_auto_fix()
         assert "removed orphan worktree" not in " ".join(fixed)
+
+
+class TestCliBranchGapsBatch6:
+    """Batch 6: close more branch gaps in cli.py."""
+
+    # -- 1832→1837: init when config.json already exists (False branch) --
+    def test_init_config_already_exists(
+        self, runner: CliRunner, monkeypatch, tmp_path: Path
+    ):
+        """init skips creating config.json when it already exists."""
+        import duo.cli as cli_mod
+        import duo.config as config_mod
+        import duo.protocol as proto_mod
+
+        duo_dir = tmp_path / "dot-duo"
+        duo_dir.mkdir()
+        config_path = duo_dir / "config.json"
+        config_path.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(cli_mod, "DUO_DIR", duo_dir)
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", duo_dir / "tasks")
+        monkeypatch.setattr(proto_mod, "DUO_DIR", duo_dir)
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", config_path)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        # config.json should NOT appear in the created list
+        assert "config.json" not in result.output
+
+    # -- 4055→4064: bullet_policy is not a dict (False branch) --
+    def test_handle_dialog_bullet_policy_not_dict(self, monkeypatch, tmp_path: Path):
+        """_handle_dialog with bullet kind where bullet_dialogs is not a dict."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", tmp_path)
+        policy = {"bullet_dialogs": "pause"}  # string, not dict
+        content = "bullet content"
+
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            result = cli_mod._handle_dialog("task1", "lbl", policy, content, "bullet")
+        assert result == "paused"
+
+    # -- 4757→4748: session with only 1 timestamp (False branch) --
+    def test_metrics_load_single_timestamp(self, monkeypatch):
+        """_metrics_load_events skips duration when only 1 timestamp."""
+        import duo.cli as cli_mod
+
+        single_event = [{"ts": "2025-01-01T00:00:00Z", "type": "dialog_detected"}]
+        with (
+            patch("duo.ceo_log.list_sessions", return_value=["s1"]),
+            patch("duo.ceo_log.replay_session", return_value=single_event),
+        ):
+            events, count, durations = cli_mod._metrics_load_events(None, None)
+        assert count == 1
+        assert len(events) == 1
+        assert durations == []  # no duration with < 2 timestamps
+
+    # -- 5749→5751: bench comparison returns empty string (False branch) --
+    def test_bench_baseline_no_matching_suites(self, runner: CliRunner, tmp_path: Path):
+        """bench --baseline where no suites match → empty comparison."""
+        baseline_data = [
+            {"suite": "nonexistent-suite", "results": {"metric": {"ops_per_sec": 100}}}
+        ]
+        baseline_file = tmp_path / "baseline.json"
+        baseline_file.write_text(json.dumps(baseline_data), encoding="utf-8")
+
+        result = runner.invoke(
+            main,
+            ["bench", "dialog-detection", "-n", "10", "--baseline", str(baseline_file)],
+        )
+        assert result.exit_code == 0
+        assert "REGRESSION" not in result.output
+
+    # -- 349→351: open() raises OSError → lock_fd is still None --
+    def test_start_lock_open_fails(
+        self, runner: CliRunner, monkeypatch, tmp_path: Path
+    ):
+        """start command lock acquisition when open() itself fails."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", tmp_path)
+
+        original_open = builtins.open
+
+        def mock_open(path, *a, **kw):
+            if str(path).endswith(".lock"):
+                raise OSError("permission denied")
+            return original_open(path, *a, **kw)
+
+        with patch("builtins.open", side_effect=mock_open):
+            result = runner.invoke(main, ["start", "locktest", "--desc", "test"])
+        assert result.exit_code != 0
+        assert "being created by another process" in result.output
+
+    # -- 2959→2962 + 2970→2966: events tail with empty JSON (False branches) --
+    def test_events_tail_empty_json(self, monkeypatch, tmp_path: Path):
+        """events tail with event files containing invalid/empty JSON."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "_WATCH_EVENTS_DIR", tmp_path)
+
+        # Create an event file with empty/invalid content
+        (tmp_path / "evt-001.json").write_text("", encoding="utf-8")
+
+        runner = CliRunner()
+        # events tail blocks forever, so we raise KeyboardInterrupt after first loop
+        call_count = [0]
+        original_sleep = time.sleep
+
+        def mock_sleep(s):
+            call_count[0] += 1
+            if call_count[0] >= 1:
+                raise KeyboardInterrupt
+            original_sleep(0)
+
+        with patch("time.sleep", side_effect=mock_sleep):
+            result = runner.invoke(main, ["events", "tail", "-n", "5"])
+        # The empty JSON files should be skipped (data is falsy)
+        assert "Stopped" in result.output
+
+    # -- 4629→4627: ceo-dispatch select_last with non-digit lines (False branch) --
+    def test_ceo_dispatch_select_last_nondigit_lines(
+        self, runner: CliRunner, monkeypatch, tmp_path: Path
+    ):
+        """ceo-dispatch select_last where content lines don't match digit pattern."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", tmp_path)
+
+        t = _make_task("dispatchtask")
+        t.pane_label = "test-pane"
+        save_task(t)
+
+        content = "No digits here\nJust text\nMore text"
+        # YAML policy: default is select_last
+        policy_file = tmp_path / "policy.yaml"
+        policy_file.write_text("default: select_last\n", encoding="utf-8")
+
+        from duo.transport import DialogKind
+
+        with (
+            patch("duo.transport.is_in_dialog", return_value=True),
+            patch(
+                "duo.transport.get_dialog_kind",
+                return_value=DialogKind.OPTION,
+            ),
+            patch("duo.transport.read_pane", return_value=content),
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_select,
+        ):
+            result = runner.invoke(
+                main,
+                [
+                    "ceo-dispatch",
+                    "dispatchtask",
+                    "--policy",
+                    str(policy_file),
+                ],
+            )
+        assert result.exit_code == 0
+        assert "selected option 1" in result.output
+        mock_select.assert_called_once_with("test-pane", "1")
