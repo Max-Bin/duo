@@ -225,6 +225,9 @@ duo merge fix-auth
 # Preview the merge without executing
 duo merge fix-auth --dry-run
 
+# Machine-readable merge results
+duo merge fix-auth --json-output
+
 # Clean up completed and failed tasks
 duo cleanup --all --force
 ```
@@ -235,6 +238,7 @@ If the task needs more guidance while running:
 
 ```bash
 duo send fix-auth "Also add unit tests for the new auth middleware"
+duo send fix-auth "update the docs" --json-output  # Structured result
 ```
 
 ---
@@ -322,6 +326,9 @@ duo ceo-status my-task    # Check pane state (idle, processing, dialog, dead)
 duo retry my-task          # Retry from current step (FAILED, BLOCKED, or ESCALATED)
 duo stop my-task           # Graceful stop (preserves worktree for resume)
 duo kill my-task           # Force kill — removes pane, worktree, and branch
+duo stop my-task --json-output   # Structured JSON result
+duo retry my-task --json-output  # JSON with FSM transition details
+duo kill my-task --json-output   # JSON cleanup report
 ```
 
 ### Task got corrupted

@@ -13,6 +13,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo queue --json-output` — machine-readable queue status
 - `duo recover --json-output` — structured recovery results with change details
 - `duo retry` now supports ESCALATED tasks (transitions to PROMPT_SENT)
+- `duo stop --json-output` — structured stop results with pane status
+- `duo retry --json-output` — structured retry results with FSM transition info
+- `duo merge --json-output` — structured merge results (dry-run and actual)
+- `duo kill --json-output` — structured cleanup results
+- `duo send --json-output` — structured prompt delivery results
 
 ### Fixed
 - Duplicate task ID detection in `create_task()` — raises ValueError instead of silently overwriting
@@ -20,6 +25,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
 - Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
 - Resolved fnmatch case sensitivity known-issue (implementation uses PurePosixPath.match, always case-sensitive)
+- `_THREAD_LOCKS` auto-eviction: max 256 cached locks with idle eviction to prevent unbounded growth
 
 ### Changed
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
