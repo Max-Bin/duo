@@ -571,6 +571,12 @@ def load_task(task_id: str) -> Task | None:
     if not isinstance(data.get("current_step"), int):
         logger.warning("Task '%s' has invalid current_step field", task_id)
         return None
+    if not isinstance(data.get("current_attempt"), int):
+        logger.warning("Task '%s' has invalid current_attempt field", task_id)
+        return None
+    if not isinstance(data.get("status"), str):
+        logger.warning("Task '%s' has invalid status field", task_id)
+        return None
 
     n_subtasks = len(data["subtasks"])
     cs = data["current_step"]
