@@ -435,27 +435,75 @@ MAX_JOURNAL_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> None:
-    """Append an event to the task's journal."""
+    """Append an event to the task's journal.
+
+    Holds an exclusive lock for the entire rotation-check + append
+    sequence to prevent races between concurrent processes.  Also
+    repairs a torn tail (partial line from a prior crash) before
+    appending so the new entry isn't concatenated onto garbage.
+    """
     task.journal_path.parent.mkdir(parents=True, exist_ok=True)
     journal = task.journal_path
-    try:
-        if journal.exists() and journal.stat().st_size > MAX_JOURNAL_BYTES:
-            # Rotate: keep last half
-            lines = journal.read_text(encoding="utf-8").splitlines()
-            half = len(lines) // 2
-            atomic_write_text(journal, "\n".join(lines[half:]) + "\n")
-            logger.info(
-                "Rotated journal for task %r (%d entries removed)", task.id, half
-            )
-    except OSError:
-        logger.warning("Journal rotation failed for task %r — skipping", task.id)
     entry = {"ts": now_iso(), "event": event, "data": data or {}}
-    with open(task.journal_path, "a", encoding="utf-8") as f:
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+
+    # Open r+ for read/write/truncate; fall back to w+ for new files
+    try:
+        f = open(journal, "r+", encoding="utf-8")  # noqa: SIM115
+    except FileNotFoundError:
+        f = open(journal, "w+", encoding="utf-8")  # noqa: SIM115
+
+    with f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        f.flush()
-        os.fsync(f.fileno())
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        try:
+            # Repair torn tail: if file doesn't end with \n, the last
+            # line is a partial write from a prior crash.  Truncate it.
+            f.seek(0, 2)  # seek to end
+            pos = f.tell()
+            if pos > 0:
+                f.seek(pos - 1)
+                last_char = f.read(1)
+                if last_char != "\n":
+                    f.seek(0)
+                    content = f.read()
+                    last_nl = content.rfind("\n")
+                    if last_nl >= 0:
+                        f.seek(last_nl + 1)
+                        f.truncate()
+                    else:
+                        f.seek(0)
+                        f.truncate()
+
+            # Rotate under the same lock if journal is too large
+            try:
+                f.seek(0, 2)
+                size = f.tell()
+                if size > MAX_JOURNAL_BYTES:
+                    f.seek(0)
+                    all_lines = f.read().splitlines()
+                    half = len(all_lines) // 2
+                    kept = "\n".join(all_lines[half:]) + "\n"
+                    f.seek(0)
+                    f.write(kept)
+                    f.truncate()
+                    f.flush()
+                    logger.info(
+                        "Rotated journal for task %r (%d entries removed)",
+                        task.id,
+                        half,
+                    )
+            except OSError:
+                logger.warning(
+                    "Journal rotation failed for task %r — skipping", task.id
+                )
+
+            # Append the new entry
+            f.seek(0, 2)
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 # === State transitions ===
@@ -616,6 +664,7 @@ def load_task(task_id: str) -> Task | None:
 
     n_subtasks = len(data["subtasks"])
     cs = data["current_step"]
+    ca = data["current_attempt"]
     if n_subtasks > 0 and cs < 1:
         logger.warning(
             "Task '%s' current_step %d out of range (must be >= 1)",
@@ -623,20 +672,31 @@ def load_task(task_id: str) -> Task | None:
             cs,
         )
         return None
-
-    subtasks = [
-        Subtask(
-            step_id=s["step_id"],
-            description=s["description"],
-            target_files=s["target_files"],
-            writable_paths=[
-                p for p in s["writable_paths"] if isinstance(p, str) and p.strip()
-            ],
-            acceptance=s.get("acceptance", ""),
-            forbidden_commands=s.get("forbidden_commands", []),
+    if ca < 1:
+        logger.warning(
+            "Task '%s' current_attempt %d out of range (must be >= 1)",
+            task_id,
+            ca,
         )
-        for s in data.get("subtasks", [])
-    ]
+        return None
+
+    try:
+        subtasks = [
+            Subtask(
+                step_id=s["step_id"],
+                description=s["description"],
+                target_files=s["target_files"],
+                writable_paths=[
+                    p for p in s["writable_paths"] if isinstance(p, str) and p.strip()
+                ],
+                acceptance=s.get("acceptance", ""),
+                forbidden_commands=s.get("forbidden_commands", []),
+            )
+            for s in data.get("subtasks", [])
+        ]
+    except (KeyError, TypeError) as exc:
+        logger.warning("Task '%s' has malformed subtask data: %s", task_id, exc)
+        return None
 
     sp = data.get("security_policy", {})
     loaded_patterns = sp.get("secret_patterns", [])

@@ -599,6 +599,62 @@ class TestTaskCRUD:
         assert load_task(tid) is None
 
 
+class TestLoadTaskAttemptValidation:
+    """load_task() validates current_attempt bounds."""
+
+    def test_current_attempt_zero_rejected(self):
+        """current_attempt=0 is rejected."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-att-0"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-att-0","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":0,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-att-0") is None
+
+    def test_current_attempt_negative_rejected(self):
+        """current_attempt=-1 is rejected."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-att-neg"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-att-neg","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":-1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-att-neg") is None
+
+
+class TestLoadTaskMalformedSubtask:
+    """load_task() handles malformed subtask data gracefully."""
+
+    def test_subtask_missing_keys_returns_none(self):
+        """Subtask with missing required keys returns None."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "bad-sub"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"bad-sub","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        assert load_task("bad-sub") is None
+
+
 class TestLoadTaskSecretPatternMerge:
     """load_task() merges saved secret patterns with current defaults."""
 
@@ -881,21 +937,59 @@ class TestAppendEventEdgeCases:
         for i in range(20):
             append_event(task, f"event_{i}", {"i": i})
         monkeypatch.setattr(duo.protocol, "MAX_JOURNAL_BYTES", 100)
-        # Patch Path.read_text to fail only for the journal path
-        _orig_read_text = Path.read_text
 
-        def _guarded_read_text(self, *a, **kw):
-            if self == task.journal_path:
-                raise OSError("simulated disk error")
-            return _orig_read_text(self, *a, **kw)
+        # Wrap open so that f.truncate() raises OSError during rotation
+        _orig_open = open
 
-        monkeypatch.setattr(Path, "read_text", _guarded_read_text)
+        def _patched_open(path, mode="r", **kw):
+            fobj = _orig_open(path, mode, **kw)
+            if str(path) == str(task.journal_path) and "+" in mode:
+                _orig_truncate = fobj.truncate
+
+                def _bad_truncate(*a, **k):
+                    raise OSError("simulated truncate failure")
+
+                fobj.truncate = _bad_truncate
+            return fobj
+
+        monkeypatch.setattr("builtins.open", _patched_open)
         # Should NOT raise — OSError caught in rotation, event still appended
         append_event(task, "after_error", {})
-        # Restore read_text only (keep TASKS_DIR patched) to verify journal
-        monkeypatch.setattr(Path, "read_text", _orig_read_text)
+        monkeypatch.setattr("builtins.open", _orig_open)
         content = task.journal_path.read_text()
         assert "after_error" in content
+
+    def test_torn_tail_repaired_on_append(self):
+        """Partial line from a prior crash is truncated before new append."""
+        task = create_task("torn-fix", "d", "/w", "b", "c", [_make_subtask()])
+        # Simulate a crash: write a partial JSON line without trailing \n
+        with open(task.journal_path, "a", encoding="utf-8") as f:
+            f.write('{"ts":"T","event":"partial","data":{}')  # no \n, no closing }
+        # Now append a new event — should repair the torn tail
+        append_event(task, "after_crash", {"ok": True})
+        events = read_jsonl(task.journal_path)
+        # The partial line should be gone, the new event should be present
+        assert any(e["event"] == "after_crash" for e in events)
+        assert not any(e["event"] == "partial" for e in events)
+
+    def test_torn_tail_entire_file_is_partial(self):
+        """If entire file is one partial line (no \\n at all), truncate all."""
+        task = create_task("torn-all", "d", "/w", "b", "c", [_make_subtask()])
+        # Overwrite journal with a single partial line
+        task.journal_path.write_text('{"broken":true')
+        append_event(task, "recovery", {})
+        events = read_jsonl(task.journal_path)
+        assert len(events) == 1
+        assert events[0]["event"] == "recovery"
+
+    def test_clean_journal_not_modified(self):
+        """Journal ending with \\n doesn't get modified."""
+        task = create_task("clean-j", "d", "/w", "b", "c", [_make_subtask()])
+        events_before = read_jsonl(task.journal_path)
+        count_before = len(events_before)
+        append_event(task, "new_event", {})
+        events_after = read_jsonl(task.journal_path)
+        assert len(events_after) == count_before + 1
 
 
 # ---------------------------------------------------------------------------

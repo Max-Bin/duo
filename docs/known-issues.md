@@ -939,3 +939,40 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
 
 - **`fnmatch` `*` matches `/`** (MED — previously documented): Remains as
   architectural decision. Segment-aware matching would be breaking change.
+
+## Round BJ: Rubber-Duck Audit of protocol.py (FSM + Atomic Writes)
+
+### Resolved (HIGH)
+
+- **Journal rotation raced with append** (HIGH → RESOLVED): Rotation
+  happened BEFORE the exclusive `flock`, so concurrent processes could
+  lose events when one rotates while another appends. Fixed: rotation
+  now happens INSIDE the lock, same critical section as the append.
+
+- **Torn JSONL tail not repaired** (HIGH → RESOLVED): A crash during
+  `append_event` could leave a partial JSON line. The next append would
+  concatenate onto it, corrupting that event too. Fixed: before appending,
+  the code now checks if the file ends with `\n`; if not, truncates back
+  to the last complete line.
+
+- **`load_task()` validation incomplete** (MED → RESOLVED): `current_attempt`
+  lower bound not checked (negative/zero accepted). Malformed subtask data
+  (missing keys) raised KeyError instead of returning None. Fixed: added
+  `current_attempt >= 1` check and wrapped subtask parsing in try/except.
+
+### Deferred (MED/LOW)
+
+- **No task-level file locking for `save_task`/`transition`** (CRITICAL —
+  architectural): Two Commander processes can race on task.json. In practice,
+  Duo uses a single Commander per task. Full file locking would require
+  per-task lock files. Accepted risk for current architecture.
+
+- **Crash window between `save_task` and journal** (HIGH — architectural):
+  If process dies after `save_task()` but before journal append in
+  `transition()`, task.json has new state but journal doesn't. Would need
+  journal-first architecture or sequence numbers. Accepted for now.
+
+- **FSM allows protocol-skipping transitions** (MED): Graph permits paths
+  like PROMPT_SENT→VERIFYING without artifact evidence. Would need
+  artifact guards in `transition()`. Low practical risk as Commander
+  follows the protocol.
