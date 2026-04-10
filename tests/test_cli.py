@@ -12720,8 +12720,8 @@ class TestCeoDispatch:
         mock_sel.assert_called_once_with(task.pane_label, "2")
 
 
-class TestCeoMetrics:
-    """Tests for duo ceo-metrics."""
+class TestCeoMetricsExtended:
+    """Extended tests for duo ceo-metrics — dialog kinds, patterns, duration."""
 
     def test_no_sessions_text(
         self,
