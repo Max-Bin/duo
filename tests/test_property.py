@@ -16,8 +16,15 @@ from hypothesis import strategies as st
 from duo.ceo_log import _validate_session_id
 from duo.config import set_config
 from duo.poller import age
-from duo.protocol import atomic_write_text, prompt_hash, read_jsonl
-from duo.transport import _validate_label
+from duo.protocol import (
+    TRANSITIONS,
+    TaskStatus,
+    atomic_write_text,
+    new_incarnation,
+    prompt_hash,
+    read_jsonl,
+)
+from duo.transport import _validate_label, strip_ansi
 from duo.verifier import _match_writable
 
 # ---------------------------------------------------------------------------
@@ -435,3 +442,95 @@ def _is_valid_iso(s: str) -> bool:
         return True
     except (ValueError, TypeError):
         return False
+
+
+# ---------------------------------------------------------------------------
+# strip_ansi
+# ---------------------------------------------------------------------------
+
+
+class TestStripAnsiProperty:
+    """Properties of ANSI escape stripping."""
+
+    @given(text=st.text(min_size=0, max_size=500))
+    def test_idempotent(self, text: str) -> None:
+        """Stripping twice is the same as stripping once."""
+        once = strip_ansi(text)
+        twice = strip_ansi(once)
+        assert once == twice
+
+    @given(
+        text=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cs",), blacklist_characters="\x1b"
+            ),
+            min_size=0,
+            max_size=200,
+        )
+    )
+    def test_preserves_non_ansi(self, text: str) -> None:
+        """Text without ESC character is unchanged by strip_ansi."""
+        assert strip_ansi(text) == text
+
+    @given(
+        prefix=st.text(min_size=0, max_size=50),
+        code=st.from_regex(r"\x1b\[[0-9;]{0,10}[A-Za-z]", fullmatch=True),
+        suffix=st.text(min_size=0, max_size=50),
+    )
+    def test_removes_ansi(self, prefix: str, code: str, suffix: str) -> None:
+        """ANSI sequences injected into text are removed."""
+        result = strip_ansi(prefix + code + suffix)
+        assert code not in result
+
+
+# ---------------------------------------------------------------------------
+# new_incarnation
+# ---------------------------------------------------------------------------
+
+
+class TestNewIncarnationProperty:
+    """Properties of incarnation ID generation."""
+
+    def test_format(self) -> None:
+        """Incarnation IDs are 16-char lowercase hex."""
+        for _ in range(50):
+            inc = new_incarnation()
+            assert len(inc) == 16
+            assert re.fullmatch(r"[0-9a-f]{16}", inc)
+
+    def test_uniqueness(self) -> None:
+        """100 generated IDs are all unique."""
+        ids = {new_incarnation() for _ in range(100)}
+        assert len(ids) == 100
+
+
+# ---------------------------------------------------------------------------
+# FSM transitions
+# ---------------------------------------------------------------------------
+
+
+class TestFSMTransitionsProperty:
+    """Properties of the FSM transition table."""
+
+    def test_all_states_have_transitions(self) -> None:
+        """Every non-terminal state has at least one outgoing transition."""
+        terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED}
+        for status in TaskStatus:
+            if status not in terminal:
+                assert status in TRANSITIONS, f"{status} has no transitions"
+                assert len(TRANSITIONS[status]) > 0
+
+    def test_transitions_target_valid_states(self) -> None:
+        """All transition targets are valid TaskStatus values."""
+        valid = set(TaskStatus)
+        for source, targets in TRANSITIONS.items():
+            assert source in valid
+            for target in targets:
+                assert target in valid, f"{source} -> {target} is invalid"
+
+    def test_no_unexpected_self_transitions(self) -> None:
+        """Only PROMPT_SENT allows self-transition (resend)."""
+        allowed_self = {TaskStatus.PROMPT_SENT}
+        for source, targets in TRANSITIONS.items():
+            if source not in allowed_self:
+                assert source not in targets, f"{source} has unexpected self-transition"
