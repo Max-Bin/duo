@@ -18,6 +18,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 11 new CLI smoke tests: cleanup, events, queue, ceo-now, ceo-cleanup, ceo-restart, ceo-dispatch, ceo-wait, ceo-approve, ceo-select, ceo-resume (83→94 total)
 - 13 new JSON output validation smoke tests: verifies all `--json-output` commands produce valid JSON (94→107 total)
 - 4 new smoke tests: command completeness check (all commands in --help), go/ceo-cleanup/ceo-restart help wiring (107→111 total)
+- 6 new property tests: thinking module name validation + extract_response delta extraction
+- 5 new property tests: config type coercion round-trips (int/float/bool) + rejection of invalid values
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
