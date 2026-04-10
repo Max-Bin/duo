@@ -117,11 +117,6 @@ dependencies = [
     { name = "rich" },
 ]
 
-[package.optional-dependencies]
-yaml = [
-    { name = "pyyaml" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "coverage" },
@@ -136,10 +131,8 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
     { name = "rich", specifier = ">=14.3.3" },
 ]
-provides-extras = ["yaml"]
 
 [package.metadata.requires-dev]
 dev = [

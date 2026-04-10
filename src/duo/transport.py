@@ -945,7 +945,7 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
     if callback is not None:
         try:
             callback(label, action, context)
-        except Exception:
+        except Exception:  # noqa: BLE001  # user-supplied callback can raise anything
             logger.warning("PR callback failed for %s/%s", label, action, exc_info=True)
 
 
