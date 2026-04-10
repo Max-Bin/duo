@@ -49,6 +49,33 @@ run_test "duo --version" duo --version
 run_test "duo --help" duo --help
 run_test "duo version" duo version
 
+# === Verify no orphaned commands (help lists all) ===
+echo ""
+echo "🔎 Command completeness check"
+EXPECTED_CMDS="start send stop status merge diff kill \
+think list monitor watch dashboard logs inspect stats \
+batch queue \
+ceo-wait ceo-select ceo-approve ceo-smart ceo-smart-config \
+ceo-dispatch ceo-status ceo-loop ceo-resume \
+ceo-focus ceo-focus-show ceo-focus-clear ceo-now \
+ceo-session-start ceo-session-list ceo-session-replay \
+ceo-session-stats ceo-metrics ceo-cleanup ceo-restart \
+recover resume retry \
+export audit cost cleanup events \
+init doctor config bench completion go version"
+HELP_OUTPUT=$(duo --help 2>&1)
+MISSING=""
+for cmd in $EXPECTED_CMDS; do
+    if ! echo "$HELP_OUTPUT" | grep -qw "$cmd"; then
+        MISSING="$MISSING $cmd"
+    fi
+done
+if [ -z "$MISSING" ]; then
+    pass "all commands listed in --help"
+else
+    fail "missing from --help" "$MISSING"
+fi
+
 # === Help for every command group ===
 echo ""
 echo "📋 Command Help (wiring check)"
@@ -60,10 +87,10 @@ for cmd in \
     ceo-dispatch ceo-status ceo-loop ceo-resume \
     ceo-focus ceo-focus-show ceo-focus-clear ceo-now \
     ceo-session-start ceo-session-list ceo-session-replay \
-    ceo-session-stats ceo-metrics \
+    ceo-session-stats ceo-metrics ceo-cleanup ceo-restart \
     recover resume retry \
     export audit cost cleanup events \
-    init doctor config bench completion; do
+    init doctor config bench completion go; do
     run_test "duo $cmd --help" duo "$cmd" --help
 done
 
