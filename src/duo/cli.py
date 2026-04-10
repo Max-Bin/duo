@@ -2001,6 +2001,7 @@ def go(repo: str) -> None:
             ["git", "init", str(repo_path)],
             capture_output=True,
             text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             raise DuoUserError(
