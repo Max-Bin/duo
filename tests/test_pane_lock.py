@@ -166,6 +166,11 @@ class TestPaneLock:
 class TestDialogFunctionsUseLock:
     """Verify dialog functions acquire pane_lock."""
 
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        """Eliminate real sleeps for test speed."""
+        monkeypatch.setattr("duo.transport._time.sleep", lambda _: None)
+
     def test_approve_permission_acquires_lock(self, monkeypatch, tmp_locks_dir):
         """approve_permission should acquire pane_lock."""
         lock_acquired = []

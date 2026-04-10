@@ -3105,6 +3105,12 @@ class TestSetPrCallbackThreadSafe:
 class TestSendBootstrapRollback:
     """send_bootstrap must rollback _BOOTSTRAP_DONE on I/O failure."""
 
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        """Eliminate real sleeps for test speed."""
+        with patch("duo.transport._time.sleep"):
+            yield
+
     @patch("subprocess.run")
     def test_rollback_on_io_failure(self, mock_run):
         label = "rollback-test"

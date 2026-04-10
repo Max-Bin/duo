@@ -31,6 +31,12 @@ def _mock_bridge_path(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyp
 class TestTransportEdgeCasesNew:
     """Edge case tests for transport module."""
 
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        """Eliminate real sleeps for test speed."""
+        with patch("duo.transport._time.sleep"):
+            yield
+
     @patch("subprocess.run")
     @patch("duo.transport._time")
     @patch("duo.transport.is_in_dialog")
