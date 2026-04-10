@@ -519,3 +519,66 @@ class TestJournalIntegration:
         assert task.status == TaskStatus.COMPLETED
         assert task.current_step == 2
         assert task.current_attempt == 2
+
+    def test_restart_normalization(self) -> None:
+        """normalize_for_restart resets step/attempt and generates new incarnation."""
+        from duo.commander import normalize_for_restart
+
+        task = create_task(
+            task_id="restart-norm",
+            description="test restart normalization",
+            worktree="/tmp/test",
+            branch="main",
+            base_commit="abc123",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="step one",
+                    target_files=["a.py"],
+                    writable_paths=["*.py"],
+                )
+            ],
+        )
+        # Simulate progress
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+        transition(task, TaskStatus.COMPLETED)
+
+        # Normalize should fail on COMPLETED — it's not restartable
+        result = normalize_for_restart(task)
+        assert result is False
+        assert task.status == TaskStatus.COMPLETED
+
+    def test_escalated_to_blocked_journal_trail(self) -> None:
+        """Escalation creates proper journal entries."""
+        task = create_task(
+            task_id="escalate-trail",
+            description="test escalation journal",
+            worktree="/tmp/test",
+            branch="main",
+            base_commit="abc123",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="do it",
+                    target_files=["a.py"],
+                    writable_paths=["*.py"],
+                )
+            ],
+        )
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.BLOCKED)
+        transition(task, TaskStatus.ESCALATED)
+
+        events = read_jsonl(task.journal_path)
+        transitions = [e for e in events if e.get("event") == "status_changed"]
+        states = [t["data"]["to"] for t in transitions]
+        assert TaskStatus.ESCALATED.value in states
+        assert TaskStatus.BLOCKED.value in states
