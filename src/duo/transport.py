@@ -65,6 +65,7 @@ __all__ = [
     "is_permission_dialog",
     "is_process_alive",
     "is_tmux_server_alive",
+    "kill_pane",
     "list_panes",
     "MINIMUM_PANE_COLS",
     "MINIMUM_PANE_ROWS",
@@ -474,6 +475,27 @@ def name_pane(target: str, label: str) -> None:
     """
     _validate_label(label)
     bridge(["name", target, label])
+
+
+def kill_pane(target: str) -> bool:
+    """Kill a tmux pane by ID or label.
+
+    *target* may be a validated label (alphanumeric) or a raw tmux pane
+    ID such as ``%42``.  Returns ``True`` if the pane was killed (or
+    was already gone), ``False`` if the kill command failed unexpectedly.
+    """
+    if not re.match(r"^[%a-zA-Z0-9_.-]+$", target):
+        raise ValueError(f"Unsafe pane target: {target!r}")
+    try:
+        subprocess.run(
+            ["tmux", "kill-pane", "-t", target],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return True
 
 
 def _validate_label(label: str) -> None:

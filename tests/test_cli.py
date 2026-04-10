@@ -1771,19 +1771,15 @@ class TestStop:
         assert "already stopped" in result.output
 
     def test_stop_pane_kill_failure_warns(self, runner: CliRunner):
-        """stop shows warning when pane kill fails."""
+        """stop shows warning when kill_pane returns False."""
         task = _make_task("stop-pane-fail")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
-        def mock_subprocess_run(args, **kwargs):
-            m = MagicMock(returncode=0, stdout="", stderr="")
-            if args[:2] == ["tmux", "kill-pane"]:
-                m.returncode = 1
-                m.stderr = "no pane found"
-            return m
-
-        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+        with (
+            patch("duo.transport.kill_pane", return_value=False),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
             result = runner.invoke(main, ["stop", "stop-pane-fail"])
             assert result.exit_code == 0
             assert "Warning" in result.output
@@ -1835,7 +1831,7 @@ class TestKillSuccess:
         assert "not found" in result.output
 
     def test_kill_pane_kill_failure_warns(self, runner: CliRunner, tmp_path: Path):
-        """kill shows warning when tmux kill-pane fails."""
+        """kill shows warning when kill_pane returns False."""
         task = _make_task("kill-pane-fail")
         wt_dir = tmp_path / "kill_pane_wt"
         wt_dir.mkdir()
@@ -1844,14 +1840,15 @@ class TestKillSuccess:
 
         def mock_subprocess_run(args, **kwargs):
             m = MagicMock(returncode=0, stdout="", stderr="")
-            if args[:2] == ["tmux", "kill-pane"]:
-                m.returncode = 1
-                m.stderr = "no pane found"
             if args[:3] == ["git", "worktree", "list"]:
                 m.stdout = "worktree /main\n  branch refs/heads/main\n\n"
             return m
 
-        with patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run):
+        with (
+            patch("duo.transport.kill_pane", return_value=False),
+            patch("duo.transport.cleanup_pane_state"),
+            patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
+        ):
             result = runner.invoke(main, ["kill", "kill-pane-fail"])
             assert result.exit_code == 0
             assert "Warning" in result.output
@@ -4014,22 +4011,20 @@ class TestResume:
         monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
         mock_cleanup = MagicMock()
         monkeypatch.setattr("duo.transport.cleanup_pane_state", mock_cleanup)
-        mock_sub = MagicMock(return_value=MagicMock(returncode=0))
-        monkeypatch.setattr("duo.cli.subprocess.run", mock_sub)
+        mock_kill = MagicMock(return_value=True)
+        monkeypatch.setattr("duo.transport.kill_pane", mock_kill)
         result = runner.invoke(main, ["resume", "alive-task"])
         assert result.exit_code == 0
         assert "restarted session" in result.output
         mock_restart.assert_called_once()
         mock_send.assert_called_once()
-        # Verify old pane was killed before restart
-        kill_calls = [c for c in mock_sub.call_args_list if "kill-pane" in str(c)]
-        assert len(kill_calls) == 1
+        mock_kill.assert_called_once_with(task.pane_label)
         mock_cleanup.assert_called_once_with(task.pane_label)
 
     def test_resume_alive_kill_pane_error(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """When kill-pane fails, resume continues and calls restart anyway."""
+        """When kill_pane returns False, cleanup is skipped but restart proceeds."""
         task = _make_task("kill-fail")
         task.status = TaskStatus.RUNNING
         save_task(task)
@@ -4039,13 +4034,14 @@ class TestResume:
         monkeypatch.setattr("duo.commander.restart_session", mock_restart)
         mock_send = MagicMock()
         monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
-        monkeypatch.setattr(
-            "duo.cli.subprocess.run", MagicMock(side_effect=OSError("tmux gone"))
-        )
+        monkeypatch.setattr("duo.transport.kill_pane", MagicMock(return_value=False))
+        mock_cleanup = MagicMock()
+        monkeypatch.setattr("duo.transport.cleanup_pane_state", mock_cleanup)
         result = runner.invoke(main, ["resume", "kill-fail"])
         assert result.exit_code == 0
         assert "restarted session" in result.output
         mock_restart.assert_called_once()
+        mock_cleanup.assert_not_called()
 
     def test_resume_is_process_alive_exception(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

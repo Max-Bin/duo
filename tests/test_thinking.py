@@ -146,7 +146,6 @@ class TestSpawnClaudePane:
 
     def test_claude_start_failure(self) -> None:
         split_result = MagicMock(returncode=0, stdout="%99\n", stderr="")
-        kill_result = MagicMock(returncode=0)
         layout_result = MagicMock(returncode=0)
 
         def run_side_effect(cmd: list[str], **kwargs: object) -> MagicMock:
@@ -154,21 +153,21 @@ class TestSpawnClaudePane:
                 return split_result
             if "select-layout" in cmd:
                 return layout_result
-            if "kill-pane" in cmd:
-                return kill_result
             return MagicMock(returncode=0)
 
         with (
             patch("subprocess.run", side_effect=run_side_effect),
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command", side_effect=RuntimeError("fail")),
+            patch("duo.transport.kill_pane") as mock_kill,
             patch("time.sleep"),
         ):
             with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
                 _spawn_claude_pane("think-x", "/tmp/test")
+            mock_kill.assert_called_once_with("%99")
 
     def test_claude_start_failure_cleanup_also_fails(self) -> None:
-        """When send_shell_command fails AND kill-pane also raises, still propagate."""
+        """When send_shell_command fails AND kill_pane returns False, still propagate."""
         split_result = MagicMock(returncode=0, stdout="%99\n", stderr="")
         layout_result = MagicMock(returncode=0)
 
@@ -177,14 +176,13 @@ class TestSpawnClaudePane:
                 return split_result
             if "select-layout" in cmd:
                 return layout_result
-            if "kill-pane" in cmd:
-                raise OSError("kill-pane failed too")
             return MagicMock(returncode=0)
 
         with (
             patch("subprocess.run", side_effect=run_side_effect),
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command", side_effect=RuntimeError("fail")),
+            patch("duo.transport.kill_pane", return_value=False),
             patch("time.sleep"),
         ):
             with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
@@ -466,7 +464,7 @@ class TestClosePane:
     def test_close_success(self) -> None:
         with (
             patch("duo.transport.resolve_label", return_value="%42"),
-            patch("subprocess.run", return_value=MagicMock(returncode=0)),
+            patch("duo.transport.kill_pane", return_value=True),
         ):
             assert close_pane("my-app") is True
 
@@ -477,6 +475,6 @@ class TestClosePane:
     def test_close_kill_fails(self) -> None:
         with (
             patch("duo.transport.resolve_label", return_value="%42"),
-            patch("subprocess.run", side_effect=OSError("fail")),
+            patch("duo.transport.kill_pane", return_value=False),
         ):
             assert close_pane("my-app") is False

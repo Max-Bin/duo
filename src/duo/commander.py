@@ -57,6 +57,7 @@ from duo.transport import (
     get_tmux_session_target,
     is_capi_context_error,
     is_process_alive,
+    kill_pane,
     name_pane,
     read_pane,
     select_dialog_option,
@@ -354,13 +355,7 @@ def start_claude_commander(task: Task) -> str | None:
         send_shell_command(commander_label, "claude")
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         logger.warning("Failed to start Claude commander: %s", exc)
-        with contextlib.suppress(subprocess.CalledProcessError, OSError):
-            subprocess.run(
-                ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True,
-                check=False,
-                timeout=10,
-            )
+        kill_pane(pane_id)
         return None
 
     append_event(
@@ -505,13 +500,7 @@ def start_session(task: Task) -> None:
         send_shell_command(task.pane_label, copilot_cmd)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         # Kill orphaned pane if it was created
-        with contextlib.suppress(subprocess.CalledProcessError, OSError):
-            subprocess.run(
-                ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True,
-                check=False,
-                timeout=10,
-            )
+        kill_pane(pane_id)
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_start_failed", {"error": str(exc)})

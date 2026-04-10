@@ -947,7 +947,7 @@ class TestClaudeCommander:
                 assert result is None
 
     def test_start_claude_commander_kill_pane_failure_suppressed(self) -> None:
-        """start_claude_commander suppresses OSError when kill-pane fails."""
+        """start_claude_commander calls kill_pane when launch fails."""
         import tempfile
 
         task = _make_task()
@@ -961,20 +961,18 @@ class TestClaudeCommander:
                     side_effect=RuntimeError("broken"),
                 ),
                 patch("duo.commander.time.sleep"),
+                patch("duo.commander.kill_pane") as mock_kill,
             ):
                 split_result = MagicMock()
                 split_result.returncode = 0
                 split_result.stdout = "%60\n"
                 layout_result = MagicMock()
                 layout_result.returncode = 0
-                mock_run.side_effect = [
-                    split_result,
-                    layout_result,
-                    OSError("kill failed"),
-                ]
+                mock_run.side_effect = [split_result, layout_result]
 
                 result = start_claude_commander(task)
                 assert result is None
+                mock_kill.assert_called_once_with("%60")
 
     def test_start_claude_commander_no_tmux_session(self) -> None:
         """start_claude_commander returns None when session target fails."""
@@ -2328,30 +2326,22 @@ class TestStartSessionOrphanedPaneCleanup:
                 side_effect=RuntimeError("connection lost"),
             ),
             patch("duo.commander.time.sleep"),
+            patch("duo.commander.kill_pane") as mock_kill,
         ):
             split_result = MagicMock()
             split_result.returncode = 0
             split_result.stdout = "%77\n"
             layout_result = MagicMock()
             layout_result.returncode = 0
-            kill_result = MagicMock()
-            kill_result.returncode = 0
-            mock_run.side_effect = [split_result, layout_result, kill_result]
+            mock_run.side_effect = [split_result, layout_result]
 
             with pytest.raises(RuntimeError, match="connection lost"):
                 start_session(task)
 
-            # Verify tmux kill-pane was called for the orphaned pane
-            kill_calls = [
-                c
-                for c in mock_run.call_args_list
-                if c[0][0][:3] == ["tmux", "kill-pane", "-t"]
-            ]
-            assert len(kill_calls) == 1
-            assert kill_calls[0][0][0][3] == "%77"
+            mock_kill.assert_called_once_with("%77")
 
     def test_kill_pane_failure_suppressed(self):
-        """start_session suppresses OSError when kill-pane itself fails."""
+        """start_session continues when kill_pane returns False."""
         task = _make_task()
 
         with (
@@ -2362,19 +2352,18 @@ class TestStartSessionOrphanedPaneCleanup:
                 side_effect=RuntimeError("connection lost"),
             ),
             patch("duo.commander.time.sleep"),
+            patch("duo.commander.kill_pane", return_value=False),
         ):
             split_result = MagicMock()
             split_result.returncode = 0
             split_result.stdout = "%77\n"
             layout_result = MagicMock()
             layout_result.returncode = 0
-            # kill-pane raises OSError (e.g. tmux not found)
-            mock_run.side_effect = [split_result, layout_result, OSError("tmux gone")]
+            mock_run.side_effect = [split_result, layout_result]
 
             with pytest.raises(RuntimeError, match="connection lost"):
                 start_session(task)
 
-            # Should not crash — the OSError from kill-pane is suppressed
             assert task.status == TaskStatus.FAILED
 
 

@@ -751,18 +751,10 @@ def stop(name: str) -> None:
         return
 
     # Kill the pane but preserve worktree and branch
-    r = subprocess.run(
-        ["tmux", "kill-pane", "-t", task.pane_label],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=_TMUX_TIMEOUT,
-    )
-    if r.returncode != 0:
-        click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
+    from duo.transport import cleanup_pane_state, kill_pane
 
-    # Clean up transport-layer state for this pane
-    from duo.transport import cleanup_pane_state
+    if not kill_pane(task.pane_label):
+        click.echo("Warning: failed to kill pane", err=True)
 
     cleanup_pane_state(task.pane_label)
 
@@ -780,18 +772,10 @@ def kill(name: str) -> None:
     task = _load_task_or_fail(name)
 
     # Try to kill the pane
-    r = subprocess.run(
-        ["tmux", "kill-pane", "-t", task.pane_label],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=_TMUX_TIMEOUT,
-    )
-    if r.returncode != 0:
-        click.echo(f"Warning: failed to kill pane: {r.stderr.strip()}", err=True)
+    from duo.transport import cleanup_pane_state, kill_pane
 
-    # Clean up transport-layer state for this pane
-    from duo.transport import cleanup_pane_state
+    if not kill_pane(task.pane_label):
+        click.echo("Warning: failed to kill pane", err=True)
 
     cleanup_pane_state(task.pane_label)
 
@@ -2169,7 +2153,7 @@ def doctor(json_output: bool, strict: bool) -> None:
 def resume(name: str | None) -> None:
     """Resume interrupted task sessions."""
     from duo.commander import restart_session, start_session
-    from duo.transport import cleanup_pane_state, is_process_alive
+    from duo.transport import cleanup_pane_state, is_process_alive, kill_pane
 
     TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
 
@@ -2199,16 +2183,8 @@ def resume(name: str | None) -> None:
 
         if pane_alive:
             # Kill old pane first to prevent duplicate executors
-            try:
-                subprocess.run(
-                    ["tmux", "kill-pane", "-t", task.pane_label],
-                    capture_output=True,
-                    check=False,
-                    timeout=10,
-                )
+            if kill_pane(task.pane_label):
                 cleanup_pane_state(task.pane_label)
-            except (OSError, subprocess.TimeoutExpired):
-                pass  # Best effort — restart will create a fresh pane
             try:
                 restart_session(task)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:

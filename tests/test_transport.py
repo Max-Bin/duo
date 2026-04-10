@@ -3052,6 +3052,63 @@ class TestWaitForDialogMonotonic:
         assert mock_time.monotonic.call_count >= 2
 
 
+# ---------------------------------------------------------------------------
+# kill_pane
+# ---------------------------------------------------------------------------
+
+
+class TestKillPane:
+    """Tests for kill_pane()."""
+
+    def test_kill_success(self):
+        from duo.transport import kill_pane
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            assert kill_pane("my-label") is True
+            mock_run.assert_called_once()
+            args = mock_run.call_args[0][0]
+            assert args == ["tmux", "kill-pane", "-t", "my-label"]
+
+    def test_kill_pane_id_with_percent(self):
+        from duo.transport import kill_pane
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            assert kill_pane("%42") is True
+            args = mock_run.call_args[0][0]
+            assert args == ["tmux", "kill-pane", "-t", "%42"]
+
+    def test_kill_os_error(self):
+        from duo.transport import kill_pane
+
+        with patch("duo.transport.subprocess.run", side_effect=OSError("fail")):
+            assert kill_pane("my-label") is False
+
+    def test_kill_timeout(self):
+        from duo.transport import kill_pane
+
+        with patch(
+            "duo.transport.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=10),
+        ):
+            assert kill_pane("my-label") is False
+
+    def test_kill_unsafe_target_rejected(self):
+        from duo.transport import kill_pane
+
+        with pytest.raises(ValueError, match="Unsafe pane target"):
+            kill_pane("bad;rm -rf /")
+
+    def test_kill_nonzero_returncode_still_returns_true(self):
+        """Even if kill-pane returns non-zero, the function returns True."""
+        from duo.transport import kill_pane
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            assert kill_pane("gone-pane") is True
+
+
 class TestDetectCopilotApiError:
     """Tests for detect_copilot_api_error() and is_capi_context_error()."""
 
