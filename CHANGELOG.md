@@ -16,6 +16,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 12 new property tests: secret detection false positives, known format detection, writable pattern validation, poller backoff invariants
 - 2 new FSM property tests: terminal state absorption proof, BFS reachability proof (every state reaches COMPLETED/FAILED)
 - 11 new CLI smoke tests: cleanup, events, queue, ceo-now, ceo-cleanup, ceo-restart, ceo-dispatch, ceo-wait, ceo-approve, ceo-select, ceo-resume (83→94 total)
+- 13 new JSON output validation smoke tests: verifies all `--json-output` commands produce valid JSON (94→107 total)
+- 4 new smoke tests: command completeness check (all commands in --help), go/ceo-cleanup/ceo-restart help wiring (107→111 total)
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
@@ -52,6 +54,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 - Duplicate task ID detection in `create_task()` — raises ValueError instead of silently overwriting
 - `duo think --ask` timeout error message now includes actual duration (120s) for debuggability
+- Hypothesis-discovered bug: property test `test_function_calls_safe` now filters all 63 secret patterns (not just 6 keywords) to prevent false positive matches like `gho_`
+- GitHub repo URL case: `maxbin` → `Max-Bin` in install.sh and getting-started.md
 - Extracted `kill_pane()` into transport layer — all 7 direct tmux subprocess calls now routed through validated transport function
 - Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
 - Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
