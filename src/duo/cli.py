@@ -1955,6 +1955,183 @@ def init(repo: str, *, as_json: bool = False) -> None:
             click.echo(f"  ✓ {item}")
 
 
+@main.command()
+@click.option("--repo", default=".", help="Repository path (default: current dir)")
+def go(repo: str) -> None:
+    """One-command setup: CEO (Claude Code) + Executor (Copilot) side by side.
+
+    Sets up everything needed to start working with Duo:
+    1. Checks tmux is running
+    2. Initializes git + duo if needed
+    3. Writes project CLAUDE.md with CEO operating manual
+    4. Splits a Copilot standby pane (0 PR cost)
+    5. Execs Claude Code in the current pane
+
+    After `duo go`, just chat with Claude Code about what you want to build.
+    """
+    import shlex
+
+    from duo.commander import write_project_claude_md
+    from duo.config import get_config
+    from duo.protocol import (
+        load_go_session,
+        save_go_session,
+    )
+    from duo.transport import (
+        is_at_main_prompt,
+        name_pane,
+        read_pane,
+        send_shell_command,
+        wait_for_idle,
+    )
+
+    repo_path = Path(repo).resolve()
+
+    # 1. Check tmux
+    if not os.environ.get("TMUX"):
+        raise DuoUserError(
+            "not inside a tmux session",
+            fix="Start tmux first: tmux new -s work",
+        )
+
+    # 2. Check/init git
+    if not (repo_path / ".git").exists():
+        click.echo("No git repo found. Initializing...")
+        result = subprocess.run(
+            ["git", "init", str(repo_path)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise DuoUserError(
+                f"git init failed: {result.stderr.strip()}",
+                fix="Initialize a git repository manually.",
+            )
+        click.echo(f"  ✓ git init {repo_path}")
+
+    # 3. duo init (idempotent)
+    duo_project = repo_path / ".duo"
+    if not duo_project.exists():
+        from click.testing import CliRunner as _InternalRunner
+
+        _InternalRunner().invoke(main, ["init", "--repo", str(repo_path)])
+        click.echo("  ✓ duo init")
+    else:
+        # Ensure global directories exist even if .duo/ already exists
+        DUO_DIR.mkdir(parents=True, exist_ok=True)
+        TASKS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 4. Write project CLAUDE.md
+    write_project_claude_md(str(repo_path))
+    click.echo("  ✓ project CLAUDE.md")
+
+    # 5. Split pane for standby Copilot (or reuse existing)
+    standby_label = "duo-copilot-standby"
+    pane_id = ""
+
+    # Check for existing go-session
+    existing = load_go_session()
+    if existing and existing.get("copilot_pane"):
+        # Verify pane is alive
+        try:
+            check = subprocess.run(
+                ["tmux", "display-message", "-t", existing["copilot_pane"], "-p", ""],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if check.returncode == 0:
+                pane_id = existing["copilot_pane"]
+                click.echo(f"  ✓ reusing standby pane {pane_id}")
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+    if not pane_id:
+        # Create new pane
+        try:
+            split = subprocess.run(
+                ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            raise DuoUserError(
+                "tmux split-window timed out",
+                fix="Check tmux is responding: tmux list-panes",
+            ) from None
+        if split.returncode != 0:
+            raise DuoUserError(
+                f"tmux split-window failed: {split.stderr.strip()}",
+                fix="Check tmux session is healthy.",
+            )
+        pane_id = split.stdout.strip()
+
+        # Name the pane
+        try:
+            name_pane(pane_id, standby_label)
+        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            # Kill orphaned pane on failure
+            subprocess.run(
+                ["tmux", "kill-pane", "-t", pane_id],
+                capture_output=True,
+                timeout=5,
+            )
+            raise DuoUserError(
+                f"failed to name standby pane: {exc}",
+                fix="Retry duo go, or check tmux panes.",
+            ) from None
+
+        # Start Copilot in the standby pane
+        copilot_model = get_config("copilot_model")
+        copilot_cmd = f"copilot --model {shlex.quote(str(copilot_model))}"
+        if get_config("bypass_permissions"):
+            copilot_cmd += " --yolo"
+
+        time.sleep(0.3)
+        send_shell_command(standby_label, f"cd {shlex.quote(str(repo_path))}")
+        time.sleep(0.3)
+        send_shell_command(standby_label, copilot_cmd)
+
+        click.echo("  Waiting for Copilot to start...")
+        if wait_for_idle(standby_label, timeout=45, poll_interval=2.0):
+            pane_content = read_pane(standby_label)
+            if is_at_main_prompt(pane_content):
+                # Send /allow-all
+                if get_config("auto_allow_all"):
+                    send_shell_command(standby_label, "/allow-all")
+                    wait_for_idle(standby_label, timeout=15, poll_interval=1.0)
+                click.echo(f"  ✓ Copilot standby ready ({pane_id})")
+            else:
+                click.echo("  ⚠ Copilot pane not at prompt (continuing anyway)")
+        else:
+            click.echo(
+                "  ⚠ Copilot startup slow (continuing — it may still be loading)"
+            )
+
+    # 6. Save go-session state
+    save_go_session(
+        pane_label=standby_label,
+        repo_root=str(repo_path),
+        copilot_pane=pane_id,
+    )
+    click.echo("  ✓ go-session saved")
+
+    # 7. Exec Claude Code (replaces this process)
+    click.echo("\nLaunching Claude Code as CEO...")
+    click.echo("Just tell Claude what you want to build. It knows how to use Duo.\n")
+
+    claude_args = ["claude"]
+    if get_config("bypass_permissions"):
+        claude_args.append("--dangerously-skip-permissions")
+
+    # Change to repo directory before exec
+    os.chdir(repo_path)
+
+    # os.execvp replaces this process — no return
+    os.execvp("claude", claude_args)
+
+
 @dataclass
 class CheckResult:
     """Result of a single doctor diagnostic check."""

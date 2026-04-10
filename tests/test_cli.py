@@ -1743,7 +1743,7 @@ class TestCreateWorktree:
         repo.mkdir()
         (repo / ".git").mkdir()
         with (
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.cli.subprocess.run") as mock_run,
         ):
             mock_run.side_effect = [
@@ -1773,7 +1773,7 @@ class TestCreateWorktree:
         repo.mkdir()
         (repo / ".git").mkdir()
         with (
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.cli.subprocess.run") as mock_run,
         ):
             mock_run.side_effect = [
@@ -2671,7 +2671,7 @@ class TestCreateTaskFromBatchDef:
         defn = {"name": "batch-a", "description": "Batch A", "target_files": ["a.py"]}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.commander.start_session"),
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):
@@ -2689,7 +2689,7 @@ class TestCreateTaskFromBatchDef:
         defn = {"name": "batch-q", "description": "Queued"}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.commander.start_session") as mock_start,
             patch("duo.scheduler.enqueue_or_start", return_value="queued"),
         ):
@@ -2708,7 +2708,7 @@ class TestCreateTaskFromBatchDef:
         defn = {"name": "batch-fail", "description": "Fail"}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),
@@ -2724,7 +2724,7 @@ class TestCreateTaskFromBatchDef:
         defn = {"name": "batch-rp", "description": "RP Fail"}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.return_value = MagicMock(
                 returncode=1, stdout="", stderr="not a git repo"
@@ -5654,7 +5654,7 @@ class TestCreateTaskQueued:
         }
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
@@ -5674,7 +5674,7 @@ class TestCreateTaskQueued:
         defn = {"name": "cq-fail", "description": "Fail"}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="abc123\n", stderr=""),  # rev-parse
@@ -5690,7 +5690,7 @@ class TestCreateTaskQueued:
         defn = {"name": "cq-defaults"}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0, stdout="def456\n", stderr=""),
@@ -5710,7 +5710,7 @@ class TestCreateTaskQueued:
         defn = {"name": "cq-trans-fail", "description": "Fail trans"}
         with (
             patch("duo.cli.subprocess.run") as mock_run,
-            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.config.get_config", return_value=str(tmp_path / "wt")),
             patch("duo.protocol.transition", return_value=False),
         ):
             mock_run.side_effect = [
@@ -13173,7 +13173,7 @@ class TestCliBranchGapsBatch2:
             patch("duo.transport.kill_pane", return_value=True),
             patch("duo.transport.cleanup_pane_state"),
             patch("duo.cli.subprocess.run", side_effect=mock_run),
-            patch("duo.cli.get_config", return_value=base),
+            patch("duo.config.get_config", return_value=base),
         ):
             result = runner.invoke(main, ["kill", "kill-nomw"])
         assert result.exit_code == 0
@@ -13439,7 +13439,7 @@ class TestCliBranchGapsBatch3:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_run),
-            patch("duo.cli.get_config", return_value="/tmp/wt"),
+            patch("duo.config.get_config", return_value="/tmp/wt"),
         ):
             result = runner.invoke(main, ["cleanup", "--json-output"])
         assert result.exit_code == 0
@@ -14033,3 +14033,384 @@ class TestCliBranchGapsBatch7:
         ):
             with pytest.raises(cli_mod.DuoUserError, match="didn't produce plan.md"):
                 cli_mod._think_finalize("test-think")
+
+
+# ---------------------------------------------------------------------------
+# duo go
+# ---------------------------------------------------------------------------
+
+
+class TestDuoGo:
+    """Tests for the duo go one-command setup."""
+
+    def test_no_tmux_error(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go outside tmux gives clear error."""
+        monkeypatch.delenv("TMUX", raising=False)
+        result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+        assert result.exit_code != 0
+        assert "tmux" in result.output.lower()
+
+    def test_auto_git_init(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go in a non-git dir auto-initializes git."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯"),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            from unittest.mock import MagicMock
+
+            git_init = MagicMock(returncode=0, stdout="", stderr="")
+            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
+            mock_run.side_effect = [git_init, split]
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "git init" in result.output.lower()
+
+    def test_happy_path(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go in a proper git+tmux environment succeeds."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.protocol.save_go_session") as mock_save,
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯"),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp") as mock_exec,
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            from unittest.mock import MagicMock
+
+            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
+            mock_run.return_value = split
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "launching" in result.output.lower()
+            mock_exec.assert_called_once()
+            mock_save.assert_called_once()
+
+    def test_resume_existing_pane(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go reuses existing standby pane from go-session."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        existing_session = {
+            "pane_label": "duo-copilot-standby",
+            "repo_root": str(tmp_path),
+            "copilot_pane": "%77",
+            "started_at": "2024-01-01T00:00:00Z",
+        }
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=existing_session),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+        ):
+            from unittest.mock import MagicMock
+
+            check = MagicMock(returncode=0, stdout="", stderr="")
+            mock_run.return_value = check
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "reusing" in result.output.lower()
+
+    def test_resume_dead_pane_creates_new(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """duo go creates new pane when saved pane is dead."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        existing_session = {
+            "pane_label": "duo-copilot-standby",
+            "repo_root": str(tmp_path),
+            "copilot_pane": "%dead",
+            "started_at": "2024-01-01T00:00:00Z",
+        }
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=existing_session),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯"),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            from unittest.mock import MagicMock
+
+            dead_check = MagicMock(returncode=1, stdout="", stderr="dead pane")
+            split = MagicMock(returncode=0, stdout="%99\n", stderr="")
+            mock_run.side_effect = [dead_check, split]
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "reusing" not in result.output.lower()
+
+    def test_split_window_failure(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go handles split-window failure."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.config.get_config", return_value=False),
+        ):
+            from unittest.mock import MagicMock
+
+            fail = MagicMock(returncode=1, stdout="", stderr="no space")
+            mock_run.return_value = fail
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code != 0
+
+    def test_bypass_permissions_adds_flags(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """duo go passes --dangerously-skip-permissions when bypass enabled."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        def config_side_effect(key):
+            if key == "bypass_permissions":
+                return True
+            if key == "copilot_model":
+                return "claude-sonnet-4-5"
+            if key == "auto_allow_all":
+                return True
+            return False
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯"),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.config.get_config", side_effect=config_side_effect),
+            patch("os.execvp") as mock_exec,
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            from unittest.mock import MagicMock
+
+            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
+            mock_run.return_value = split
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            mock_exec.assert_called_once_with(
+                "claude", ["claude", "--dangerously-skip-permissions"]
+            )
+
+    def test_copilot_not_at_prompt_continues(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """duo go continues even if Copilot isn't at prompt."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="loading..."),
+            patch("duo.transport.is_at_main_prompt", return_value=False),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            from unittest.mock import MagicMock
+
+            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
+            mock_run.return_value = split
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "not at prompt" in result.output.lower()
+
+    def test_copilot_slow_startup_continues(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """duo go continues even if wait_for_idle times out."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        with (
+            patch("subprocess.run") as mock_run,
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=False),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            from unittest.mock import MagicMock
+
+            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
+            mock_run.return_value = split
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "slow" in result.output.lower() or "loading" in result.output.lower()
+
+    def test_git_init_failure(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go fails gracefully when git init fails."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+
+        with patch("subprocess.run") as mock_run:
+            from unittest.mock import MagicMock
+
+            fail = MagicMock(returncode=1, stdout="", stderr="permission denied")
+            mock_run.return_value = fail
+
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code != 0
+            assert "git init failed" in result.output.lower()
+
+    def test_pane_check_timeout(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go handles timeout when checking existing pane."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        existing_session = {
+            "pane_label": "duo-copilot-standby",
+            "repo_root": str(tmp_path),
+            "copilot_pane": "%timeout",
+            "started_at": "2024-01-01T00:00:00Z",
+        }
+
+        call_count = [0]
+
+        def mock_run_side_effect(args, **kwargs):
+            from unittest.mock import MagicMock
+
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # First call: pane check times out
+                raise subprocess.TimeoutExpired(cmd=args, timeout=5)
+            # Second call: split-window succeeds
+            m = MagicMock(returncode=0, stdout="%new\n", stderr="")
+            return m
+
+        with (
+            patch("subprocess.run", side_effect=mock_run_side_effect),
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=existing_session),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯"),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "reusing" not in result.output.lower()
+
+    def test_split_window_timeout(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """duo go handles split-window timeout."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=10),
+            ),
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+        ):
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code != 0
+            assert "timed out" in result.output.lower()
+
+    def test_name_pane_failure_cleanup(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """duo go cleans up orphaned pane when name_pane fails."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        call_count = [0]
+
+        def mock_run_side_effect(args, **kwargs):
+            from unittest.mock import MagicMock
+
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # split-window succeeds
+                return MagicMock(returncode=0, stdout="%orphan\n", stderr="")
+            # cleanup call
+            return MagicMock(returncode=0)
+
+        with (
+            patch("subprocess.run", side_effect=mock_run_side_effect),
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.transport.name_pane", side_effect=RuntimeError("name failed")),
+            patch("duo.config.get_config", return_value=False),
+        ):
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code != 0
+            assert "failed to name" in result.output.lower()
