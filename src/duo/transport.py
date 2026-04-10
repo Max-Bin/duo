@@ -224,17 +224,17 @@ _TMUX_DOWN_INDICATORS = (
 )
 
 
+_READ_ONLY_BRIDGE_CMDS = frozenset({"read", "resolve", "id", "list", "doctor"})
+
+
 @_retry()
-def bridge(cmd: list[str], *, check: bool = True) -> str:
-    """Execute a tmux-bridge sub-command and return its stdout.
+def _bridge_with_retry(cmd: list[str], *, check: bool = True) -> str:
+    """Execute a read-only tmux-bridge command with automatic retry."""
+    return _bridge_once(cmd, check=check)
 
-    All pane communication flows through this function.  Failures are
-    retried automatically by the ``@_retry`` decorator.
 
-    Args:
-        cmd: Arguments passed to the tmux-bridge binary (e.g. ``["read", "my-label", "50"]``).
-        check: If *True* (default), raise ``RuntimeError`` on non-zero exit.
-    """
+def _bridge_once(cmd: list[str], *, check: bool = True) -> str:
+    """Execute a tmux-bridge sub-command (single attempt, no retry)."""
     try:
         result = subprocess.run(
             [_bridge_bin(), *cmd],
@@ -255,6 +255,22 @@ def bridge(cmd: list[str], *, check: bool = True) -> str:
             )
         raise RuntimeError(f"tmux-bridge {cmd[0]} failed: {stderr}")
     return result.stdout
+
+
+def bridge(cmd: list[str], *, check: bool = True) -> str:
+    """Execute a tmux-bridge sub-command and return its stdout.
+
+    Read-only commands (read, resolve, id, list, doctor) are retried
+    automatically.  Mutating commands (type, keys, name, message) are
+    executed once to prevent duplicate side effects.
+
+    Args:
+        cmd: Arguments passed to the tmux-bridge binary (e.g. ``["read", "my-label", "50"]``).
+        check: If *True* (default), raise ``RuntimeError`` on non-zero exit.
+    """
+    if cmd and cmd[0] in _READ_ONLY_BRIDGE_CMDS:
+        return _bridge_with_retry(cmd, check=check)
+    return _bridge_once(cmd, check=check)
 
 
 # === Atomic operations (map 1:1 to tmux-bridge commands) ===
@@ -531,9 +547,15 @@ def kill_pane(target: str) -> bool:
             if isinstance(raw_stderr, bytes)
             else raw_stderr
         )
+        msg_lower = msg.lower().strip()
         logger.debug(
             "kill_pane(%s) exited %d: %s", target, result.returncode, msg.strip()
         )
+        # Known "pane already gone" patterns — treat as success
+        gone_patterns = ("can't find", "not found", "no pane")
+        if any(p in msg_lower for p in gone_patterns):
+            return True
+        return False
     return True
 
 
@@ -921,7 +943,10 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
             del _PR_LOG[: len(_PR_LOG) - 10000]
         callback = _pr_callback
     if callback is not None:
-        callback(label, action, context)
+        try:
+            callback(label, action, context)
+        except Exception:
+            logger.warning("PR callback failed for %s/%s", label, action, exc_info=True)
 
 
 def get_pr_log() -> list[dict[str, str]]:
@@ -1485,8 +1510,9 @@ def send_shell_command(label: str, command: str) -> None:
 def send_bootstrap(label: str, prompt: str) -> None:
     """THE ONE bootstrap prompt. 1 PR. PERMANENTLY LOCKED after use.
 
-    If the I/O to the pane fails (bridge timeout, pane dead, etc.),
-    the bootstrap lock is rolled back so the pane can retry.
+    Rollback logic: if pane I/O fails BEFORE text is typed, the lock is
+    rolled back so the caller can retry.  Once ``type_text`` succeeds the
+    lock is committed — rollback would risk duplicate/garbled input.
     """
     with _LOCK:
         if label in _BOOTSTRAP_DONE:
@@ -1497,14 +1523,15 @@ def send_bootstrap(label: str, prompt: str) -> None:
     try:
         read_pane(label, 5)
         type_text(label, prompt)
-        read_pane(label, 5)
-        send_keys(label, "Enter")
-        _record_pr(label, "bootstrap", prompt[:80])
     except Exception:
-        # Rollback: allow retry on transient failures
+        # Pre-type or type failure: text not in pane, safe to rollback
         with _LOCK:
             _BOOTSTRAP_DONE.discard(label)
         raise
+    # Text is in the pane — committed, no rollback even if Enter fails
+    read_pane(label, 5)
+    send_keys(label, "Enter")
+    _record_pr(label, "bootstrap", prompt[:80])
 
 
 def clear_bootstrap_done(label: str) -> None:

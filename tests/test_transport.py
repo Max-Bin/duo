@@ -123,6 +123,23 @@ class TestBridge:
         result = bridge(["bad"], check=False)
         assert result == ""
 
+    @patch("subprocess.run")
+    def test_read_only_commands_are_retried(self, mock_run):
+        """Read-only bridge commands use retry wrapper."""
+        mock_run.side_effect = [RuntimeError("transient"), _ok("ok")]
+        # 'read' is in _READ_ONLY_BRIDGE_CMDS, should be retried
+        result = bridge(["read", "pane", "50"])
+        assert result == "ok"
+        assert mock_run.call_count == 2
+
+    @patch("subprocess.run")
+    def test_mutating_commands_not_retried(self, mock_run):
+        """Mutating bridge commands (type, keys) execute only once."""
+        mock_run.side_effect = RuntimeError("type failed")
+        with pytest.raises(RuntimeError, match="type failed"):
+            bridge(["type", "pane", "hello"])
+        assert mock_run.call_count == 1
+
 
 # ── Atomic operations ─────────────────────────────────────────────────
 
@@ -745,6 +762,20 @@ class TestPRAudit:
         assert len(calls) == 1
         assert calls[0] == ("pane", "act", "ctx")
         set_pr_callback(None)  # cleanup
+
+    def test_pr_callback_exception_is_swallowed(self):
+        """Callback exceptions are caught and logged, not propagated."""
+        from duo.transport import _record_pr, set_pr_callback
+
+        def bad_callback(l, a, c):
+            raise ValueError("callback boom")
+
+        set_pr_callback(bad_callback)
+        try:
+            # Must not raise
+            _record_pr("pane", "act", "ctx")
+        finally:
+            set_pr_callback(None)
 
     def test_pr_log_capped_at_10000(self):
         """_PR_LOG doesn't grow beyond 10000 entries."""
@@ -3048,6 +3079,29 @@ class TestSendBootstrapRollback:
         assert label in duo.transport._BOOTSTRAP_DONE
         duo.transport._BOOTSTRAP_DONE.discard(label)
 
+    @patch("subprocess.run")
+    def test_no_rollback_after_type_text_succeeds(self, mock_run):
+        """Once type_text succeeds, lock is committed even if send_keys fails."""
+        label = "post-type-test"
+        duo.transport._BOOTSTRAP_DONE.discard(label)
+        call_count = [0]
+
+        def side_effect(*args, **kwargs):
+            call_count[0] += 1
+            # call 1: read_pane OK, call 2: type_text OK, call 3: read_pane #2 fails
+            if call_count[0] <= 2:
+                return _ok("content")
+            raise RuntimeError("pane died after type")
+
+        mock_run.side_effect = side_effect
+
+        with pytest.raises(RuntimeError, match="pane died after type"):
+            send_bootstrap(label, "typed prompt")
+
+        # Lock must remain — text was already sent to the pane
+        assert label in duo.transport._BOOTSTRAP_DONE
+        duo.transport._BOOTSTRAP_DONE.discard(label)
+
 
 class TestSafeEnterToctuDetection:
     """safe_enter must detect TOCTOU races via post-send pane read."""
@@ -3321,6 +3375,16 @@ class TestKillPane:
         with patch("duo.transport.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=1, stderr=b"no pane found")
             assert kill_pane("gone-pane") is True
+
+    def test_kill_nonzero_unexpected_error_returns_false(self):
+        """Unexpected tmux errors return False so callers know kill failed."""
+        from duo.transport import kill_pane
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=1, stderr="server exited unexpectedly"
+            )
+            assert kill_pane("some-pane") is False
 
 
 class TestDetectCopilotApiError:

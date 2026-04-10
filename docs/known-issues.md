@@ -847,3 +847,55 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
 
 - **macOS case-insensitive filesystem** (LOW): `fnmatch` is case-sensitive
   while default macOS FS is not. Low practical impact.
+
+## Round BH: Rubber-Duck Audit of transport.py
+
+### Resolved (HIGH)
+
+- **`bridge()` retried mutating commands** (HIGH → RESOLVED): `bridge()` used
+  `@_retry()` on ALL commands including `type`, `keys`, `name`, `message`.
+  A retry on a mutating command could duplicate side effects (double-type,
+  double-Enter). Fixed by splitting into `_bridge_with_retry()` (read-only
+  commands: read, resolve, id, list, doctor) and `_bridge_once()` (mutating).
+
+- **`send_bootstrap()` unsafe rollback after type_text** (HIGH → RESOLVED):
+  The original code rolled back `_BOOTSTRAP_DONE` on ANY exception, including
+  failures AFTER `type_text()` succeeded. This could allow a retry that
+  duplicates text already typed into the pane. Fixed: rollback only occurs
+  if failure happens before `type_text()` succeeds. Once text is typed,
+  the bootstrap lock is committed.
+
+- **`_record_pr()` callback exception propagation** (HIGH → RESOLVED):
+  If the user-provided PR callback raised, the exception propagated up
+  through `send_bootstrap()` and could trigger bootstrap lock rollback
+  after the prompt was already sent. Fixed: callback invocation is now
+  wrapped in try/except with warning-level logging.
+
+- **`kill_pane()` masked unexpected failures** (HIGH → RESOLVED): Returned
+  `True` even on unexpected tmux errors. Now returns `True` only on success
+  or known "pane already gone" messages; returns `False` on genuine failures.
+
+### Deferred (MED/LOW)
+
+- **Multi-step pane interactions lack `pane_lock()`** (MED): `send_shell_command`,
+  `send_bootstrap`, `send_message` perform read→type→Enter sequences without
+  holding `pane_lock()`. Concurrent callers on the same label could interleave.
+  Low real-world risk since Commander serializes calls, but should be hardened.
+
+- **`send_option_other_message` assumes "Other" is last option** (MED):
+  Navigates by position rather than matching option text. A Copilot UI change
+  could cause wrong option selection. Structural matching would be more robust.
+
+- **Dialog detection relies on hard-coded Copilot strings** (MED): Prompt and
+  dialog detection uses exact string matches (`"Type @"`, spinner glyphs,
+  `"mention files"`). Copilot UI changes could cause misdetection. Should
+  fail closed on unknown states.
+
+- **`_PR_LOG` retains raw prompt snippets in memory** (MED): `_record_pr`
+  stores `prompt[:80]` / `text[:80]` in `_PR_LOG`. `cleanup_pane_state()`
+  does not scrub per-label entries. Low practical risk in short-lived
+  processes but sensitive text could linger in long-running sessions.
+
+- **`send_text_dialog_message` submits even without echo verification** (LOW):
+  After 3 retries, submits Enter even if typed text was never confirmed
+  visible. Could submit empty/wrong answer if input was dropped.
