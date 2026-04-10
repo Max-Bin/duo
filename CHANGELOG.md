@@ -85,8 +85,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 22 Hypothesis property-based tests for validators, hash, age, path matching
 - All subprocess.run calls now have explicit timeout parameters
 - `git init` in `duo go` has 30s timeout
-- All 8 dataclasses use `slots=True` for lower memory footprint (Python 3.10+)
+- All 10 dataclasses use `slots=True` for lower memory footprint (Python 3.10+)
 - 6 AI platform secret detection patterns added (Anthropic, OpenAI, HF, Replicate)
+- `duo stats` text output now shows all 13 FSM states (was missing `session_starting` and `result_reported`)
+- CI workflow uses full ruff ruleset from pyproject.toml (not hardcoded subset)
+- Test fixtures properly type-annotated — 10 `type: ignore` comments removed
+- `SECURITY.md` expanded with 9 specific security safeguards, version updated to 1.0.x
+- `ROADMAP.md` v1.x items all marked as complete with ✅
 
 ## [1.0.0] — 2026-04-09
 
