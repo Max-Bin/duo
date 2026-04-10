@@ -510,14 +510,14 @@ def start_session(task: Task) -> None:
             timeout=10,
         )
     except subprocess.TimeoutExpired:
+        transition(task, TaskStatus.FAILED)
         append_event(
             task, "session_start_failed", {"error": "tmux split-window timeout"}
         )
-        transition(task, TaskStatus.FAILED)
         return
     if result.returncode != 0:
-        append_event(task, "session_start_failed", {"error": result.stderr})
         transition(task, TaskStatus.FAILED)
+        append_event(task, "session_start_failed", {"error": result.stderr})
         return
 
     pane_id = result.stdout.strip()
@@ -528,8 +528,8 @@ def start_session(task: Task) -> None:
         name_pane(pane_id, task.pane_label)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         kill_pane(pane_id)
-        append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
         transition(task, TaskStatus.FAILED)
+        append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
         return
 
     # Tile layout — target the new pane to resolve correct window
@@ -689,8 +689,8 @@ def restart_session(task: Task) -> None:
 
 def _escalate_pr_budget(task: Task, step: int, attempt: int) -> None:
     """Escalate task when PR budget is exceeded."""
-    append_event(task, "pr_budget_exceeded", {"step": step, "attempt": attempt})
     transition(task, TaskStatus.ESCALATED)
+    append_event(task, "pr_budget_exceeded", {"step": step, "attempt": attempt})
     click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
 
 
