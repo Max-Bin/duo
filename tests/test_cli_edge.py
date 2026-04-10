@@ -339,3 +339,29 @@ class TestNoDuplicateTestClasses:
         assert dupes == [], (
             f"Duplicate test classes (shadowed, tests silently lost): {dupes}"
         )
+
+    def test_no_shadowed_methods(self) -> None:
+        """No test class should have two methods with the same name.
+
+        Python silently redefines the method, causing the first test to
+        never run. Found 4 shadowed tests in TestCeoSelect.
+        """
+        import re
+
+        tests_dir = Path(__file__).resolve().parent
+        dupes: list[str] = []
+        for f in sorted(tests_dir.glob("test_*.py")):
+            content = f.read_text(encoding="utf-8")
+            parts = re.split(r"^class (Test\w+)", content, flags=re.MULTILINE)
+            for i in range(1, len(parts), 2):
+                class_name = parts[i]
+                body = parts[i + 1].split("\nclass ")[0]
+                methods = re.findall(r"def (test_\w+)", body)
+                seen: set[str] = set()
+                for m in methods:
+                    if m in seen:
+                        dupes.append(f"{f.name}::{class_name}::{m}")
+                    seen.add(m)
+        assert dupes == [], (
+            f"Duplicate test methods (shadowed, tests silently lost): {dupes}"
+        )

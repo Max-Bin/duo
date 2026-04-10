@@ -8558,7 +8558,7 @@ class TestCeoSelect:
 
     """Tests for duo ceo-approve."""
 
-    def test_task_not_found(self, runner: CliRunner) -> None:
+    def test_approve_task_not_found(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["ceo-approve", "nonexistent"])
         assert result.exit_code != 0
         assert "not found" in result.output
@@ -8613,11 +8613,11 @@ class TestCeoSelect:
             result = runner.invoke(main, ["ceo-approve", task.id])
         assert result.exit_code != 0
 
-    def test_bad_task_name(self, runner: CliRunner) -> None:
+    def test_approve_bad_task_name(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["ceo-approve", "inv@lid"])
         assert result.exit_code != 0
 
-    def test_refused_at_main_prompt(self, runner: CliRunner, make_task) -> None:
+    def test_approve_refused_at_main_prompt(self, runner: CliRunner, make_task) -> None:
         """ceo-approve REFUSES if pane is at main ❯ prompt."""
         task = make_task("appr-prompt")
         with (
@@ -8629,7 +8629,7 @@ class TestCeoSelect:
         assert "REFUSED" in result.output
         assert "Premium Request" in result.output
 
-    def test_force_new_session_bypasses_assert(
+    def test_approve_force_new_session_bypasses_assert(
         self, runner: CliRunner, make_task
     ) -> None:
         """--force-new-session bypasses the main-prompt check but logs."""
