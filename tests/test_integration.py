@@ -439,3 +439,83 @@ class TestJournalIntegration:
         last_3 = read_jsonl(task.dir / "journal.jsonl", tail=3)
         assert len(last_3) == 3
         assert last_3[-1]["data"]["n"] == 9
+
+    def test_failed_recovery_lifecycle(self) -> None:
+        """FAILED → PROMPT_SENT recovery path with journal audit trail."""
+        task = create_task(
+            task_id="fail-recover",
+            description="Failure recovery test",
+            worktree="/tmp/fr",
+            branch="duo/fr",
+            base_commit="abc",
+            subtasks=[_make_subtask(1, "Recoverable")],
+        )
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.FAILED)
+
+        assert task.status == TaskStatus.FAILED
+
+        # Recovery: FAILED → SESSION_STARTING (restart the session)
+        transition(task, TaskStatus.SESSION_STARTING)
+        assert task.status == TaskStatus.SESSION_STARTING
+
+        # Complete successfully after recovery
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+        transition(task, TaskStatus.COMPLETED)
+        assert task.status == TaskStatus.COMPLETED
+
+        # Verify journal has the full recovery trail
+        events = read_jsonl(task.dir / "journal.jsonl")
+        statuses = [e["data"]["to"] for e in events if e["event"] == "status_changed"]
+        assert "failed" in statuses
+        assert statuses.count("session_starting") == 2  # initial + recovery
+
+    def test_multi_step_with_mixed_corrections(self) -> None:
+        """Multi-step task where step 1 passes, step 2 needs correction."""
+        task = create_task(
+            task_id="multi-correct",
+            description="Multi-step correction",
+            worktree="/tmp/mc",
+            branch="duo/mc",
+            base_commit="abc",
+            subtasks=[_make_subtask(1, "Step 1"), _make_subtask(2, "Step 2")],
+        )
+
+        # Step 1: clean pass
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+
+        # Advance to step 2
+        task.current_step = 2
+        task.current_attempt = 1
+        save_task(task)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+
+        # Step 2 correction
+        transition(task, TaskStatus.CORRECTING)
+        task.current_attempt = 2
+        save_task(task)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+        transition(task, TaskStatus.COMPLETED)
+
+        assert task.status == TaskStatus.COMPLETED
+        assert task.current_step == 2
+        assert task.current_attempt == 2
