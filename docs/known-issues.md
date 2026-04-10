@@ -877,9 +877,9 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
 - **`_PR_LOG` retains raw prompt snippets in memory** (MED → CLOSED): Bounded
   in-memory local-process risk; not worth extra complexity. **Round BM: CLOSE.**
 
-- **`send_text_dialog_message` submits even without echo verification** (LOW → PROMOTE):
-  Fails open currently — safest fix is don't press Enter unless text was observed.
-  **Round BM verdict: PROMOTE.**
+- **`send_text_dialog_message` submits even without echo verification** (LOW → RESOLVED):
+  Fixed in Round BR — function now aborts Enter and returns False when typed text
+  is not confirmed visible after 3 attempts. Fail-closed safety behavior.
 
 ## Round BI: Rubber-Duck Security Audit of verifier.py
 
