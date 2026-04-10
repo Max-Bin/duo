@@ -2086,3 +2086,23 @@ class TestTaskLock:
         with pytest.raises(OSError, match="I/O error"):
             with task_lock("perm-task"):
                 pass  # pragma: no cover
+
+
+class TestPublicAPI:
+    """Verify the top-level ``duo`` package exports are stable."""
+
+    def test_all_exports_importable(self) -> None:
+        import duo
+
+        for name in duo.__all__:
+            assert hasattr(duo, name), f"duo.__all__ lists '{name}' but it's not importable"
+
+    def test_expected_exports_present(self) -> None:
+        import duo
+
+        expected = {
+            "Task", "Subtask", "SecurityPolicy", "TaskStatus",
+            "create_task", "load_task", "list_tasks", "save_task", "transition",
+            "get_config", "set_config", "load_config", "__version__",
+        }
+        assert expected == set(duo.__all__)
