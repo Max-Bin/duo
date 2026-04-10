@@ -309,6 +309,26 @@ class TestTaskCRUD:
                 subtasks=[],
             )
 
+    def test_create_task_duplicate_raises(self):
+        """create_task rejects duplicate task IDs."""
+        create_task(
+            task_id="dup-detect",
+            description="First",
+            worktree="/work",
+            branch="feature",
+            base_commit="deadbeef",
+            subtasks=[_make_subtask(1)],
+        )
+        with pytest.raises(ValueError, match="already exists"):
+            create_task(
+                task_id="dup-detect",
+                description="Second",
+                worktree="/work2",
+                branch="feature2",
+                base_commit="deadbeef2",
+                subtasks=[_make_subtask(1)],
+            )
+
     def test_create_and_load_roundtrip(self):
         subtasks = [_make_subtask(1), _make_subtask(2)]
         task = create_task(
@@ -1400,21 +1420,10 @@ class TestTaskIsolation:
         assert loaded.worktree == "/path/a"
 
     def test_task_id_uniqueness(self) -> None:
-        """Creating a second task with the same ID overwrites the first."""
-        t1 = create_task("dup-id", "First", "/w1", "b1", "c1", [_make_subtask()])
-        inc1 = t1.incarnation_id
-        t2 = create_task("dup-id", "Second", "/w2", "b2", "c2", [_make_subtask()])
-        inc2 = t2.incarnation_id
-
-        # incarnation IDs should differ
-        assert inc1 != inc2
-
-        loaded = load_task("dup-id")
-        assert loaded is not None
-        # The second creation wins
-        assert loaded.description == "Second"
-        assert loaded.worktree == "/w2"
-        assert loaded.incarnation_id == inc2
+        """Creating a second task with the same ID raises ValueError."""
+        create_task("dup-id", "First", "/w1", "b1", "c1", [_make_subtask()])
+        with pytest.raises(ValueError, match="already exists"):
+            create_task("dup-id", "Second", "/w2", "b2", "c2", [_make_subtask()])
 
 
 # ---------------------------------------------------------------------------

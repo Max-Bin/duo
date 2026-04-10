@@ -323,13 +323,10 @@ class TestFullLifecycle:
         all_tasks = list_tasks()
         assert any(t.id == "persist-test" for t in all_tasks)
 
-    @pytest.mark.xfail(
-        reason="create_task does not yet detect duplicate task IDs", strict=True
-    )
     def test_concurrent_task_creation(self):
-        """Creating a second task with same ID should fail gracefully."""
+        """Creating a second task with same ID raises ValueError."""
         create_task("dup-task", "First", "/w", "b", "c", [_make_subtask(1)])
-        with pytest.raises((ValueError, FileExistsError)):
+        with pytest.raises(ValueError, match="already exists"):
             create_task("dup-task", "Second", "/w", "b", "c", [_make_subtask(1)])
 
     def test_task_with_no_subtasks_raises(self):

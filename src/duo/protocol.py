@@ -464,6 +464,11 @@ def create_task(
     """Create a new task with initial state."""
     if not subtasks:
         raise ValueError("Task must have at least one subtask")
+
+    task_dir = TASKS_DIR / task_id
+    if task_dir.exists() and (task_dir / "task.json").exists():
+        raise ValueError(f"Task '{task_id}' already exists")
+
     task = Task(
         id=task_id,
         description=description,
