@@ -7471,6 +7471,9 @@ class TestEventsCommand:
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
         assert "task1" in result.output
+        # Regression: event line should appear exactly once (not duplicated)
+        lines = [ln for ln in result.output.strip().splitlines() if ln.strip()]
+        assert len(lines) == 1
 
     def test_events_show_latest(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

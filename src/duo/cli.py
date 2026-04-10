@@ -2856,14 +2856,6 @@ def events_list(limit: int, *, as_json: bool = False) -> None:
             click.echo(f"  {ts}  {task}  {f.name}")
     if as_json:
         click.echo(json.dumps({"events": items, "total": len(files)}))
-        return
-    for f in files[:limit]:
-        data = read_json(f)
-        if data is None:
-            continue
-        ts = _fmt_ts(data.get("detected_at", "?"))
-        task = data.get("task_id", "?")
-        click.echo(f"  {ts}  {task}  {f.name}")
 
 
 @events.command("show")
