@@ -12,7 +12,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - CODEOWNERS for PR review gating
 - CI badge in README and README.zh-CN
 - 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
+- 11 new property tests: label path safety, glob matching, config defaults consistency, _fmt_ts fuzz
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
+- Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
 - `duo start --immediate` flag to skip defer mode and send bootstrap immediately
 - `bypass_permissions` config (default: true) — controls `--yolo` for Copilot CLI and `--dangerously-skip-permissions` for Claude Code
@@ -60,6 +62,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Cross-process monitor race: `task_lock(task_id)` context manager using `fcntl.flock(LOCK_EX | LOCK_NB)` — second monitor skips locked tasks; fresh task reload under lock prevents stale state
 
 ### Security
+- All GitHub Actions pinned to commit SHAs (supply-chain hardening)
+- Release workflow: minimal top-level permissions (`permissions: {}`), job-level scoping
+- Release workflow: tag↔version check prevents mismatched releases
+- Release workflow: `github-release` depends on `publish-pypi` (no partial release)
+- Release workflow: `if-no-files-found: error` on artifact upload
+- All workflow checkouts use `persist-credentials: false`
 - Regex validators (`_SAFE_LABEL`, `_SAFE_SESSION_ID`, `_validate_task_name`) now use `\Z` instead of `$` — prevents trailing newline bypass
 - `_get_copilot_model()` validates env var characters — rejects shell metacharacters
 - `copilot --model` argument now uses `shlex.quote()` to prevent command injection
@@ -87,6 +95,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 - Cleaned 4 unused `noqa` directives; remaining 3 SIM115 noqas annotated with rationale
 - `__all__` exports sorted alphabetically in `__init__`, `poller`, `transport` (RUF022)
+- Smoke test `duo doctor` uses `run_test_allow_fail` (expected to exit non-zero without tmux-bridge in CI)
+- CI smoke job installs tmux for `duo doctor` checks
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
 - Removed last `@pytest.mark.xfail` — all tests now pass without expected failures
 - All modules now export `__all__` (added to `errors.py`)
