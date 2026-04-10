@@ -14,6 +14,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
 - 11 new property tests: label path safety, glob matching, config defaults consistency, _fmt_ts fuzz
 - 12 new property tests: secret detection false positives, known format detection, writable pattern validation, poller backoff invariants
+- 2 new FSM property tests: terminal state absorption proof, BFS reachability proof (every state reaches COMPLETED/FAILED)
+- 11 new CLI smoke tests: cleanup, events, queue, ceo-now, ceo-cleanup, ceo-restart, ceo-dispatch, ceo-wait, ceo-approve, ceo-select, ceo-resume (83→94 total)
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
@@ -99,6 +101,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - CONTRIBUTING.md: removed redundant `uv pip install -e .`, added `security:` commit type, fixed dogfood example
 - `performance-baseline.md` regression thresholds corrected to match bench-regression-check.sh
 - All remaining docs audited for accuracy: release.md, send-keys-resilience-audit.md, design-duo-think.md, plan-duo-go.md, performance-baseline.md
+- Python 3.13 classifier added to pyproject.toml
+- Removed redundant `uv pip install -e .` from Makefile install target
 - `__all__` exports sorted alphabetically in `__init__`, `poller`, `transport` (RUF022)
 - Smoke test `duo doctor` uses `run_test_allow_fail` (expected to exit non-zero without tmux-bridge in CI)
 - CI smoke job installs tmux for `duo doctor` checks
