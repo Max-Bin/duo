@@ -104,7 +104,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-_SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+$")
+_SAFE_LABEL = re.compile(r"^[a-zA-Z0-9_.-]+\Z")
 
 _BRIDGE_TIMEOUT = 30  # seconds for tmux-bridge subprocess calls
 

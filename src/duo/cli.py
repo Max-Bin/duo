@@ -125,7 +125,7 @@ def _validate_task_name(name: str) -> None:
         raise click.BadParameter(
             f"Task name must be at most 63 characters, got {len(name)}"
         )
-    if not re.match(r"^[a-zA-Z0-9_-]+$", name):
+    if not re.match(r"^[a-zA-Z0-9_-]+\Z", name):
         raise click.BadParameter(
             f"Task name must contain only letters, numbers, dashes, underscores. Got: '{name}'"
         )

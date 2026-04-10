@@ -12,7 +12,7 @@ from duo.protocol import DUO_DIR, now_iso, read_jsonl
 
 CEO_SESSIONS_DIR = DUO_DIR / "ceo-sessions"
 
-_SAFE_SESSION_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+_SAFE_SESSION_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\Z")
 
 
 def _validate_session_id(session_id: str) -> None:
