@@ -596,3 +596,28 @@ class TestFSMDocAccuracy:
         assert mismatches == [], (
             f"FSM transition mismatches between docs and code: {mismatches}"
         )
+
+
+class TestPublicAPIStability:
+    """Guard: duo package public API must not accidentally shrink."""
+
+    EXPECTED_EXPORTS = {
+        "SecurityPolicy",
+        "Subtask",
+        "Task",
+        "TaskStatus",
+        "__version__",
+        "create_task",
+        "get_config",
+        "list_tasks",
+        "load_config",
+        "load_task",
+        "save_task",
+        "set_config",
+        "transition",
+    }
+
+    def test_public_api_complete(self) -> None:
+        """duo.__all__ must contain all expected public symbols."""
+        missing = self.EXPECTED_EXPORTS - set(duo.__all__)
+        assert missing == set(), f"Missing from duo.__all__: {sorted(missing)}"
