@@ -831,3 +831,30 @@ class TestExceptionHandlingGuard:
             "except Exception without justification comment:\n"
             + "\n".join(f"  {u}" for u in unjustified)
         )
+
+
+class TestDataclassConventionGuard:
+    """Guard: dataclass conventions enforced across modules."""
+
+    def test_verifier_results_frozen(self) -> None:
+        """Verifier result types (Pass, Correction) must be frozen."""
+        from duo.verifier import Correction, Pass
+
+        assert Pass.__dataclass_params__.frozen  # type: ignore[attr-defined]
+        assert Correction.__dataclass_params__.frozen  # type: ignore[attr-defined]
+
+    def test_protocol_models_have_slots(self) -> None:
+        """All protocol dataclasses must use slots=True for memory efficiency."""
+        from duo.protocol import (
+            AckResult,
+            Heartbeat,
+            SecurityPolicy,
+            StepResult,
+            Subtask,
+            Task,
+        )
+
+        for cls in [Task, Subtask, SecurityPolicy, Heartbeat, AckResult, StepResult]:
+            assert cls.__dataclass_params__.slots, (  # type: ignore[attr-defined]
+                f"{cls.__name__} missing slots=True"
+            )
