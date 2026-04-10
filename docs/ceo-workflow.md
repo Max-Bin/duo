@@ -57,7 +57,7 @@ for easy scripting.
 
 | Command | Purpose | Example |
 |---------|---------|---------|
-| `ceo-metrics` | Aggregate analytics across sessions | `duo ceo-metrics --format json` |
+| `ceo-metrics` | Aggregate analytics across sessions | `duo ceo-metrics --json-output` |
 | `ceo-smart-config` | Show effective smart patterns | `duo ceo-smart-config` |
 
 ---
@@ -218,7 +218,7 @@ rates, timing distributions, error frequencies.
 
 ```bash
 duo ceo-metrics                  # Human-readable table
-duo ceo-metrics --format json    # Machine-readable JSON
+duo ceo-metrics --json-output    # Machine-readable JSON
 ```
 
 ### `duo ceo-smart-config`
@@ -455,7 +455,7 @@ using the CEO commands. All output below is from a real session.
 ### Step 1: Check overall health with `duo doctor`
 
 ```bash
-$ duo doctor --json
+$ duo doctor --json-output
 ```
 
 ```json
@@ -546,7 +546,7 @@ Restart complete ✓ (fds: 1847 → 19)
 | Interval | Action | Command |
 |----------|--------|---------|
 | Every 30 min | Quick health check | `duo ceo-now` |
-| Every 1 hour | Full diagnostics | `duo doctor --json` |
+| Every 1 hour | Full diagnostics | `duo doctor --json-output` |
 | When fds > 500 | Cleanup idle children | `duo ceo-cleanup <task>` |
 | When fds > 1500 | Restart session | `duo ceo-restart <task>` |
 | Every 4 hours | Preventive restart | `duo ceo-restart <task>` |
