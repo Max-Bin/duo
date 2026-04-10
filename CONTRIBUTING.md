@@ -7,9 +7,8 @@ Welcome! Duo is an open-source AI agent orchestration runtime, and we'd love you
 ```bash
 git clone https://github.com/Max-Bin/duo.git
 cd duo
-uv sync
-uv pip install -e .
-make check  # runs lint + format-check + type-check + coverage
+uv sync            # install all dependencies
+make check         # runs lint + format-check + type-check + coverage
 ```
 
 **Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/) package manager, tmux.
@@ -47,6 +46,7 @@ type: description
 | `refactor:` | Code restructuring with no behavior change |
 | `test:` | Adding or updating tests |
 | `docs:` | Documentation only |
+| `security:` | Security hardening or vulnerability fix |
 | `release:` | Version bumps and release prep |
 
 Examples from the repo:
@@ -80,16 +80,18 @@ All PRs must pass the full CI pipeline (lint, type-check, 100% coverage) before 
 - Use `monkeypatch` to override `TASKS_DIR` — never touch `~/.duo` in tests.
 - Mock `subprocess.run` for git/tmux-bridge calls.
 - CLI tests use `click.testing.CliRunner`.
-- Run the full suite: `python -m pytest tests/ -q`
+- Run the full suite: `make test` (or `python -m pytest tests/ -q`)
+- Run smoke tests: `make smoke` (83 CLI smoke tests)
+- Run with coverage: `make coverage` (enforces 100% statement + branch)
 
 ## Using Duo to Develop Duo
 
 Duo is built with Duo. You can use `duo start` to create tasks that improve Duo itself — this is a core use case and a great way to dogfood the tool. For example:
 
 ```bash
-duo start "add shell completion for zsh"
-duo assign
-duo watch
+duo start fix-tests --repo . --desc "Fix flaky test in test_transport.py"
+duo send fix-tests "Investigate and fix the intermittent timeout in test_dialog_detection"
+duo ceo-loop fix-tests --policy smart
 ```
 
 See [docs/ceo-workflow.md](docs/ceo-workflow.md) for the full automated workflow.
