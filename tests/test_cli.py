@@ -4404,6 +4404,37 @@ class TestDiffCommand:
             assert result.exit_code == 0
             assert "+new line" in result.output
 
+    def test_diff_stat(self, runner: CliRunner, tmp_path: Path):
+        """diff --stat shows diffstat output."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
+        create_task(
+            task_id="diff-stat",
+            description="desc",
+            worktree=str(wt),
+            branch="main",
+            base_commit="abc",
+            subtasks=[sub],
+        )
+
+        import subprocess
+
+        original_run = subprocess.run
+        stat_text = " file.py | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)\n"
+
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "git" and "diff" in cmd:
+                assert "--stat" in cmd
+                return subprocess.CompletedProcess(cmd, 0, stdout=stat_text, stderr="")
+            return original_run(cmd, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["diff", "diff-stat", "--stat"])
+            assert result.exit_code == 0
+            assert "file.py" in result.output
+
 
 # ---------------------------------------------------------------------------
 # --json-output flag

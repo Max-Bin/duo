@@ -4570,7 +4570,8 @@ def cleanup(
 
 @main.command("diff")
 @click.argument("name")
-def diff_cmd(name: str) -> None:
+@click.option("--stat", "show_stat", is_flag=True, help="Show diffstat summary only")
+def diff_cmd(name: str, *, show_stat: bool) -> None:
     """Show git diff for a task's worktree changes."""
     task = _load_task_or_fail(name)
 
@@ -4580,7 +4581,10 @@ def diff_cmd(name: str) -> None:
             fix="It may have been cleaned up. Run 'duo cleanup' to remove stale tasks.",
         )
 
-    result = _run_git(["diff", task.base_commit], cwd=task.worktree, check=False)
+    git_args = ["diff", task.base_commit]
+    if show_stat:
+        git_args.append("--stat")
+    result = _run_git(git_args, cwd=task.worktree, check=False)
     if result.stdout:
         click.echo(result.stdout)
     else:
