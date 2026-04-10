@@ -18,7 +18,7 @@ BRIDGE = "/usr/local/bin/tmux-bridge"
 
 
 @pytest.fixture(autouse=True)
-def _mock_bridge_path(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+def _mock_bridge_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin _BRIDGE so tests never try to locate the real binary."""
     monkeypatch.setattr(duo.transport, "_BRIDGE", BRIDGE)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import string
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from duo.cli import (
 from duo.errors import DuoUserError
 from duo.protocol import (
     Subtask,
+    Task,
     create_task,
     save_task,
 )
@@ -36,7 +38,7 @@ from duo.transport import DialogKind
 
 
 @pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
@@ -54,7 +56,7 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-def _make_task(task_id: str = "test-task", description: str = "Test task"):  # type: ignore[no-untyped-def]
+def _make_task(task_id: str = "test-task", description: str = "Test task") -> Task:
     """Create a task in the isolated TASKS_DIR and return it."""
     return create_task(
         task_id=task_id,
@@ -74,7 +76,7 @@ def _make_task(task_id: str = "test-task", description: str = "Test task"):  # t
 
 
 @pytest.fixture()
-def make_task():  # type: ignore[no-untyped-def]
+def make_task() -> Callable[..., Task]:
     """Fixture wrapper around _make_task for use in test classes."""
     return _make_task
 
@@ -135,7 +137,7 @@ class TestParseAgeZeroValues:
 class TestLoadTaskOrFailCorrupted:
     """Edge case tests for _load_task_or_fail with corrupted tasks."""
 
-    def test_corrupted_status_raises(self, make_task) -> None:  # type: ignore[no-untyped-def]
+    def test_corrupted_status_raises(self, make_task: Callable[..., Task]) -> None:
         """_load_task_or_fail raises when task has invalid status in JSON."""
         from duo.cli import _load_task_or_fail
 
@@ -159,7 +161,7 @@ class TestCostBudgetZeroEdgeCases:
     def test_cost_budget_zero_no_pr_events(
         self,
         runner: CliRunner,
-        make_task,  # type: ignore[no-untyped-def]
+        make_task: Callable[..., Task],
     ) -> None:
         """cost --budget 0 with task but 0 PR events should exit 0."""
         task = make_task("budget-zero-clean")
@@ -174,7 +176,7 @@ class TestCeoDispatchTimeoutZero:
     def test_timeout_zero_dialog_present(
         self,
         runner: CliRunner,
-        make_task,  # type: ignore[no-untyped-def]
+        make_task: Callable[..., Task],
     ) -> None:
         """ceo-dispatch --timeout 0 with dialog already present processes it."""
         task = make_task("dispatch-instant")

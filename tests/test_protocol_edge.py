@@ -23,7 +23,7 @@ from duo.protocol import (
 # ---------------------------------------------------------------------------
 
 
-def _make_subtask(step_id: int = 1):  # type: ignore[no-untyped-def]
+def _make_subtask(step_id: int = 1) -> duo.protocol.Subtask:
     from duo.protocol import Subtask
 
     return Subtask(
@@ -35,7 +35,7 @@ def _make_subtask(step_id: int = 1):  # type: ignore[no-untyped-def]
 
 
 @pytest.fixture(autouse=True)
-def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Redirect TASKS_DIR to a temporary directory for every test."""
     tasks = tmp_path / "tasks"
     monkeypatch.setattr("duo.protocol.TASKS_DIR", tasks)
@@ -43,7 +43,7 @@ def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):  # type
 
 
 @pytest.fixture(autouse=True)
-def _clear_cache():  # type: ignore[no-untyped-def]
+def _clear_cache() -> None:
     """Clear task cache between tests."""
     _clear_task_cache()
     yield
