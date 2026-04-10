@@ -503,7 +503,49 @@ duo completion fish | source
 
 ---
 
-## 14. Next Steps
+## 14. Advanced CEO Commands
+
+Duo provides a suite of CEO (Chief Engineering Officer) commands for autonomous agent orchestration. These are used when you want an outer AI agent (like Claude Code) to supervise Duo tasks.
+
+### Session Management
+
+```bash
+duo ceo-now                         # Dashboard: active task, dialog state, session health
+duo ceo-now --json-output           # Machine-readable version
+
+duo ceo-focus set my-task           # Set focus to a specific task
+duo ceo-focus-show                  # Show current focus
+duo ceo-focus-clear                 # Clear focus
+```
+
+### Autonomous Operations
+
+```bash
+duo ceo-loop my-task --timeout 3600     # Autonomous approve loop (1 hour)
+duo ceo-smart my-task                   # Single smart decision (approve/select/wait)
+duo ceo-smart-config                    # Show smart decision policy
+duo ceo-dispatch my-task                # Full autonomous dispatch cycle
+duo ceo-resume my-task "Continue work"  # Resume with instruction
+duo ceo-restart my-task                 # Kill pane + restart session
+duo ceo-cleanup my-task                 # Kill idle children, free FDs
+```
+
+### Session Analytics
+
+```bash
+duo ceo-session-start               # Begin a CEO session
+duo ceo-session-list                # List all CEO sessions
+duo ceo-session-replay <id>         # Replay session decisions
+duo ceo-session-stats <id>          # Session statistics
+duo ceo-metrics                     # Aggregate metrics across sessions
+duo ceo-metrics --since 2025-01-01  # Filter by date
+```
+
+See [`docs/ceo-workflow.md`](ceo-workflow.md) for full details.
+
+---
+
+## 15. Next Steps
 
 - **[`docs/ceo-workflow.md`](ceo-workflow.md)** — CEO command reference with bash loop examples and safety model documentation
 - **[`docs/architecture.md`](architecture.md)** — Deep dive into the FSM, file-based protocol, and security model
