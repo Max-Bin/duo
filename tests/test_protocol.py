@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from duo.protocol import (
+    DEFAULT_SECRET_PATTERNS,
     TASKS_DIR,
     TRANSITIONS,
     AckResult,
@@ -472,6 +473,70 @@ class TestTaskCRUD:
             '"pane_label":"p","security_policy":{}}'
         )
         assert load_task("bad-neg") is None
+
+
+class TestLoadTaskSecretPatternMerge:
+    """load_task() merges saved secret patterns with current defaults."""
+
+    def test_empty_saved_patterns_get_defaults(self):
+        """Task saved with empty secret_patterns gets all current defaults."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "merge-empty"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"merge-empty","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{"secret_patterns":[]}}'
+        )
+        task = load_task("merge-empty")
+        assert task is not None
+        assert len(task.security_policy.secret_patterns) >= len(DEFAULT_SECRET_PATTERNS)
+        for pat in DEFAULT_SECRET_PATTERNS:
+            assert pat in task.security_policy.secret_patterns
+
+    def test_custom_patterns_preserved(self):
+        """Custom patterns from saved task are preserved alongside defaults."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "merge-custom"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"merge-custom","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{"secret_patterns":["MY_CUSTOM_SECRET="]}}'
+        )
+        task = load_task("merge-custom")
+        assert task is not None
+        assert "MY_CUSTOM_SECRET=" in task.security_policy.secret_patterns
+        for pat in DEFAULT_SECRET_PATTERNS:
+            assert pat in task.security_policy.secret_patterns
+
+    def test_no_duplicates_in_merged_patterns(self):
+        """Patterns shared between saved and defaults don't duplicate."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "merge-dedup"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"merge-dedup","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{"secret_patterns":["API_KEY=","MY_EXTRA="]}}'
+        )
+        task = load_task("merge-dedup")
+        assert task is not None
+        # API_KEY= appears in defaults and saved — should only appear once
+        assert task.security_policy.secret_patterns.count("API_KEY=") == 1
+        assert "MY_EXTRA=" in task.security_policy.secret_patterns
 
 
 # ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 __all__ = [
+    "DEFAULT_SECRET_PATTERNS",
     "DUO_DIR",
     "TRANSITIONS",
     "SecurityPolicy",
@@ -173,58 +174,61 @@ class Subtask:
     forbidden_commands: list[str] = field(default_factory=list)
 
 
+DEFAULT_SECRET_PATTERNS: list[str] = [
+    "API_KEY=",
+    "api_key=",
+    "apikey=",
+    "PASSWORD=",
+    "password=",
+    "TOKEN=",
+    "token=",
+    "SECRET=",
+    "secret=",
+    "PRIVATE_KEY",
+    "private_key",
+    "Authorization: Bearer",
+    "github_pat_",
+    "ghp_",
+    "gho_",
+    "ghs_",
+    "ghr_",
+    "sk-proj-",
+    "sk-ant-",
+    "AKIA",
+    "ASIA",
+    "sk_live_",
+    "sk_test_",
+    "xoxb-",
+    "xoxp-",
+    "-----BEGIN RSA PRIVATE KEY",
+    "-----BEGIN EC PRIVATE KEY",
+    "-----BEGIN OPENSSH PRIVATE KEY",
+    "-----BEGIN PRIVATE KEY",
+    "-----BEGIN ENCRYPTED PRIVATE KEY",
+    "-----BEGIN PGP PRIVATE KEY BLOCK",
+    "glpat-",
+    "pypi-AgEIcHlwaS",
+    "npm_",
+    "AIZA",
+    "ghu_",
+    "xoxc-",
+    "xoxa-",
+    "ya29.",
+    "sk-svcacct-",
+    "AIza",
+    "SG.",
+    "sq0csp-",
+    "sq0atp-",
+]
+
+
 @dataclass
 class SecurityPolicy:
     """Security constraints enforced during verification."""
 
     writable_paths: list[str] = field(default_factory=list)
     secret_patterns: list[str] = field(
-        default_factory=lambda: [
-            "API_KEY=",
-            "api_key=",
-            "apikey=",
-            "PASSWORD=",
-            "password=",
-            "TOKEN=",
-            "token=",
-            "SECRET=",
-            "secret=",
-            "PRIVATE_KEY",
-            "private_key",
-            "Authorization: Bearer",
-            "github_pat_",
-            "ghp_",
-            "gho_",
-            "ghs_",
-            "ghr_",
-            "sk-proj-",
-            "sk-ant-",
-            "AKIA",
-            "ASIA",
-            "sk_live_",
-            "sk_test_",
-            "xoxb-",
-            "xoxp-",
-            "-----BEGIN RSA PRIVATE KEY",
-            "-----BEGIN EC PRIVATE KEY",
-            "-----BEGIN OPENSSH PRIVATE KEY",
-            "-----BEGIN PRIVATE KEY",
-            "-----BEGIN ENCRYPTED PRIVATE KEY",
-            "-----BEGIN PGP PRIVATE KEY BLOCK",
-            "glpat-",
-            "pypi-AgEIcHlwaS",
-            "npm_",
-            "AIZA",
-            "ghu_",
-            "xoxc-",
-            "xoxa-",
-            "ya29.",
-            "sk-svcacct-",
-            "AIza",
-            "SG.",
-            "sq0csp-",
-            "sq0atp-",
-        ]
+        default_factory=lambda: list(DEFAULT_SECRET_PATTERNS)
     )
     forbidden_commands: list[str] = field(default_factory=list)
     allow_network: bool = False
@@ -591,9 +595,11 @@ def load_task(task_id: str) -> Task | None:
     ]
 
     sp = data.get("security_policy", {})
+    loaded_patterns = sp.get("secret_patterns", [])
+    merged_patterns = list(dict.fromkeys(DEFAULT_SECRET_PATTERNS + loaded_patterns))
     security_policy = SecurityPolicy(
         writable_paths=sp.get("writable_paths", []),
-        secret_patterns=sp.get("secret_patterns", []),
+        secret_patterns=merged_patterns,
         forbidden_commands=sp.get("forbidden_commands", []),
         allow_network=sp.get("allow_network", False),
         require_human_approval=sp.get("require_human_approval", []),
