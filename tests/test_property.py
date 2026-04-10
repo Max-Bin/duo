@@ -702,12 +702,9 @@ class TestSecretPatternFalsePositives:
     def test_function_calls_safe(self, func: str, arg: str) -> None:
         """Function call lines should not trigger unless they contain secrets."""
         line = f"+result = {func}({arg})"
-        assume("token" not in func.lower())
-        assume("secret" not in func.lower())
-        assume("password" not in func.lower())
-        assume("key" not in func.lower())
-        assume("private" not in func.lower())
-        assume("bearer" not in func.lower())
+        # Exclude any line that contains a secret pattern substring
+        for pat in DEFAULT_SECRET_PATTERNS:
+            assume(pat.lower().rstrip("=") not in line.lower())
         for pattern in DEFAULT_SECRET_PATTERNS:
             if pattern.endswith("="):
                 key = re.escape(pattern[:-1])
