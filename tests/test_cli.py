@@ -12970,3 +12970,133 @@ class TestCliBranchGapsBatch1:
         assert "Changed files" not in result.output
         assert "Untracked files" not in result.output
         assert "Diff preview" not in result.output
+
+
+class TestCliBranchGapsBatch2:
+    """Close more cli.py branch gaps: kill worktree, audit, recover JSON."""
+
+    # -- kill: worktree list returns only base-path lines (978→986, 979→978) --
+    def test_kill_no_main_worktree_found(self, runner: CliRunner, tmp_path: Path):
+        """kill when all worktree lines contain base_path (978→986, 979→978)."""
+        task = _make_task("kill-nomw")
+        task.worktree = str(tmp_path / "gone")  # doesn't exist → also covers 990→1001
+        save_task(task)
+
+        base = "/my/worktrees"
+
+        def mock_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                # Only lines containing the base path → no main_worktree found
+                m.stdout = (
+                    f"worktree {base}/kill-nomw\n  branch refs/heads/duo/kill-nomw\n\n"
+                )
+            return m
+
+        with (
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+            patch("duo.cli.subprocess.run", side_effect=mock_run),
+            patch("duo.cli.get_config", return_value=base),
+        ):
+            result = runner.invoke(main, ["kill", "kill-nomw"])
+        assert result.exit_code == 0
+        assert "Killed" in result.output
+
+    # -- kill: worktree doesn't exist, skip removal (990→1001) --
+    def test_kill_worktree_gone(self, runner: CliRunner, tmp_path: Path):
+        """kill skips worktree removal when path doesn't exist (990→1001)."""
+        task = _make_task("kill-wgone")
+        task.worktree = str(tmp_path / "vanished")
+        save_task(task)
+
+        def mock_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = "worktree /main\n  branch refs/heads/main\n\n"
+            return m
+
+        with (
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+            patch("duo.cli.subprocess.run", side_effect=mock_run),
+        ):
+            result = runner.invoke(main, ["kill", "kill-wgone"])
+        assert result.exit_code == 0
+        assert "Killed" in result.output
+
+    # -- audit: task with no pr_consumed events (1306→exit) --
+    def test_audit_no_pr_events(self, runner: CliRunner):
+        """audit shows task with 0 PR consumed, no table (1306→exit)."""
+        from duo.protocol import append_event
+
+        task = _make_task("audit-nopr")
+        # Write a non-pr event
+        append_event(task, "task_started", {})
+
+        result = runner.invoke(main, ["audit", "audit-nopr"])
+        assert result.exit_code == 0
+        assert "PR consumed: 0" in result.output
+        assert "TIME" not in result.output  # no table header
+
+    # -- resume --json-output: is_process_alive throws (2575→2581) --
+    def test_resume_json_pane_check_error(self, runner: CliRunner):
+        """resume --json-output suppresses pane check warning (2575→2581)."""
+        task = _make_task("res-jpce")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.transport.is_process_alive", side_effect=OSError("no tmux")),
+            patch("duo.commander.normalize_for_restart", return_value=True),
+            patch("duo.commander.start_session"),
+            patch("duo.commander.build_task_prompt", return_value="prompt"),
+            patch("duo.commander.send_task_prompt"),
+        ):
+            result = runner.invoke(main, ["resume", "res-jpce", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["resumed"]) == 1
+        assert "could not check pane" not in result.output
+
+    # -- resume --json-output: pane alive + restart success (2594→2596) --
+    def test_resume_json_restart_success(self, runner: CliRunner):
+        """resume --json-output suppresses restart echo (2594→2596)."""
+        task = _make_task("res-jrs")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+            patch("duo.commander.restart_session"),
+            patch("duo.commander.build_task_prompt", return_value="prompt"),
+            patch("duo.commander.send_task_prompt"),
+        ):
+            result = runner.invoke(main, ["resume", "res-jrs", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["resumed"][0]["resumed"] is True
+        assert data["resumed"][0]["method"] == "restart"
+        assert "Resumed task" not in result.output
+
+    # -- resume --json-output: replay prompt fails (2633→2570 loop) --
+    def test_resume_json_replay_prompt_fails(self, runner: CliRunner):
+        """resume --json-output suppresses prompt replay warning (2633→2570)."""
+        task = _make_task("res-jrpf")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.transport.is_process_alive", return_value=False),
+            patch("duo.commander.normalize_for_restart", return_value=True),
+            patch("duo.commander.start_session"),
+            patch("duo.commander.build_task_prompt", return_value="prompt"),
+            patch("duo.commander.send_task_prompt", side_effect=OSError("tmux dead")),
+        ):
+            result = runner.invoke(main, ["resume", "res-jrpf", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["resumed"][0]["resumed"] is True
+        assert "could not replay prompt" not in result.output
