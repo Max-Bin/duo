@@ -1259,6 +1259,12 @@ class TestApprovePermission:
         with patch("duo.transport.is_in_dialog_stable", return_value=True):
             yield
 
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        """Eliminate real sleeps for test speed."""
+        with patch("duo.transport._time.sleep"):
+            yield
+
     def test_rejects_unstable_dialog(self):
         """Refuses to approve when dialog is not stable."""
         with patch("duo.transport.is_in_dialog_stable", return_value=False):
@@ -1376,6 +1382,12 @@ class TestApprovePermission:
 
 class TestSendOptionOtherMessage:
     """Tests for send_option_other_message — reliable Enter for Other option."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        """Eliminate real sleeps for test speed."""
+        with patch("duo.transport._time.sleep"):
+            yield
 
     @patch("duo.transport._record_pr")
     @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
@@ -1578,6 +1590,12 @@ class TestSelectOtherOption:
 
 class TestSendTextDialogMessage:
     """Tests for send_text_dialog_message — reliable Enter for text dialogs."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        """Eliminate real sleeps for test speed."""
+        with patch("duo.transport._time.sleep"):
+            yield
 
     @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")
@@ -3177,6 +3195,12 @@ class TestSafeEnterToctuDetection:
 
 class TestApprovePermissionNoFallback:
     """approve_permission must raise when no recognizable yes option."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self):
+        """Eliminate real sleeps for test speed."""
+        with patch("duo.transport._time.sleep"):
+            yield
 
     @patch("duo.transport.select_dialog_option")
     @patch("duo.transport.read_pane")
