@@ -6062,6 +6062,132 @@ class TestDoctorOrphanWorktrees:
         assert "skipped" in result.message
 
 
+class TestDoctorAutoFix:
+    """Tests for _doctor_auto_fix() and doctor --fix."""
+
+    def test_fix_removes_stale_locks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--fix removes stale .lock files."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        (tmp_path / ".my-task.lock").touch()
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=128, stdout=""),
+        )
+        fixed = _doctor_auto_fix()
+        assert any("stale lock" in f for f in fixed)
+        assert not (tmp_path / ".my-task.lock").exists()
+
+    def test_fix_purges_quarantined(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--fix purges quarantined tasks."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        qdir = tmp_path / "bad-task"
+        qdir.mkdir()
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [qdir])
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=128, stdout=""),
+        )
+        fixed = _doctor_auto_fix()
+        assert any("quarantined" in f for f in fixed)
+
+    def test_fix_nothing_to_fix(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """--fix with nothing broken returns empty list."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=128, stdout=""),
+        )
+        fixed = _doctor_auto_fix()
+        assert fixed == []
+
+    def test_fix_orphan_worktree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """--fix removes orphan duo-* worktrees."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        porcelain = "worktree /repo\n\nworktree /repo/duo-orphan\nbranch refs/heads/duo/orphan\n"
+        calls: list[list[str]] = []
+
+        def fake_run(*a: object, **kw: object) -> MagicMock:
+            cmd = a[0] if a else kw.get("args", [])
+            calls.append(cmd)
+            if cmd and "list" in cmd:
+                return MagicMock(returncode=0, stdout=porcelain)
+            return MagicMock(returncode=0, stdout="")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        fixed = _doctor_auto_fix()
+        assert any("orphan worktree" in f for f in fixed)
+
+    def test_fix_git_error_skips_orphan_scan(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--fix handles git errors gracefully during orphan scan."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+
+        def raise_os_error(*a: object, **kw: object) -> None:
+            raise OSError("no git")
+
+        monkeypatch.setattr("duo.cli.subprocess.run", raise_os_error)
+        fixed = _doctor_auto_fix()
+        assert not any("orphan" in f for f in fixed)
+
+    def test_doctor_fix_flag_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """doctor --fix shows fixed items in output."""
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        (tmp_path / ".stale.lock").touch()
+        monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=5 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
+        )
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        result = runner.invoke(main, ["doctor", "--fix"])
+        assert "Auto-fixed" in result.output
+        assert "stale lock" in result.output
+
+    def test_doctor_fix_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """doctor --fix --json-output includes fixed list."""
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        (tmp_path / ".old.lock").touch()
+        monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        usage = MagicMock(free=5 * 1024 * 1024 * 1024)
+        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
+        )
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        result = runner.invoke(main, ["doctor", "--fix", "--json-output"])
+        data = json.loads(result.output)
+        assert "fixed" in data
+        assert len(data["fixed"]) >= 1
+
+
 # ── Copilot health check (doctor) ────────────────────────────────────
 
 

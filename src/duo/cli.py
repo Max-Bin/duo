@@ -2337,14 +2337,72 @@ _STATUS_COLORS: dict[str, str] = {
 }
 
 
+def _doctor_auto_fix() -> list[str]:
+    """Attempt to auto-fix known issues. Returns list of fixed descriptions."""
+    import shutil
+
+    fixed: list[str] = []
+
+    # Fix 1: Remove stale .lock files
+    if TASKS_DIR.exists():
+        for lf in TASKS_DIR.glob(".*.lock"):
+            lf.unlink(missing_ok=True)
+            fixed.append(f"removed stale lock: {lf.name}")
+
+    # Fix 2: Purge quarantined (corrupted) tasks
+    from duo.protocol import list_corrupted
+
+    for p in list_corrupted():
+        shutil.rmtree(p, ignore_errors=True)
+        fixed.append(f"purged quarantined task: {p.name}")
+
+    # Fix 3: Remove orphan duo-* worktrees
+    try:
+        r = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        r = None
+
+    if r and r.returncode == 0:
+        known_ids = (
+            {d.name for d in TASKS_DIR.iterdir() if d.is_dir()}
+            if TASKS_DIR.exists()
+            else set()
+        )
+        for line in r.stdout.splitlines():
+            if line.startswith("worktree "):
+                wt_path = line[len("worktree ") :]
+                wt_name = Path(wt_path).name
+                if wt_name.startswith("duo-") and wt_name[4:] not in known_ids:
+                    rm = subprocess.run(
+                        ["git", "worktree", "remove", "--force", wt_path],
+                        capture_output=True,
+                        text=True,
+                        timeout=30,
+                    )
+                    if rm.returncode == 0:
+                        fixed.append(f"removed orphan worktree: {wt_name}")
+
+    return fixed
+
+
 @main.command()
 @click.option("--json-output", is_flag=True, help="Output diagnostics as JSON.")
 @click.option("--strict", is_flag=True, help="Exit non-zero on warnings too.")
-def doctor(json_output: bool, strict: bool) -> None:
+@click.option("--fix", is_flag=True, help="Auto-fix issues that can be resolved.")
+def doctor(json_output: bool, strict: bool, fix: bool) -> None:
     """Check environment dependencies and configuration."""
     results: list[CheckResult] = [fn() for fn in _DOCTOR_CHECKS]
     results.extend(_doctor_check_copilot_health())
     results.extend(_doctor_check_capi_error())
+
+    fixed_items: list[str] = []
+    if fix:
+        fixed_items = _doctor_auto_fix()
 
     counts = {"pass": 0, "warn": 0, "fail": 0}
     for r in results:
@@ -2364,6 +2422,8 @@ def doctor(json_output: bool, strict: bool) -> None:
             ],
             "summary": {**counts, "total": total},
         }
+        if fix:
+            payload["fixed"] = fixed_items
         click.echo(json.dumps(payload, indent=2))
     else:
         click.echo("Duo Environment Diagnostics")
@@ -2387,6 +2447,10 @@ def doctor(json_output: bool, strict: bool) -> None:
                 f"{counts['fail']} failure{'s' if counts['fail'] != 1 else ''}"
             )
         click.echo(f"\n{', '.join(parts)}")
+        if fixed_items:
+            click.echo(f"\nAuto-fixed {len(fixed_items)} issue(s):")
+            for item in fixed_items:
+                click.echo(f"  ✓ {item}")
 
     has_fail = counts["fail"] > 0
     has_warn = counts["warn"] > 0
