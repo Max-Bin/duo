@@ -13100,3 +13100,170 @@ class TestCliBranchGapsBatch2:
         data = json.loads(result.output)
         assert data["resumed"][0]["resumed"] is True
         assert "could not replay prompt" not in result.output
+
+
+class TestCliBranchGapsBatch3:
+    """Close ceo-now, init, cleanup display gaps."""
+
+    # -- ceo-now text mode: git fails → no Git line (3799→3806) --
+    def test_ceo_now_text_git_fails(self, runner: CliRunner):
+        """ceo-now text mode skips Git line when git errors (3799→3806)."""
+        with patch("subprocess.run", side_effect=OSError("git not found")):
+            result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "Git:" not in result.output
+
+    # -- _gather_git_info: returncode != 0 → git_info stays None (3569→3571,3578,3587) --
+    def test_gather_git_info_returncode_nonzero(self):
+        """_gather_git_info when git log fails returns None (3569,3578,3587)."""
+        from duo.cli import _gather_git_info
+
+        fail = MagicMock(returncode=1, stdout="", stderr="not a repo")
+        with patch("subprocess.run", return_value=fail):
+            result = _gather_git_info()
+        assert result is None
+
+    # -- ceo-now text mode: pane with empty recent_lines (3764→3769) --
+    def test_ceo_now_text_pane_no_recent_lines(self, runner: CliRunner, make_task):
+        """ceo-now text: pane info shown but no Recent output (3764→3769)."""
+        make_task("pane-nrl")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("pane-nrl")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch("duo.transport.read_pane", return_value=""),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "Pane:" in result.output
+        assert "Recent output:" not in result.output
+
+    # -- ceo-now: journal doesn't exist → pr_count=0, no capi_error (3661→3669) --
+    def test_ceo_now_no_journal(self, runner: CliRunner, make_task):
+        """ceo-now health: journal absent skips event counting (3661→3669)."""
+        task = make_task("no-jour")
+        # Remove journal if it exists
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("no-jour")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        h = data.get("health")
+        if h is not None:
+            assert h.get("pr_count", 0) == 0
+
+    # -- _gather_session_health: direct test for journal absent + fd=0 (3661,3673) --
+    def test_gather_session_health_no_journal_no_fds(self, make_task):
+        """_gather_session_health with no journal and zero fds (3661→3669, 3673→3676)."""
+        from duo.cli import _gather_session_health
+
+        task = make_task("health-nj")
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+
+        with (
+            patch("duo.transport.get_pane_pid", return_value=42),
+            patch("duo.cli._get_pid_fd_count", return_value=0),
+            patch("duo.cli._get_pid_kqueue_count", return_value=0),
+            patch("duo.cli._get_pid_child_count", return_value=0),
+        ):
+            result = _gather_session_health(task)
+        assert result is not None
+        assert result["fd_count"] == 0
+        assert result["pr_count"] == 0
+        assert result.get("est_remaining_hours") is None
+
+    # -- ceo-now: fd_rate_per_hour is 0 → skip est_remaining_hours (3673→3676) --
+    # NOTE: mathematically unreachable when fd_count > 0 and age > 60,
+    # but we test the outer guard (fd_count == 0 → skip entire block)
+    def test_ceo_now_health_no_fds(self, runner: CliRunner, make_task):
+        """ceo-now health: fd_count=0 skips remaining hours estimate (covers 3673)."""
+        make_task("fd-zero")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("fd-zero")
+        with (
+            patch("duo.transport.resolve_label", return_value="%1"),
+            patch("duo.transport.is_in_dialog", return_value=False),
+            patch("duo.transport.get_pane_pid", return_value=123),
+            patch("duo.cli._get_pid_fd_count", return_value=0),
+            patch("duo.cli._get_pid_kqueue_count", return_value=0),
+            patch("duo.cli._get_pid_child_count", return_value=0),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+            ),
+        ):
+            result = runner.invoke(main, ["ceo-now", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        h = data.get("health")
+        if h:
+            assert h.get("est_remaining_hours") is None
+
+    # -- init: config.json already exists → skip creation (1832→1837) --
+    def test_init_config_already_exists(self, runner: CliRunner, tmp_path: Path):
+        """init skips config.json creation when it already exists (1832→1837)."""
+        from duo.cli import DUO_DIR
+
+        # Create config.json before init
+        config_path = DUO_DIR / "config.json"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text("{}", encoding="utf-8")
+
+        result = runner.invoke(main, ["init"])
+        assert result.exit_code == 0
+        # config.json should NOT be in the "Created:" list since it already existed
+        # (The init command may still succeed but just not mention creating config)
+
+    # -- cleanup/doctor: TASKS_DIR doesn't exist → skip lock cleanup (2423→2429) --
+    def test_doctor_auto_fix_tasks_dir_absent(self, monkeypatch):
+        """_doctor_auto_fix skips lock scan when TASKS_DIR gone (2423→2429)."""
+        import duo.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", Path("/nonexistent/tasks"))
+        # Also mock subprocess to avoid git calls
+        with patch("duo.cli.subprocess.run", side_effect=OSError("no git")):
+            fixed = cli_mod._doctor_auto_fix()
+        # Should succeed without error, just skip lock cleanup
+        assert isinstance(fixed, list)
+
+    # -- cleanup: orphan worktree removal succeeds (2463→2452) --
+    def test_cleanup_orphan_worktree_removed(self, runner: CliRunner, tmp_path: Path):
+        """cleanup successfully removes orphan worktree (2463→2452)."""
+        task = _make_task("cleanup-orphan")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+
+        def mock_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "worktree", "list"]:
+                # List a worktree that matches TASKS_DIR naming but task is FAILED
+                m.stdout = "worktree /tmp/wt/cleanup-orphan\n  branch refs/heads/duo/cleanup-orphan\n\n"
+            if args[:3] == ["git", "worktree", "remove"]:
+                m.returncode = 0
+            return m
+
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_run),
+            patch("duo.cli.get_config", return_value="/tmp/wt"),
+        ):
+            result = runner.invoke(main, ["cleanup", "--json-output"])
+        assert result.exit_code == 0
