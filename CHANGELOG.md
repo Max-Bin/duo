@@ -26,6 +26,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo batch --json-output` — structured batch creation results
 - `duo diff --json-output` — structured diff info (files, stat, base commit)
 - `duo version --json-output` — machine-readable version info
+- `duo config get --json-output` — machine-readable config value
+- `duo config list --json-output` — all config values as JSON
+- `duo init --json-output` — structured init results for CI/CD
 - `duo doctor` stale-locks check — warns about orphaned `.lock` files in TASKS_DIR
 - `duo doctor` orphan-worktrees check — detects stale `duo-*` git worktrees
 - `duo doctor --fix` — auto-resolve stale locks, quarantined tasks, and orphan worktrees
