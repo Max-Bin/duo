@@ -459,6 +459,19 @@ undoing the stop. Fixed: `poll_task` re-reads task status from disk before
 auto-restarting. Also handles corrupt `task.json` (load_task returns None)
 by skipping restart instead of proceeding blindly.
 
+### FSM recovery paths bypass illegal transitions (Round FF, commit `12a0a4b`)
+Three related bugs found by rubber-duck convergence (3 independent agents):
+1. `restart_session()` performed side effects (incarnation bump, pane kill,
+   heartbeat clear) before validating the transition was legal. Active states
+   like RUNNING/ACKED cannot directly → SESSION_STARTING.
+2. `cli resume` dead-pane path called `start_session()` without normalizing
+   state, then reported success unconditionally.
+3. `cli stop` could only transition to BLOCKED from 3 states but reported
+   success from all non-terminal states after killing the pane.
+Fixed: `normalize_for_restart()` moves active → FAILED first; expanded
+TRANSITIONS allows BLOCKED from all non-terminal states; stop reports
+`stopped=False` on transition failure.
+
 ---
 
 ## Copilot CAPIError 400 Bad Request on long sessions
