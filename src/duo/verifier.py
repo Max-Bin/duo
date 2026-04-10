@@ -70,12 +70,12 @@ def _validate_writable_patterns(patterns: list[str]) -> list[str]:
 # === Result types ===
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Pass:
     """All checks passed."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Correction:
     """One or more checks failed; includes the reason for the caller."""
 

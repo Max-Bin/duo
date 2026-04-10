@@ -174,7 +174,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
 # === Data models ===
 
 
-@dataclass
+@dataclass(slots=True)
 class Subtask:
     """A single step within a task, with its scope and acceptance criteria."""
 
@@ -247,7 +247,7 @@ DEFAULT_SECRET_PATTERNS: list[str] = [
 ]
 
 
-@dataclass
+@dataclass(slots=True)
 class SecurityPolicy:
     """Security constraints enforced during verification."""
 
@@ -262,7 +262,7 @@ class SecurityPolicy:
     )
 
 
-@dataclass
+@dataclass(slots=True)
 class Task:
     """Core task model holding FSM state, subtasks, and file-protocol paths."""
 
@@ -809,7 +809,7 @@ def list_corrupted() -> list[Path]:
 # === File protocol readers (step/attempt-aware) ===
 
 
-@dataclass
+@dataclass(slots=True)
 class Heartbeat:
     """Parsed heartbeat.json written by the executor session."""
 
@@ -820,7 +820,7 @@ class Heartbeat:
     current_file: str
 
 
-@dataclass
+@dataclass(slots=True)
 class AckResult:
     """Parsed acknowledgement written by the executor for a step attempt."""
 
@@ -831,7 +831,7 @@ class AckResult:
     acked_at: str
 
 
-@dataclass
+@dataclass(slots=True)
 class StepResult:
     """Parsed result written by the executor after completing a step attempt."""
 
