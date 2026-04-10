@@ -286,6 +286,7 @@ def completion(shell: str) -> None:
     is_flag=True,
     help="Use plan.md from a thinking session as the task description",
 )
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def start(
     name: str,
     repo: str,
@@ -293,6 +294,8 @@ def start(
     model: str | None,
     start_queued: bool,
     from_thinking: bool,
+    *,
+    as_json: bool = False,
 ) -> None:
     """Create a task with worktree + Copilot session."""
     from duo.commander import start_session
@@ -387,7 +390,21 @@ def start(
         from duo.protocol import transition
 
         transition(task, TaskStatus.QUEUED)
-        click.echo(f"Task '{name}' queued.")
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "created": True,
+                        "task": name,
+                        "worktree": worktree,
+                        "branch": branch,
+                        "incarnation": task.incarnation_id,
+                        "status": "queued",
+                    }
+                )
+            )
+        else:
+            click.echo(f"Task '{name}' queued.")
         return
 
     # Check if we should queue or start
@@ -397,17 +414,48 @@ def start(
 
     if action == "queued":
         qs = queue_status()
-        click.echo(
-            f"  Queued ({qs['queued_count']} in queue). {qs['active_count']}/{qs['max_parallel']} slots in use."
-        )
-        click.echo("  Task will start automatically when a slot opens.")
-        click.echo("  Run 'duo monitor' to manage the queue.")
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "created": True,
+                        "task": name,
+                        "worktree": worktree,
+                        "branch": branch,
+                        "incarnation": task.incarnation_id,
+                        "status": "queued",
+                        "queue_position": qs["queued_count"],
+                    }
+                )
+            )
+        else:
+            click.echo(
+                f"  Queued ({qs['queued_count']} in queue). {qs['active_count']}/{qs['max_parallel']} slots in use."
+            )
+            click.echo("  Task will start automatically when a slot opens.")
+            click.echo("  Run 'duo monitor' to manage the queue.")
         return
 
     # Start Copilot session
-    click.echo("Starting Copilot session...")
+    if not as_json:
+        click.echo("Starting Copilot session...")
     start_session(task)
-    click.echo(f"Session started. Pane label: {task.pane_label}")
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "created": True,
+                    "task": name,
+                    "worktree": worktree,
+                    "branch": branch,
+                    "incarnation": task.incarnation_id,
+                    "pane_label": task.pane_label,
+                    "status": "started",
+                }
+            )
+        )
+    else:
+        click.echo(f"Session started. Pane label: {task.pane_label}")
 
 
 @main.command()

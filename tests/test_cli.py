@@ -4916,6 +4916,77 @@ class TestStartFlags:
         assert result.exit_code != 0
         assert "empty" in result.output.lower()
 
+    def test_start_queue_json_output(self, runner: CliRunner, tmp_path: Path):
+        """start --queue --json-output returns structured JSON."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "q-json"), "abc123")
+            result = runner.invoke(
+                main,
+                [
+                    "start",
+                    "q-json",
+                    "--queue",
+                    "--json-output",
+                    "--repo",
+                    str(tmp_path),
+                ],
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output.strip().split("\n")[-1])
+            assert data["created"] is True
+            assert data["task"] == "q-json"
+            assert data["status"] == "queued"
+            assert "worktree" in data
+
+    def test_start_json_output(self, runner: CliRunner, tmp_path: Path):
+        """start --json-output returns structured JSON with pane label."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "s-json"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "s-json", "--json-output", "--repo", str(tmp_path)],
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output.strip().split("\n")[-1])
+            assert data["created"] is True
+            assert data["task"] == "s-json"
+            assert data["status"] == "started"
+            assert "pane_label" in data
+
+    def test_start_auto_queued_json_output(self, runner: CliRunner, tmp_path: Path):
+        """start --json-output when auto-queued (slots full) returns queued status."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.scheduler.enqueue_or_start", return_value="queued"),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 3,
+                    "queued_count": 1,
+                    "max_parallel": 3,
+                    "active_tasks": ["a", "b", "c"],
+                    "queued_tasks": ["aq-json"],
+                },
+            ),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "aq-json"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "aq-json", "--json-output", "--repo", str(tmp_path)],
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output.strip().split("\n")[-1])
+            assert data["created"] is True
+            assert data["task"] == "aq-json"
+            assert data["status"] == "queued"
+            assert "queue_position" in data
+
 
 # ---------------------------------------------------------------------------
 # _create_single_task queue_only=True path
