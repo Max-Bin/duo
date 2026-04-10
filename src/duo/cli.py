@@ -2963,7 +2963,10 @@ def config_set(key: str, value: str, *, as_json: bool = False) -> None:
 
     if key not in DEFAULTS:
         click.echo(f"Warning: '{key}' is not a known config key", err=True)
-    result = set_config(key, value)
+    try:
+        result = set_config(key, value)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
     if as_json:
         click.echo(json.dumps({key: result}))
     else:

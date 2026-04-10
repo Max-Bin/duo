@@ -3441,6 +3441,17 @@ class TestConfigSubcommands:
         result = runner.invoke(main, ["config", "set", "unknown_key", "val"])
         assert "not a known config key" in result.output
 
+    def test_config_set_invalid_bool_error(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "set", "auto_allow_all", "maybe"])
+        assert result.exit_code != 0
+        assert "Cannot convert" in result.output
+
     def test_config_list(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         import duo.config as config_mod
 
