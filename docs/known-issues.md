@@ -350,29 +350,19 @@ correctness bugs. Revisit when any becomes a real-world problem.
 
 ---
 
-## FSM transition() return value ignored by callers — LOW PRIORITY
+## FSM transition() return value ignored by callers — RESOLVED
 
-**Status: Open, low priority.**
+**Status: Resolved** (Round FD, commit `22c6237`).
 
-**Observation:**
-Round BJ changed `transition()` from `-> None` to `-> bool` (returns
-`False` on illegal transition). However, all callers in `commander.py`,
-`scheduler.py`, and `cli.py` ignore the return value. This means illegal
-FSM transitions are logged to journal but control flow proceeds as if
-the transition succeeded (status is unchanged but caller doesn't branch).
+All critical call sites now check `transition()` return values:
+- `commander.py`: start_session, verify_and_advance, COMPLETED, ESCALATED,
+  CORRECTING (with attempt rollback) all guard on transition success
+- `scheduler.py`: promote_queued skips failed transitions, enqueue_or_start
+  falls back gracefully
+- `cli.py`: retry exits non-zero, start/resume --queue warn on failure
+- Error paths (FAILED, BLOCKED) emit events only on successful transition
 
-**Impact:** Low in practice — illegal transitions are rare and the FSM
-state remains correct (status is not mutated on failure). The risk is
-subtle: a caller might continue sending prompts to an executor whose
-task is not actually in PROMPT_SENT state.
-
-**Fix direction:** Audit each `transition()` call site. For critical
-paths (e.g., `commander.py` orchestration loop), check the return value
-and abort/retry. For non-critical paths (e.g., CLI cleanup), logging
-is sufficient.
-
-**Priority:** Low. The FSM is self-consistent — no state corruption
-occurs. The return value enables future callers to be more defensive.
+13 regression tests cover all failure branches.
 
 ---
 

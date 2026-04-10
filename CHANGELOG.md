@@ -43,6 +43,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `_THREAD_LOCKS` auto-eviction: max 256 cached locks with idle eviction to prevent unbounded growth
 - `events list` no longer prints each event twice in non-JSON mode
 - `config reset` now rejects unknown keys with helpful error message
+- **All FSM `transition()` call sites now check return values** — critical paths abort/rollback on failure, CORRECTING rolls back attempt counter, scheduler slot accounting protected
 
 ### Security
 - `_get_copilot_model()` validates env var characters — rejects shell metacharacters

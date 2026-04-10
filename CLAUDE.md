@@ -100,7 +100,7 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 1944+ tests, **100% test coverage required** (enforced via `make coverage`)
+- 1963+ tests, **100% test coverage required** (enforced via `make coverage`)
 - Tests organized by module in `tests/test_*.py` (10 test files)
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
