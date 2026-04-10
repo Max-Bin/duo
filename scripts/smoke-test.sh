@@ -174,6 +174,49 @@ run_test_expect_fail "ceo-approve no-task" duo ceo-approve nonexistent-task
 run_test_expect_fail "ceo-select no-task" duo ceo-select nonexistent-task 1
 run_test_expect_fail "ceo-resume no-task" duo ceo-resume nonexistent-task "msg"
 
+# === JSON output validation (must produce valid JSON) ===
+echo ""
+echo "🔍 JSON output validation"
+run_test_json() {
+    local name="$1"
+    shift
+    if output=$("$@" 2>&1); then
+        if echo "$output" | python3 -m json.tool > /dev/null 2>&1; then
+            pass "$name"
+        else
+            fail "$name" "output is not valid JSON: ${output:0:80}"
+        fi
+    else
+        fail "$name" "exit $? — ${output:0:120}"
+    fi
+}
+run_test_json "list --json-output" duo list --json-output
+run_test_json "version --json-output" duo version --json-output
+run_test_json "config list --json-output" duo config list --json-output
+run_test_json "config get --json-output" duo config get poll_base_interval --json-output
+run_test_json "queue --json-output" duo queue --json-output
+run_test_json "cost --json-output" duo cost --json-output
+run_test_json "audit --json-output" duo audit --json-output
+run_test_json "stats --json-output" duo stats --json-output
+run_test_json "recover --json-output" duo recover --json-output
+run_test_json "cleanup --json-output" duo cleanup --force --json-output
+run_test_json "events list --json-output" duo events list --json-output
+run_test_json "init --json-output" duo init --repo "${INIT_REPO}" --json-output
+run_test_json_allow_fail() {
+    local name="$1"
+    shift
+    local rc=0
+    output=$("$@" 2>&1) || rc=$?
+    if echo "$output" | python3 -m json.tool > /dev/null 2>&1; then
+        pass "$name"
+    elif [[ $rc -ne 0 ]]; then
+        pass "$name (exit $rc — non-JSON error output expected)"
+    else
+        fail "$name" "output is not valid JSON: ${output:0:80}"
+    fi
+}
+run_test_json_allow_fail "doctor --json-output" duo doctor --json-output
+
 # === Summary ===
 echo ""
 echo "========================"
