@@ -217,3 +217,43 @@ class TestSessionStatsEdgeCases:
         stats = session_stats(session_id)
         assert stats["decisions_made"] == 1
         assert stats["avg_decision_ms"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Session ID validation (path traversal prevention)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionIdValidation:
+    """Defence-in-depth: reject unsafe session IDs."""
+
+    @pytest.mark.parametrize(
+        "bad_id",
+        [
+            "..",
+            "../evil",
+            "../../etc",
+            ".hidden",
+            "has space",
+            "has;semi",
+            "",
+            "-starts-dash",
+        ],
+    )
+    def test_replay_rejects_unsafe_id(self, bad_id: str) -> None:
+        with pytest.raises(ValueError, match="Invalid CEO session ID"):
+            replay_session(bad_id)
+
+    @pytest.mark.parametrize(
+        "bad_id",
+        ["..", "../x", "a b", ""],
+    )
+    def test_session_stats_rejects_unsafe_id(self, bad_id: str) -> None:
+        with pytest.raises(ValueError, match="Invalid CEO session ID"):
+            session_stats(bad_id)
+
+    def test_start_session_produces_valid_id(self) -> None:
+        """IDs from start_ceo_session always pass validation."""
+        session_id = start_ceo_session()
+        # Should not raise
+        replay_session(session_id)

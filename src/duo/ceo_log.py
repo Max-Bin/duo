@@ -4,12 +4,24 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from typing import Any
 
 from duo.protocol import DUO_DIR, now_iso, read_jsonl
 
 CEO_SESSIONS_DIR = DUO_DIR / "ceo-sessions"
+
+_SAFE_SESSION_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+
+
+def _validate_session_id(session_id: str) -> None:
+    """Reject session IDs that could cause path traversal."""
+    if not _SAFE_SESSION_ID.match(session_id):
+        raise ValueError(
+            f"Invalid CEO session ID: {session_id!r} "
+            "(must start with alphanumeric, then alphanumeric/underscore/hyphen/dot)"
+        )
 
 
 def start_ceo_session() -> str:
@@ -85,12 +97,14 @@ def list_sessions() -> list[str]:
 
 def replay_session(session_id: str) -> list[dict[str, Any]]:
     """Read all events from a session."""
+    _validate_session_id(session_id)
     events_path = CEO_SESSIONS_DIR / session_id / "events.jsonl"
     return read_jsonl(events_path)
 
 
 def session_stats(session_id: str) -> dict[str, Any]:
     """Compute stats for a session."""
+    _validate_session_id(session_id)
     events = replay_session(session_id)
     dialogs = [e for e in events if e.get("event") == "dialog_detected"]
     decisions = [e for e in events if e.get("event") == "decision"]
@@ -114,6 +128,7 @@ def session_stats(session_id: str) -> dict[str, Any]:
 
 def _append_event(session_id: str, event: dict[str, Any]) -> None:
     """Append an event to the session's events.jsonl."""
+    _validate_session_id(session_id)
     events_path = CEO_SESSIONS_DIR / session_id / "events.jsonl"
     events_path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(event, ensure_ascii=False) + "\n"
