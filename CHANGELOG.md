@@ -100,6 +100,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Pre-release check validates SECURITY.md version alignment
 - Public API stability tests for `duo.__all__` exports
 - 4 Hypothesis property-based tests for config coercion (int, float, bool round-trips)
+- Enabled SIM/PIE/PERF ruff rule categories; fixed all violations (startswith/endswith tuple, redundant pass, simplified returns)
+- 6 new Hypothesis property tests: atomic_write roundtrip, JSONL append+tail, prompt_hash stability
 
 ## [1.0.0] — 2026-04-09
 
