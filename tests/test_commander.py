@@ -1201,6 +1201,91 @@ class TestClaudeCommander:
         # Should NOT raise
         write_commander_claude_md(task)
 
+    def test_write_claude_md_ceo_content(self) -> None:
+        """CLAUDE.md contains CEO identity, defer workflow, PR budget, and commands."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            write_commander_claude_md(task)
+            content = (Path(tmp) / "CLAUDE.md").read_text()
+            # CEO identity
+            assert "CEO" in content
+            assert task.id in content
+            assert task.pane_label in content
+            # Defer workflow
+            assert "defer" in content.lower()
+            assert "duo send" in content
+            assert "duo ceo-status" in content
+            # PR budget
+            assert "Premium Request" in content
+            assert "FREE" in content
+            # Commands table
+            assert "duo ceo-select" in content
+            assert "duo ceo-approve" in content
+            assert "duo watch" in content
+            assert "duo doctor" in content
+            assert "duo ceo-cleanup" in content
+            assert "duo ceo-restart" in content
+            assert "duo diff" in content
+            # Rubber-duck
+            assert "rubber-duck" in content.lower() or "Rubber-duck" in content
+            # Known pitfalls
+            assert "kqueue" in content or "leak" in content
+            assert "CAPIError" in content
+
+    def test_write_claude_md_includes_plan(self) -> None:
+        """CLAUDE.md includes thinking session plan.md when it exists."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            # Create a plan file
+            plan_dir = Path(task.dir).parent.parent / "thinking" / task.id
+            plan_dir.mkdir(parents=True, exist_ok=True)
+            (plan_dir / "plan.md").write_text("# Test Plan\nDo X then Y")
+            with patch("duo.commander.DUO_DIR", plan_dir.parent.parent):
+                # Re-patch so the function looks in the right place
+                pass
+            # The function uses DUO_DIR from protocol — need to create at real path
+            from duo.protocol import DUO_DIR
+
+            thinking_dir = DUO_DIR / "thinking" / task.id
+            thinking_dir.mkdir(parents=True, exist_ok=True)
+            (thinking_dir / "plan.md").write_text("# Test Plan\nDo X then Y")
+            try:
+                write_commander_claude_md(task)
+                content = (Path(tmp) / "CLAUDE.md").read_text()
+                assert "Thinking Session Plan" in content
+                assert "Do X then Y" in content
+            finally:
+                # Cleanup
+                (thinking_dir / "plan.md").unlink(missing_ok=True)
+                thinking_dir.rmdir()
+
+    def test_write_claude_md_plan_read_error(self) -> None:
+        """CLAUDE.md still generated when plan.md read raises OSError."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with patch("duo.commander.DUO_DIR", Path(tmp) / ".duo"):
+                plan_dir = Path(tmp) / ".duo" / "thinking" / task.id
+                plan_dir.mkdir(parents=True)
+                plan_file = plan_dir / "plan.md"
+                plan_file.write_text("test")
+                plan_file.chmod(0o000)
+                try:
+                    write_commander_claude_md(task)
+                    content = (Path(tmp) / "CLAUDE.md").read_text()
+                    assert "CEO" in content
+                    assert "Thinking Session Plan" not in content
+                finally:
+                    plan_file.chmod(0o644)
+
     def test_start_claude_commander_success(self) -> None:
         """start_claude_commander opens pane and launches claude."""
         import tempfile
