@@ -55,6 +55,9 @@ def enqueue_or_start(task: Task) -> str:
     if has_slot():
         return "started"
     if not transition(task, TaskStatus.QUEUED):
+        # Transition failed — task may already be started by another process.
+        # Return "started" so the caller proceeds with its normal start path;
+        # start_session will perform its own FSM validation.
         return "started"
     append_event(
         task,
@@ -107,14 +110,8 @@ def _sorted_queued(tasks: list[Task] | None = None) -> list[Task]:
     """
     all_tasks = tasks if tasks is not None else list_tasks()
     queued = [t for t in all_tasks if t.status == TaskStatus.QUEUED]
-    queued.sort(key=lambda t: t.created_at)
+    queued.sort(key=lambda t: (t.created_at, t.id))
     return queued
-
-
-def _next_queued() -> Task | None:
-    """Get the next queued task (FIFO by created_at)."""
-    queued = _sorted_queued()
-    return queued[0] if queued else None
 
 
 def _queue_position(task: Task) -> int:

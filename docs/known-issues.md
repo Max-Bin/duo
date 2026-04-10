@@ -681,3 +681,42 @@ in `load_task()`. Together with existing `subtasks` (list) and
 All `transition()` call sites now check return values. Critical paths
 abort/rollback on failure. Scheduler slot accounting protected. CLI
 commands exit with errors on failed transitions.
+
+---
+
+## Scheduler TOCTOU Races (Round FK audit)
+
+### MED — enqueue_or_start / promote_queued slot race
+
+**Status: Open, low priority — mitigated by architectural constraints.**
+
+Two rubber-duck audits independently identified TOCTOU races in the
+scheduler's slot accounting:
+
+1. **`enqueue_or_start()`** checks `has_slot()` then returns `"started"`
+   without atomically claiming a slot. Two concurrent processes can both
+   observe a free slot and both start.
+
+2. **`promote_queued()`** snapshots `n_active` once, then promotes based
+   on the stale count. Concurrent promoters can each fill the same
+   perceived free capacity.
+
+**Why low priority:** In practice, `promote_queued()` is only called from
+each task's monitor loop (single process per task). The CLI `start`
+command is typically invoked sequentially by the user. The race requires
+truly concurrent invocations, which is rare in normal use. Additionally,
+`transition()` prevents double-promotion of the same task.
+
+**Proper fix (deferred):** Cross-process file lock around slot
+claim+transition, or a single atomic "claim next queued if
+active < max_parallel" operation. Cost is high relative to risk.
+
+### LOW — FIFO by created_at not queued_at
+
+**Status: Mitigated** — added `task.id` tiebreaker for deterministic
+ordering. True queue-entry-time ordering would require persisting
+`queued_at` timestamp on the Task dataclass.
+
+### LOW — _next_queued dead code removed
+
+**Status: Resolved** in Round FK. Removed unused `_next_queued()` helper.

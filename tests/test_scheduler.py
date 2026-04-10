@@ -17,7 +17,6 @@ from duo.protocol import (
 )
 from duo.scheduler import (
     ACTIVE_STATUSES,
-    _next_queued,
     _queue_position,
     _sorted_queued,
     active_count,
@@ -267,27 +266,6 @@ class TestPromoteQueued:
         assert len(promoted) == 3
 
 
-class TestNextQueued:
-    def test_empty(self) -> None:
-        assert _next_queued() is None
-
-    def test_returns_oldest(self) -> None:
-        import time
-
-        t1 = _make_task("newer")
-        _force_status(t1, TaskStatus.QUEUED)
-        time.sleep(0.01)
-        t2 = _make_task("oldest")
-        # Force older timestamp
-        t2.created_at = "2020-01-01T00:00:00+00:00"
-        _force_status(t2, TaskStatus.QUEUED)
-        save_task(t2)
-
-        result = _next_queued()
-        assert result is not None
-        assert result.id == "oldest"
-
-
 class TestQueuePosition:
     def test_position(self) -> None:
         import time
@@ -478,3 +456,47 @@ class TestTransitionGuards:
             result = enqueue_or_start(new_task)
 
         assert result == "started"
+
+
+class TestActiveStatusesExhaustiveness:
+    """Verify ACTIVE_STATUSES is intentional for every TaskStatus member."""
+
+    # Statuses that should NOT consume a slot (no live executor)
+    NON_ACTIVE = {
+        TaskStatus.CREATED,
+        TaskStatus.QUEUED,
+        TaskStatus.BLOCKED,
+        TaskStatus.FAILED,
+        TaskStatus.COMPLETED,
+        TaskStatus.ESCALATED,
+    }
+
+    def test_every_status_classified(self) -> None:
+        """Every TaskStatus is either in ACTIVE_STATUSES or NON_ACTIVE."""
+        all_statuses = set(TaskStatus)
+        classified = ACTIVE_STATUSES | self.NON_ACTIVE
+        assert classified == all_statuses, (
+            f"Unclassified statuses: {all_statuses - classified}"
+        )
+
+    def test_no_overlap(self) -> None:
+        """ACTIVE and NON_ACTIVE sets are disjoint."""
+        overlap = ACTIVE_STATUSES & self.NON_ACTIVE
+        assert overlap == set(), f"Overlap: {overlap}"
+
+
+class TestFifoTiebreaker:
+    """Verify deterministic FIFO ordering when created_at ties."""
+
+    def test_same_timestamp_sorted_by_id(self) -> None:
+        """Tasks with identical created_at are sorted by task id."""
+        tasks = []
+        for name in ["charlie", "alpha", "bravo"]:
+            t = _make_task(name)
+            t.created_at = "2024-01-01T00:00:00+00:00"
+            save_task(t)
+            _force_status(t, TaskStatus.QUEUED)
+            tasks.append(t)
+
+        queued = _sorted_queued()
+        assert [t.id for t in queued] == ["alpha", "bravo", "charlie"]
