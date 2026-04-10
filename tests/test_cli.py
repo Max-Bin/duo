@@ -3226,6 +3226,31 @@ class TestConfigSubcommands:
         assert result.exit_code == 0
         assert "All config reset" in result.output
 
+    def test_config_get_json(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """config get --json-output returns JSON."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(
+            main, ["config", "get", "copilot_model", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "copilot_model" in data
+
+    def test_config_list_json(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """config list --json-output returns all config as JSON."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "copilot_model" in data
+        assert "max_corrections" in data
+
 
 # ---------------------------------------------------------------------------
 # monitor command

@@ -2642,7 +2642,8 @@ def config() -> None:
 
 @config.command("get")
 @click.argument("key")
-def config_get(key: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def config_get(key: str, *, as_json: bool = False) -> None:
     """Get a config value."""
     from duo.config import get_config
 
@@ -2652,7 +2653,10 @@ def config_get(key: str) -> None:
             f"Unknown config key: {key}",
             fix="Run 'duo config list' to see available keys.",
         )
-    click.echo(f"{key} = {value}")
+    if as_json:
+        click.echo(json.dumps({key: value}))
+    else:
+        click.echo(f"{key} = {value}")
 
 
 @config.command("set")
@@ -2669,13 +2673,21 @@ def config_set(key: str, value: str) -> None:
 
 
 @config.command("list")
-def config_list() -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def config_list(*, as_json: bool = False) -> None:
     """List all config values."""
     from duo.config import DEFAULTS, load_config
 
-    config = load_config()
+    cfg = load_config()
+    if as_json:
+        output: dict[str, object] = {}
+        for key in sorted(DEFAULTS):
+            value = cfg.get(key, DEFAULTS[key])
+            output[key] = value
+        click.echo(json.dumps(output, indent=2))
+        return
     for key in sorted(DEFAULTS):
-        value = config.get(key, DEFAULTS[key])
+        value = cfg.get(key, DEFAULTS[key])
         default = DEFAULTS[key]
         marker = "" if value == default else " (modified)"
         click.echo(f"  {key} = {value}{marker}")
