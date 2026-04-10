@@ -254,3 +254,61 @@ class TestCommandSectionsComplete:
             f"CLAUDE.md says 52 commands but found {len(registered)}. "
             "Update CLAUDE.md if commands were added/removed."
         )
+
+
+class TestModuleExports:
+    """Guard that all source modules define __all__."""
+
+    def test_all_modules_have_all_exports(self) -> None:
+        """Every module in src/duo/ must define __all__ for public API clarity."""
+        import importlib
+
+        modules = [
+            "ceo_log",
+            "ceo_state",
+            "cli",
+            "commander",
+            "config",
+            "dashboard",
+            "errors",
+            "poller",
+            "protocol",
+            "scheduler",
+            "thinking",
+            "transport",
+            "verifier",
+        ]
+        missing: list[str] = []
+        for name in modules:
+            mod = importlib.import_module(f"duo.{name}")
+            if not hasattr(mod, "__all__"):
+                missing.append(name)
+        assert missing == [], f"Modules missing __all__: {missing}"
+
+    def test_all_exports_exist(self) -> None:
+        """Every name in __all__ must be a real attribute of the module."""
+        import importlib
+
+        modules = [
+            "ceo_log",
+            "ceo_state",
+            "cli",
+            "commander",
+            "config",
+            "dashboard",
+            "errors",
+            "poller",
+            "protocol",
+            "scheduler",
+            "thinking",
+            "transport",
+            "verifier",
+        ]
+        bad: list[str] = []
+        for name in modules:
+            mod = importlib.import_module(f"duo.{name}")
+            all_names = getattr(mod, "__all__", [])
+            bad.extend(
+                f"duo.{name}.{attr}" for attr in all_names if not hasattr(mod, attr)
+            )
+        assert bad == [], f"__all__ references missing attributes: {bad}"
