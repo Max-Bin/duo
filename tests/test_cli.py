@@ -281,6 +281,32 @@ class TestList:
         assert task_lines[0].startswith("aaa-task")
         assert task_lines[1].startswith("zzz-task")
 
+    def test_status_filter(self, runner: CliRunner):
+        """list --status filters tasks by status."""
+        _make_task("created-task")
+        task2 = _make_task("done-task")
+        task2.status = TaskStatus.COMPLETED
+        save_task(task2)
+        result = runner.invoke(main, ["list", "--status", "completed"])
+        assert result.exit_code == 0
+        assert "done-task" in result.output
+        assert "created-task" not in result.output
+
+    def test_status_filter_no_match(self, runner: CliRunner):
+        """list --status with no matching tasks shows 'No tasks.'"""
+        _make_task("a-task")
+        result = runner.invoke(main, ["list", "--status", "completed"])
+        assert result.exit_code == 0
+        assert "No tasks." in result.output
+
+    def test_status_filter_invalid(self, runner: CliRunner):
+        """list --status with invalid status shows error."""
+        _make_task("a-task")
+        result = runner.invoke(main, ["list", "--status", "bogus"])
+        assert result.exit_code != 0
+        assert "unknown status" in result.output
+        assert "Valid statuses" in result.output
+
 
 # ---------------------------------------------------------------------------
 # recover command

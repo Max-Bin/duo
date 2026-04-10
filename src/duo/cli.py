@@ -500,9 +500,25 @@ def _print_task(task: Task) -> None:
 
 @main.command("list")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def list_cmd(as_json: bool) -> None:
+@click.option(
+    "--status",
+    "status_filter",
+    default=None,
+    help="Filter by task status (e.g. running, completed, created)",
+)
+def list_cmd(as_json: bool, status_filter: str | None) -> None:
     """List all tasks."""
     tasks = list_tasks()
+
+    if status_filter:
+        valid_statuses = {s.value for s in TaskStatus}
+        if status_filter not in valid_statuses:
+            raise DuoUserError(
+                f"unknown status '{status_filter}'",
+                fix=f"Valid statuses: {', '.join(sorted(valid_statuses))}",
+            )
+        tasks = [t for t in tasks if t.status.value == status_filter]
+
     if not tasks:
         click.echo("No tasks.")
         return
