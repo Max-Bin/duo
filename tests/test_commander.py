@@ -1360,6 +1360,22 @@ class TestClaudeCommander:
                 finally:
                     plan_file.chmod(0o644)
 
+    def test_write_claude_md_empty_plan_ignored(self) -> None:
+        """CLAUDE.md omits Thinking Session Plan when plan.md is whitespace-only."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with patch("duo.commander.DUO_DIR", Path(tmp) / ".duo"):
+                plan_dir = Path(tmp) / ".duo" / "thinking" / task.id
+                plan_dir.mkdir(parents=True)
+                (plan_dir / "plan.md").write_text("   \n  \n  ")
+                write_commander_claude_md(task)
+                content = (Path(tmp) / "CLAUDE.md").read_text()
+                assert "CEO" in content
+                assert "Thinking Session Plan" not in content
+
     def test_start_claude_commander_success(self) -> None:
         """start_claude_commander opens pane and launches claude."""
         import tempfile
@@ -1774,6 +1790,13 @@ class TestWriteProjectClaudeMd:
         write_project_claude_md(str(tmp_path))
         content2 = (tmp_path / "CLAUDE.md").read_text()
         assert content1 == content2
+
+    def test_empty_project_context_omitted(self, tmp_path):
+        """When project context is empty, no Project Context section is added."""
+        with patch("duo.commander._detect_project_context", return_value="  "):
+            write_project_claude_md(str(tmp_path))
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "Project Context" not in content
 
 
 # ---------------------------------------------------------------------------

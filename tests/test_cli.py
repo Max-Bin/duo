@@ -2099,7 +2099,10 @@ class TestStop:
         task.status = TaskStatus.RUNNING
         save_task(task)
 
-        with patch("duo.cli.subprocess.run"):
+        with (
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
             result = runner.invoke(main, ["stop", "stop-json", "--json-output"])
             assert result.exit_code == 0
             data = json.loads(result.output)
