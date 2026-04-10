@@ -13,6 +13,7 @@ from duo.commander import (
     _check_pr_budget,
     _count_corrections,
     _detect_project_context,
+    _escalate_pr_budget,
     _get_copilot_model,
     _log_monitor,
     _watch_loop,
@@ -3860,3 +3861,143 @@ class TestBranchCoverageCommander:
         append_event(task, "correction_sent", {"step": 1, "attempt": 2})
         append_event(task, "correction_sent", {"step": 1, "attempt": 3})
         assert _count_corrections(task, 1) == 2
+
+    def test_escalate_pr_budget_transition_fails(self):
+        """743->745: transition to ESCALATED already done — no event appended."""
+        task = _make_task("esc-fail")
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.ESCALATED)
+
+        # Already ESCALATED → transition fails, but echo still happens
+        _escalate_pr_budget(task, step=1, attempt=1)
+        events = read_jsonl(task.journal_path)
+        assert not any(e.get("event") == "pr_budget_exceeded" for e in events)
+
+    def test_verify_and_advance_completed_transition_fails(self):
+        """898->exit: COMPLETED transition fails (task already completed)."""
+        from duo.protocol import StepResult
+
+        task = _make_task("comp-fail")
+        task.subtasks = []  # no subtasks → step >= len(subtasks) → COMPLETED path
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        result = StepResult(
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="done",
+            files_changed=[],
+            summary="ok",
+        )
+
+        def _fake_verify(t, r):
+            # Transition directly so COMPLETED→COMPLETED fails
+            transition(t, TaskStatus.COMPLETED)
+            return Pass()
+
+        with patch("duo.commander.verify_step", side_effect=_fake_verify):
+            verify_and_advance(task, result=result)
+        # No crash — task ended up COMPLETED from _fake_verify
+        assert task.status == TaskStatus.COMPLETED
+
+    def test_verify_and_advance_escalation_transition_fails(self):
+        """933->exit + 938->947: max corrections reached, escalation transition fails."""
+        from duo.protocol import StepResult
+
+        task = _make_task("esc-corr-fail")
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        # Pre-fill corrections to exceed max
+        for i in range(5):
+            append_event(task, "correction_sent", {"step": 1, "attempt": i + 2})
+
+        result = StepResult(
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="done",
+            files_changed=[],
+            summary="ok",
+        )
+
+        def _fake_verify(t, r):
+            # First transition to ESCALATED so repeat attempt fails
+            transition(t, TaskStatus.ESCALATED)
+            return Correction(reason="bad")
+
+        with patch("duo.commander.verify_step", side_effect=_fake_verify):
+            verify_and_advance(task, result=result)
+        assert task.status == TaskStatus.ESCALATED
+
+    @patch("duo.commander.time.sleep", side_effect=[None, StopIteration])
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_queued_but_no_active_continues(
+        self, mock_list, mock_promote, mock_sleep
+    ):
+        """1216->1220: queued tasks exist but no active — loop continues."""
+        queued_task = _make_task("q-task")
+        transition(queued_task, TaskStatus.QUEUED)  # must be QUEUED status
+        mock_list.return_value = [queued_task]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 0, "queued_count": 1, "max_parallel": 2},
+            ),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+    def test_watch_loop_pane_gone_immediately(self):
+        """1354->exit: stop already set before loop starts — exits immediately."""
+        import threading
+
+        task = _make_task("watch-gone")
+        _advance_to_prompt_sent(task)
+        stop = threading.Event()
+        stop.set()  # pre-set so while condition is False on first check
+
+        with patch("duo.commander.is_process_alive", return_value=True):
+            _watch_loop(
+                task,
+                stop,
+                timeout=1,
+                interval=0.1,
+                once=False,
+                auto_approve=False,
+            )
+        # Loop never entered — exited immediately
+
+    def test_verify_and_advance_unknown_verdict_type(self):
+        """933->exit: verdict is neither Pass nor Correction — silent no-op."""
+        from duo.protocol import StepResult
+
+        task = _make_task("unknown-verdict")
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        result = StepResult(
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="done",
+            files_changed=[],
+            summary="ok",
+        )
+
+        # Return something that is neither Pass nor Correction
+        with patch("duo.commander.verify_step", return_value="unexpected"):
+            verify_and_advance(task, result=result)
+        # No crash — function exits after the if/elif without action
+        assert task.status == TaskStatus.VERIFYING
