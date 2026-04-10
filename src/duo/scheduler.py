@@ -115,10 +115,11 @@ def _next_queued() -> Task | None:
 
 def _queue_position(task: Task) -> int:
     """Get a task's position in the queue (1-based)."""
-    for i, t in enumerate(_sorted_queued()):
+    queued = _sorted_queued()
+    for i, t in enumerate(queued):
         if t.id == task.id:
             return i + 1
-    return len(_sorted_queued()) + 1
+    return len(queued) + 1
 
 
 def queue_status() -> dict[str, Any]:
