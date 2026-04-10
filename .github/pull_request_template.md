@@ -12,8 +12,7 @@
 - [ ] CI/构建变更
 
 ## 自检清单
-- [ ] 代码已通过 `ruff check` 检查
-- [ ] 代码已通过 `ruff format --check` 格式检查
+- [ ] `make check` 通过（lint + format + type-check + 100% coverage）
 - [ ] 已添加或更新相关测试
-- [ ] 所有测试通过 (`pytest tests/ -v`)
 - [ ] 已更新相关文档（如需要）
+- [ ] CHANGELOG 已更新（如有用户可见变更）

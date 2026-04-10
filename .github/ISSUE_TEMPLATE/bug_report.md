@@ -24,3 +24,12 @@ labels: bug
 - Python: 
 - Duo 版本: (`duo version`)
 - tmux 版本: (`tmux -V`)
+
+<details>
+<summary><code>duo doctor</code> 输出</summary>
+
+```
+# 粘贴 duo doctor 的完整输出
+```
+
+</details>
