@@ -37,7 +37,7 @@ Or install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) if you 
 ## 2. Installation
 
 ```bash
-git clone https://github.com/maxbin/duo.git && cd duo
+git clone https://github.com/Max-Bin/duo.git && cd duo
 bash install.sh
 ```
 

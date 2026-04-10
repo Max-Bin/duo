@@ -5,7 +5,7 @@ set -euo pipefail
 OS="$(uname -s)"
 
 # ─── Repository URLs (override via environment) ──────────────────────────────
-DUO_REPO="${DUO_REPO:-https://github.com/maxbin/duo}"
+DUO_REPO="${DUO_REPO:-https://github.com/Max-Bin/duo}"
 SMUX_REPO="${SMUX_REPO:-https://github.com/anthropic-ai/tmux-bridge}"
 
 # ─── Colors & Symbols ────────────────────────────────────────────────────────
