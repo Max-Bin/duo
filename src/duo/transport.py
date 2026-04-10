@@ -72,6 +72,7 @@ __all__ = [
     "is_in_dialog",
     "is_in_dialog_stable",
     "is_likely_stuck",
+    "is_pane_alive",
     "is_pane_process_alive",
     "is_permission_dialog",
     "is_process_alive",
@@ -96,6 +97,7 @@ __all__ = [
     "send_shell_command",
     "send_text_dialog_message",
     "set_pr_callback",
+    "split_window_horizontal",
     "strip_ansi",
     "type_text",
     "wait_for_dialog",
@@ -555,6 +557,46 @@ def kill_pane(target: str) -> bool:
         gone_patterns = ("can't find", "not found", "no pane")
         return any(p in msg_lower for p in gone_patterns)
     return True
+
+
+def is_pane_alive(target: str) -> bool:
+    """Check if a tmux pane exists and is reachable.
+
+    *target* may be a pane ID (``%42``) or a validated label.
+    Returns ``True`` if the pane responds, ``False`` otherwise.
+    """
+    if not re.match(r"^[%a-zA-Z0-9_.-]+$", target):
+        raise ValueError(f"Unsafe pane target: {target!r}")
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-t", target, "-p", ""],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
+def split_window_horizontal() -> str:
+    """Create a new tmux pane via horizontal split and return its pane ID.
+
+    Returns the new pane ID (e.g. ``%42``).
+    Raises ``RuntimeError`` if the split fails.
+    """
+    try:
+        result = subprocess.run(
+            ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("tmux split-window timed out") from None
+    if result.returncode != 0:
+        raise RuntimeError(f"tmux split-window failed: {result.stderr.strip()}")
+    return result.stdout.strip()
 
 
 def _validate_label(label: str) -> None:

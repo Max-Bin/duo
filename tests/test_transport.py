@@ -3504,3 +3504,90 @@ class TestDetectCopilotApiError:
         from duo.transport import is_capi_context_error
 
         assert is_capi_context_error("rate limit exceeded") is False
+
+
+class TestIsPaneAlive:
+    """Tests for is_pane_alive()."""
+
+    def test_alive_returns_true(self):
+        from duo.transport import is_pane_alive
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            assert is_pane_alive("%42") is True
+            args = mock_run.call_args[0][0]
+            assert args == ["tmux", "display-message", "-t", "%42", "-p", ""]
+
+    def test_dead_returns_false(self):
+        from duo.transport import is_pane_alive
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1)
+            assert is_pane_alive("%99") is False
+
+    def test_os_error_returns_false(self):
+        from duo.transport import is_pane_alive
+
+        with patch("duo.transport.subprocess.run", side_effect=OSError("fail")):
+            assert is_pane_alive("my-pane") is False
+
+    def test_timeout_returns_false(self):
+        from duo.transport import is_pane_alive
+
+        with patch(
+            "duo.transport.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=5),
+        ):
+            assert is_pane_alive("my-pane") is False
+
+    def test_unsafe_target_rejected(self):
+        from duo.transport import is_pane_alive
+
+        with pytest.raises(ValueError, match="Unsafe pane target"):
+            is_pane_alive("bad;rm -rf /")
+
+    def test_label_accepted(self):
+        from duo.transport import is_pane_alive
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            assert is_pane_alive("duo-copilot-standby") is True
+
+
+class TestSplitWindowHorizontal:
+    """Tests for split_window_horizontal()."""
+
+    def test_success_returns_pane_id(self):
+        from duo.transport import split_window_horizontal
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="%42\n", stderr="")
+            result = split_window_horizontal()
+            assert result == "%42"
+            args = mock_run.call_args[0][0]
+            assert args == [
+                "tmux",
+                "split-window",
+                "-h",
+                "-P",
+                "-F",
+                "#{pane_id}",
+            ]
+
+    def test_failure_raises_runtime_error(self):
+        from duo.transport import split_window_horizontal
+
+        with patch("duo.transport.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="no room for split")
+            with pytest.raises(RuntimeError, match="split-window failed"):
+                split_window_horizontal()
+
+    def test_timeout_raises_runtime_error(self):
+        from duo.transport import split_window_horizontal
+
+        with patch(
+            "duo.transport.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=10),
+        ):
+            with pytest.raises(RuntimeError, match="timed out"):
+                split_window_horizontal()

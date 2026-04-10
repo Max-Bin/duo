@@ -14140,6 +14140,7 @@ class TestDuoGo:
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="❯"),
             patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.transport.split_window_horizontal", return_value="%42"),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp"),
             patch("os.chdir"),
@@ -14148,8 +14149,7 @@ class TestDuoGo:
             from unittest.mock import MagicMock
 
             git_init = MagicMock(returncode=0, stdout="", stderr="")
-            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
-            mock_run.side_effect = [git_init, split]
+            mock_run.return_value = git_init
 
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
@@ -14162,7 +14162,6 @@ class TestDuoGo:
         (tmp_path / ".duo").mkdir()
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
             patch("duo.protocol.save_go_session") as mock_save,
@@ -14171,16 +14170,12 @@ class TestDuoGo:
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="❯"),
             patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.transport.split_window_horizontal", return_value="%42"),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp") as mock_exec,
             patch("os.chdir"),
             patch("time.sleep"),
         ):
-            from unittest.mock import MagicMock
-
-            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
-            mock_run.return_value = split
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
             assert "launching" in result.output.lower()
@@ -14201,19 +14196,14 @@ class TestDuoGo:
         }
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=existing_session),
             patch("duo.protocol.save_go_session"),
+            patch("duo.transport.is_pane_alive", return_value=True),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp"),
             patch("os.chdir"),
         ):
-            from unittest.mock import MagicMock
-
-            check = MagicMock(returncode=0, stdout="", stderr="")
-            mock_run.return_value = check
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
             assert "reusing" in result.output.lower()
@@ -14234,26 +14224,21 @@ class TestDuoGo:
         }
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=existing_session),
             patch("duo.protocol.save_go_session"),
+            patch("duo.transport.is_pane_alive", return_value=False),
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command"),
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="❯"),
             patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.transport.split_window_horizontal", return_value="%99"),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp"),
             patch("os.chdir"),
             patch("time.sleep"),
         ):
-            from unittest.mock import MagicMock
-
-            dead_check = MagicMock(returncode=1, stdout="", stderr="dead pane")
-            split = MagicMock(returncode=0, stdout="%99\n", stderr="")
-            mock_run.side_effect = [dead_check, split]
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
             assert "reusing" not in result.output.lower()
@@ -14265,16 +14250,14 @@ class TestDuoGo:
         (tmp_path / ".duo").mkdir()
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
             patch("duo.config.get_config", return_value=False),
+            patch(
+                "duo.transport.split_window_horizontal",
+                side_effect=RuntimeError("tmux split-window failed: no space"),
+            ),
         ):
-            from unittest.mock import MagicMock
-
-            fail = MagicMock(returncode=1, stdout="", stderr="no space")
-            mock_run.return_value = fail
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code != 0
 
@@ -14294,7 +14277,6 @@ class TestDuoGo:
             return key == "auto_allow_all"
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
             patch("duo.protocol.save_go_session"),
@@ -14303,16 +14285,12 @@ class TestDuoGo:
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="❯"),
             patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.transport.split_window_horizontal", return_value="%42"),
             patch("duo.config.get_config", side_effect=config_side_effect),
             patch("os.execvp") as mock_exec,
             patch("os.chdir"),
             patch("time.sleep"),
         ):
-            from unittest.mock import MagicMock
-
-            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
-            mock_run.return_value = split
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
             mock_exec.assert_called_once_with(
@@ -14328,7 +14306,6 @@ class TestDuoGo:
         (tmp_path / ".duo").mkdir()
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
             patch("duo.protocol.save_go_session"),
@@ -14337,16 +14314,12 @@ class TestDuoGo:
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="loading..."),
             patch("duo.transport.is_at_main_prompt", return_value=False),
+            patch("duo.transport.split_window_horizontal", return_value="%42"),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp"),
             patch("os.chdir"),
             patch("time.sleep"),
         ):
-            from unittest.mock import MagicMock
-
-            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
-            mock_run.return_value = split
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
             assert "not at prompt" in result.output.lower()
@@ -14360,23 +14333,18 @@ class TestDuoGo:
         (tmp_path / ".duo").mkdir()
 
         with (
-            patch("subprocess.run") as mock_run,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
             patch("duo.protocol.save_go_session"),
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command"),
             patch("duo.transport.wait_for_idle", return_value=False),
+            patch("duo.transport.split_window_horizontal", return_value="%42"),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp"),
             patch("os.chdir"),
             patch("time.sleep"),
         ):
-            from unittest.mock import MagicMock
-
-            split = MagicMock(returncode=0, stdout="%42\n", stderr="")
-            mock_run.return_value = split
-
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
             assert "slow" in result.output.lower() or "loading" in result.output.lower()
@@ -14408,29 +14376,17 @@ class TestDuoGo:
             "started_at": "2024-01-01T00:00:00Z",
         }
 
-        call_count = [0]
-
-        def mock_run_side_effect(args, **kwargs):
-            from unittest.mock import MagicMock
-
-            call_count[0] += 1
-            if call_count[0] == 1:
-                # First call: pane check times out
-                raise subprocess.TimeoutExpired(cmd=args, timeout=5)
-            # Second call: split-window succeeds
-            m = MagicMock(returncode=0, stdout="%new\n", stderr="")
-            return m
-
         with (
-            patch("subprocess.run", side_effect=mock_run_side_effect),
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=existing_session),
             patch("duo.protocol.save_go_session"),
+            patch("duo.transport.is_pane_alive", return_value=False),
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command"),
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="❯"),
             patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.transport.split_window_horizontal", return_value="%new"),
             patch("duo.config.get_config", return_value=False),
             patch("os.execvp"),
             patch("os.chdir"),
@@ -14448,8 +14404,8 @@ class TestDuoGo:
 
         with (
             patch(
-                "subprocess.run",
-                side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=10),
+                "duo.transport.split_window_horizontal",
+                side_effect=RuntimeError("tmux split-window timed out"),
             ),
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
@@ -14466,20 +14422,9 @@ class TestDuoGo:
         (tmp_path / ".git").mkdir()
         (tmp_path / ".duo").mkdir()
 
-        call_count = [0]
-
-        def mock_run_side_effect(args, **kwargs):
-            from unittest.mock import MagicMock
-
-            call_count[0] += 1
-            if call_count[0] == 1:
-                # split-window succeeds
-                return MagicMock(returncode=0, stdout="%orphan\n", stderr="")
-            # cleanup call
-            return MagicMock(returncode=0)
-
         with (
-            patch("subprocess.run", side_effect=mock_run_side_effect),
+            patch("duo.transport.split_window_horizontal", return_value="%orphan"),
+            patch("duo.transport.kill_pane", return_value=True) as mock_kill,
             patch("duo.commander.write_project_claude_md"),
             patch("duo.protocol.load_go_session", return_value=None),
             patch("duo.transport.name_pane", side_effect=RuntimeError("name failed")),
@@ -14488,6 +14433,7 @@ class TestDuoGo:
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code != 0
             assert "failed to name" in result.output.lower()
+            mock_kill.assert_called_once_with("%orphan")
 
 
 class TestMainModule:

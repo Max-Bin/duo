@@ -1992,9 +1992,12 @@ def go(repo: str) -> None:
     )
     from duo.transport import (
         is_at_main_prompt,
+        is_pane_alive,
+        kill_pane,
         name_pane,
         read_pane,
         send_shell_command,
+        split_window_horizontal,
         wait_for_idle,
     )
 
@@ -2046,51 +2049,27 @@ def go(repo: str) -> None:
     # Check for existing go-session
     existing = load_go_session()
     if existing and existing.get("copilot_pane"):
-        # Verify pane is alive
-        try:
-            check = subprocess.run(
-                ["tmux", "display-message", "-t", existing["copilot_pane"], "-p", ""],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if check.returncode == 0:
-                pane_id = existing["copilot_pane"]
-                click.echo(f"  ✓ reusing standby pane {pane_id}")
-        except (subprocess.TimeoutExpired, OSError):
-            pass
+        # Verify pane is alive via transport layer
+        if is_pane_alive(existing["copilot_pane"]):
+            pane_id = existing["copilot_pane"]
+            click.echo(f"  ✓ reusing standby pane {pane_id}")
 
     if not pane_id:
-        # Create new pane
+        # Create new pane via transport layer
         try:
-            split = subprocess.run(
-                ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        except subprocess.TimeoutExpired:
+            pane_id = split_window_horizontal()
+        except RuntimeError as exc:
             raise DuoUserError(
-                "tmux split-window timed out",
+                str(exc),
                 fix="Check tmux is responding: tmux list-panes",
             ) from None
-        if split.returncode != 0:
-            raise DuoUserError(
-                f"tmux split-window failed: {split.stderr.strip()}",
-                fix="Check tmux session is healthy.",
-            )
-        pane_id = split.stdout.strip()
 
         # Name the pane
         try:
             name_pane(pane_id, standby_label)
         except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
             # Kill orphaned pane on failure
-            subprocess.run(
-                ["tmux", "kill-pane", "-t", pane_id],
-                capture_output=True,
-                timeout=5,
-            )
+            kill_pane(pane_id)
             raise DuoUserError(
                 f"failed to name standby pane: {exc}",
                 fix="Retry duo go, or check tmux panes.",
