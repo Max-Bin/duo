@@ -53,14 +53,6 @@ from duo.protocol import (
 
 
 @pytest.fixture(autouse=True)
-def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR to a temporary directory for every test."""
-    tasks = tmp_path / "tasks"
-    monkeypatch.setattr("duo.protocol.TASKS_DIR", tasks)
-    monkeypatch.setattr("duo.protocol._CORRUPTED_DIR", tasks / "_corrupted")
-
-
-@pytest.fixture(autouse=True)
 def _clear_cache():
     """Clear task cache between tests."""
     _clear_task_cache()

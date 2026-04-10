@@ -28,12 +28,6 @@ from duo.protocol import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR so tests never touch ~/.duo."""
-    monkeypatch.setattr("duo.protocol.TASKS_DIR", tmp_path / "tasks")
-
-
 def _make_subtask(step_id: int = 1) -> Subtask:
     return Subtask(
         step_id=step_id,

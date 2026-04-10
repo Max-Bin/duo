@@ -56,13 +56,6 @@ from duo.verifier import Correction, Pass
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and CONFIG_PATH so every test gets a fresh directory."""
-    monkeypatch.setattr("duo.protocol.TASKS_DIR", tmp_path / "tasks")
-    monkeypatch.setattr("duo.config.CONFIG_PATH", tmp_path / "config.json")
-
-
 def _make_subtask(step_id: int = 1, **overrides) -> Subtask:
     defaults = dict(
         step_id=step_id,

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,12 +34,6 @@ from duo.verifier import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _isolate_tasks_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR to a temporary directory for every test."""
-    monkeypatch.setattr("duo.protocol.TASKS_DIR", tmp_path / "tasks")
 
 
 def _make_subtask(
