@@ -11,6 +11,7 @@ uv sync                              # install dependencies
 make check                           # run ALL checks (lint + format + type-check + coverage)
 make coverage                        # run tests with coverage (fail_under=100)
 make test                            # run tests
+make guard                           # run guard/meta tests only (~5s)
 python -m pytest tests/ -v           # run all tests verbosely
 python -m pytest tests/test_protocol.py -v   # run specific module tests
 duo --help                           # see CLI commands
@@ -100,7 +101,7 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 2382+ tests, **100% test coverage required** (enforced via `make coverage`)
+- 2388+ tests, **100% test coverage required** (enforced via `make coverage`)
 - Tests organized by module in `tests/test_*.py` (22 test files)
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
