@@ -262,6 +262,29 @@ run_test_fix_suggestion "stop no-task" duo stop nonexistent-task
 run_test_fix_suggestion "send no-task" duo send nonexistent-task "hello"
 run_test_fix_suggestion "config reset bad-key" duo config reset totally_bogus_key
 
+# === JSON schema validation (key presence) ===
+echo ""
+echo "🔍 JSON schema validation"
+run_test_json_has_key() {
+    local name="$1"
+    local key="$2"
+    shift 2
+    local output
+    if output=$("$@" 2>&1); then
+        if echo "$output" | python3 -c "import sys,json; d=json.load(sys.stdin); assert '$key' in (d if isinstance(d,dict) else d[0] if d else {})" 2>/dev/null; then
+            pass "$name (has key '$key')"
+        else
+            fail "$name" "missing key '$key' in JSON: ${output:0:80}"
+        fi
+    else
+        fail "$name" "exit $? — ${output:0:120}"
+    fi
+}
+run_test_json_has_key "version JSON has 'version'" "version" duo version --json-output
+run_test_json_has_key "config list has 'copilot_model'" "copilot_model" duo config list --json-output
+run_test_json_has_key "config list has 'max_parallel'" "max_parallel" duo config list --json-output
+run_test_json_has_key "queue JSON has 'active_count'" "active_count" duo queue --json-output
+
 # === Summary ===
 echo ""
 echo "========================"
