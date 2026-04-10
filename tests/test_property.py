@@ -1158,3 +1158,48 @@ class TestSchedulerActiveStatusesProperty:
         for s in ACTIVE_STATUSES:
             assert s in TRANSITIONS, f"{s} not in FSM TRANSITIONS"
             assert len(TRANSITIONS[s]) > 0, f"{s} has no outgoing transitions"
+
+
+class TestDuoUserErrorFormatProperty:
+    """Property: format_message always includes fix text when provided."""
+
+    @given(
+        message=st.text(min_size=1, max_size=200).filter(lambda s: s.strip()),
+        fix=st.text(min_size=1, max_size=200).filter(lambda s: s.strip()),
+    )
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+    def test_fix_always_in_output(self, message: str, fix: str) -> None:
+        """When fix is non-empty, format_message must contain it."""
+        from duo.errors import DuoUserError
+
+        err = DuoUserError(message, fix=fix)
+        formatted = err.format_message()
+        assert fix in formatted
+        assert message in formatted
+
+    @given(message=st.text(min_size=1, max_size=200).filter(lambda s: s.strip()))
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+    def test_no_fix_no_fix_prefix(self, message: str) -> None:
+        """When fix is empty, format_message must not contain 'Fix:'."""
+        from duo.errors import DuoUserError
+
+        err = DuoUserError(message, fix="")
+        formatted = err.format_message()
+        assert "Fix:" not in formatted
+
+
+class TestDuoDataErrorProperty:
+    """Property: DuoDataError preserves path attribute."""
+
+    @given(
+        message=st.text(min_size=1, max_size=100),
+        path=st.text(min_size=0, max_size=200),
+    )
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+    def test_path_preserved(self, message: str, path: str) -> None:
+        """DuoDataError always stores the path attribute."""
+        from duo.errors import DuoDataError
+
+        err = DuoDataError(message, path=path)
+        assert err.path == path
+        assert str(err) == message
