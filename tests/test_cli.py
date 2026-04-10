@@ -3967,7 +3967,7 @@ class TestDoctor:
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
         assert "PASS" in result.output
-        assert "12/12 checks passed" in result.output
+        assert "13/13 checks passed" in result.output
 
     def test_doctor_missing_tmux(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3991,7 +3991,7 @@ class TestDoctor:
         """Doctor output ends with X/Y checks passed."""
         self._setup_all_pass(monkeypatch, tmp_path)
         result = runner.invoke(main, ["doctor"])
-        assert "/12 checks passed" in result.output
+        assert "/13 checks passed" in result.output
 
     def test_doctor_tmux_bridge_fallback_path(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4036,8 +4036,8 @@ class TestDoctor:
         data = json.loads(result.output)
         assert "checks" in data
         assert "summary" in data
-        assert len(data["checks"]) == 12
-        assert data["summary"]["total"] == 12
+        assert len(data["checks"]) == 13
+        assert data["summary"]["total"] == 13
         for check in data["checks"]:
             assert "name" in check
             assert "status" in check
@@ -6004,6 +6004,62 @@ class TestDoctorStaleLocks:
         result = _doctor_check_stale_locks()
         assert result.status == "warn"
         assert "2 found" in result.message
+
+
+class TestDoctorOrphanWorktrees:
+    """Tests for _doctor_check_orphan_worktrees()."""
+
+    def test_no_orphans(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """No orphan worktrees → pass."""
+        from duo.cli import _doctor_check_orphan_worktrees
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        (tmp_path / "my-task").mkdir()
+        porcelain = "worktree /repo\n\nworktree /repo/duo-my-task\nbranch refs/heads/duo/my-task\n"
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout=porcelain),
+        )
+        result = _doctor_check_orphan_worktrees()
+        assert result.status == "pass"
+
+    def test_orphan_found(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+        """Worktree exists but task dir does not → warn."""
+        from duo.cli import _doctor_check_orphan_worktrees
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        porcelain = "worktree /repo\n\nworktree /repo/duo-ghost-task\nbranch refs/heads/duo/ghost-task\n"
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout=porcelain),
+        )
+        result = _doctor_check_orphan_worktrees()
+        assert result.status == "warn"
+        assert "duo-ghost-task" in result.message
+
+    def test_git_unavailable(self, monkeypatch: pytest.MonkeyPatch):
+        """Git failure → skip gracefully."""
+        from duo.cli import _doctor_check_orphan_worktrees
+
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: (_ for _ in ()).throw(OSError("no git")),
+        )
+        result = _doctor_check_orphan_worktrees()
+        assert result.status == "pass"
+        assert "skipped" in result.message
+
+    def test_not_git_repo(self, monkeypatch: pytest.MonkeyPatch):
+        """git worktree list fails (not a repo) → skip."""
+        from duo.cli import _doctor_check_orphan_worktrees
+
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=128, stdout=""),
+        )
+        result = _doctor_check_orphan_worktrees()
+        assert result.status == "pass"
+        assert "skipped" in result.message
 
 
 # ── Copilot health check (doctor) ────────────────────────────────────

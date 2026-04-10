@@ -2269,6 +2269,45 @@ def _doctor_check_stale_locks() -> CheckResult:
     )
 
 
+def _doctor_check_orphan_worktrees() -> CheckResult:
+    """Check for git worktrees with no matching task in TASKS_DIR."""
+    try:
+        r = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return CheckResult("orphan worktrees", "pass", "skipped (git unavailable)", "")
+
+    if r.returncode != 0:
+        return CheckResult("orphan worktrees", "pass", "skipped (not a git repo)", "")
+
+    known_ids = (
+        {d.name for d in TASKS_DIR.iterdir() if d.is_dir()}
+        if TASKS_DIR.exists()
+        else set()
+    )
+
+    orphans: list[str] = []
+    for line in r.stdout.splitlines():
+        if line.startswith("worktree "):
+            wt_path = line[len("worktree ") :]
+            wt_name = Path(wt_path).name
+            if wt_name.startswith("duo-") and wt_name[4:] not in known_ids:
+                orphans.append(wt_name)
+
+    if not orphans:
+        return CheckResult("orphan worktrees", "pass", "none", "")
+    return CheckResult(
+        "orphan worktrees",
+        "warn",
+        f"{len(orphans)} found: {', '.join(orphans[:5])}",
+        "Remove with: git worktree remove <path>",
+    )
+
+
 _DOCTOR_CHECKS: list[Any] = [
     _doctor_check_python,
     _doctor_check_tmux,
@@ -2281,6 +2320,7 @@ _DOCTOR_CHECKS: list[Any] = [
     _doctor_check_task_timeout,
     _doctor_check_corrupted,
     _doctor_check_stale_locks,
+    _doctor_check_orphan_worktrees,
     _doctor_check_git,
 ]
 
