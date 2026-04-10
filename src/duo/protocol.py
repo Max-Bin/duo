@@ -616,7 +616,9 @@ def load_task(task_id: str) -> Task | None:
             step_id=s["step_id"],
             description=s["description"],
             target_files=s["target_files"],
-            writable_paths=s["writable_paths"],
+            writable_paths=[
+                p for p in s["writable_paths"] if isinstance(p, str) and p.strip()
+            ],
             acceptance=s.get("acceptance", ""),
             forbidden_commands=s.get("forbidden_commands", []),
         )

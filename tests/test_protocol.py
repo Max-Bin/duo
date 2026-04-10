@@ -660,6 +660,48 @@ class TestLoadTaskSecretPatternMerge:
         assert "MY_EXTRA=" in task.security_policy.secret_patterns
 
 
+class TestLoadTaskWritablePathsValidation:
+    """load_task() filters invalid writable_paths entries."""
+
+    def test_non_string_entries_filtered(self):
+        """None, int, and empty string entries are removed from writable_paths."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "wp-filter"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"wp-filter","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],'
+            '"writable_paths":["src/*",null,"",123,"tests/*"]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        task = load_task("wp-filter")
+        assert task is not None
+        assert task.subtasks[0].writable_paths == ["src/*", "tests/*"]
+
+    def test_whitespace_only_entries_filtered(self):
+        """Whitespace-only entries are removed from writable_paths."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "wp-ws"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"wp-ws","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],'
+            '"writable_paths":["src/*","   ","tests/*"]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        task = load_task("wp-ws")
+        assert task is not None
+        assert task.subtasks[0].writable_paths == ["src/*", "tests/*"]
+
+
 # ---------------------------------------------------------------------------
 # append_event
 # ---------------------------------------------------------------------------
