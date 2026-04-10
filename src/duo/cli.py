@@ -2704,8 +2704,13 @@ def config_list(*, as_json: bool = False) -> None:
 @click.argument("key", required=False)
 def config_reset(key: str | None = None) -> None:
     """Reset config to defaults (or reset a single key)."""
-    from duo.config import reset_config
+    from duo.config import DEFAULTS, reset_config
 
+    if key and key not in DEFAULTS:
+        raise DuoUserError(
+            f"Unknown config key: {key}",
+            fix="Run 'duo config list' to see available keys.",
+        )
     reset_config(key)
     if key:
         click.echo(f"Reset {key} to default.")

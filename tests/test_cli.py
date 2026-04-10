@@ -3251,6 +3251,18 @@ class TestConfigSubcommands:
         assert "copilot_model" in data
         assert "max_corrections" in data
 
+    def test_config_reset_unknown_key(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config reset with unknown key raises DuoUserError."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "reset", "totally_bogus_key"])
+        assert result.exit_code != 0
+        assert "Unknown config key" in result.output
+
 
 # ---------------------------------------------------------------------------
 # monitor command
