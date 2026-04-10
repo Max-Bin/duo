@@ -801,3 +801,49 @@ ordering. True queue-entry-time ordering would require persisting
   strings silently become `False`. Acceptable for CLI usage where values
   come from `duo config set` (documented true/false). Would need explicit
   allowlist + error for full strictness.
+
+---
+
+## Verifier Rubber-duck Audit — Exception & Byte Handling (commit `6d4c052`)
+
+**Status: HIGH findings resolved; MED/LOW deferred.**
+
+Two independent rubber-duck agents audited `verifier.py`. Findings:
+
+### Resolved
+
+- **`_run_git()` exception leak** (HIGH → RESOLVED): `TimeoutExpired`,
+  `FileNotFoundError`, `OSError` now normalized to `RuntimeError`. Callers
+  need only one `except` clause.
+
+- **`git_diff()` char vs byte measurement** (HIGH → RESOLVED): Size limit
+  `_MAX_DIFF_BYTES` now measured in UTF-8 bytes via `encode('utf-8')`,
+  not `len(str)` which counts characters. Multibyte strings correctly
+  trigger the limit.
+
+- **`_check_untracked()` outside try/except** (MED → RESOLVED): `verify_step()`
+  now wraps the untracked-files check in its own `RuntimeError` handler,
+  preventing verifier crashes when git ls-files fails.
+
+### Deferred
+
+- **`fnmatch` `*` matches `/`** (MED — architectural): `src/*` grants
+  recursive access. This is the current documented behavior. Segment-aware
+  matching would be a breaking change. Documented for awareness.
+
+- **Diff buffered fully before size check** (MED — mitigation landed):
+  `subprocess.run(capture_output=True)` reads entire output before the
+  byte check. Streaming via Popen would prevent this but requires
+  significant refactor of `_run_git`. Deferred as 10 MB limit provides
+  reasonable protection.
+
+- **`forbidden_commands` in SecurityPolicy not enforced** (MED): Protocol
+  defines `forbidden_commands` but verifier never checks them. Feature
+  addition deferred — requires design decisions on enforcement scope.
+
+- **Secret detection shallow** (LOW): Substring matching misses JWTs,
+  encoded secrets, and provider-specific tokens without known prefixes.
+  Trufflehog integration would be a significant dependency addition.
+
+- **macOS case-insensitive filesystem** (LOW): `fnmatch` is case-sensitive
+  while default macOS FS is not. Low practical impact.
