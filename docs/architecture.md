@@ -88,10 +88,10 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~5 990 | Click CLI entry point — 52 commands + `config` / `events` subgroups, CEO commands |
+| `cli.py` | ~5 980 | Click CLI entry point — 52 commands + `config` / `events` subgroups, CEO commands |
 | `protocol.py` | ~990 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
 | `commander.py` | ~1 800 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
-| `transport.py` | ~1 660 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
+| `transport.py` | ~1 700 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
 | `thinking.py` | ~430 | Pre-start brainstorming with Claude Code — problem decomposition and analysis |
 | `verifier.py` | ~440 | Quality gates — security scope, secret-leak detection, symlink defense, hardlink detection, acceptance tests |
 | `poller.py` | ~147 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
