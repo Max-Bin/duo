@@ -213,12 +213,20 @@ duo send {task_id} "The login endpoint is missing rate limiting. Add it."
 """
 
 
-def build_bootstrap_prompt(task: Task) -> str:
-    """Build the initial session bootstrap prompt with file protocol instructions."""
-    return SESSION_BOOTSTRAP_TEMPLATE.format(
+def build_bootstrap_prompt(task: Task, *, override_prompt: str = "") -> str:
+    """Build the initial session bootstrap prompt with file protocol instructions.
+
+    When *override_prompt* is provided (deferred start), the protocol header
+    is followed by the user's actual instruction instead of the default
+    task description.
+    """
+    base = SESSION_BOOTSTRAP_TEMPLATE.format(
         task_dir=str(task.dir),
         incarnation=task.incarnation_id,
     )
+    if override_prompt:
+        return base + f"\n## 第一个任务\n\n{override_prompt}\n"
+    return base
 
 
 def _detect_project_context(worktree: str) -> str:
@@ -376,7 +384,10 @@ def start_claude_commander(task: Task) -> str | None:
     try:
         send_shell_command(commander_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
-        send_shell_command(commander_label, "claude")
+        claude_cmd = "claude"
+        if get_config("bypass_permissions"):
+            claude_cmd += " --dangerously-skip-permissions"
+        send_shell_command(commander_label, claude_cmd)
     except (
         RuntimeError,
         subprocess.CalledProcessError,
@@ -515,8 +526,14 @@ def normalize_for_restart(task: Task) -> bool:
     return True
 
 
-def start_session(task: Task) -> None:
-    """Start a Copilot session in tmux for this task."""
+def start_session(task: Task, *, defer: bool = False) -> None:
+    """Start a Copilot session in tmux for this task.
+
+    When *defer* is True, the session is launched and made ready (idle +
+    /allow-all) but **no bootstrap prompt is sent** — the first user-facing
+    ``duo send`` will deliver the initial instruction without burning a PR
+    up-front.
+    """
     logger.debug("Starting session for task %r", task.id)
     if task.status != TaskStatus.SESSION_STARTING:
         if not transition(task, TaskStatus.SESSION_STARTING):
@@ -589,7 +606,9 @@ def start_session(task: Task) -> None:
     # (including subprocess.TimeoutExpired from tmux send-keys) cleans up
     # the orphaned pane and transitions the task to FAILED.
     time.sleep(_SESSION_SPLIT_WAIT)
-    copilot_cmd = f"copilot --model {shlex.quote(_get_copilot_model())} --yolo"
+    copilot_cmd = f"copilot --model {shlex.quote(_get_copilot_model())}"
+    if get_config("bypass_permissions"):
+        copilot_cmd += " --yolo"
     try:
         send_shell_command(task.pane_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
@@ -647,26 +666,29 @@ def start_session(task: Task) -> None:
             click.echo("Skipping /allow-all (auto_allow_all=false)")
 
         # Send bootstrap prompt (this is the first and only ❯ prompt message)
-        bootstrap = build_bootstrap_prompt(task)
-        send_bootstrap(task.pane_label, bootstrap)
-        task.last_prompt_sent_at = now_iso()
-        save_task(task)
-        append_event(
-            task,
-            "pr_consumed",
-            {
-                "action": "bootstrap",
-                "step": task.current_step,
-                "attempt": task.current_attempt,
-            },
-        )
-
-        if not transition(task, TaskStatus.PROMPT_SENT):
-            logger.warning(
-                "Prompt sent but transition to PROMPT_SENT failed for %s (status=%s)",
-                task.id,
-                task.status.value,
+        if defer:
+            click.echo("Session deferred — Copilot idle, awaiting 'duo send'.")
+        else:
+            bootstrap = build_bootstrap_prompt(task)
+            send_bootstrap(task.pane_label, bootstrap)
+            task.last_prompt_sent_at = now_iso()
+            save_task(task)
+            append_event(
+                task,
+                "pr_consumed",
+                {
+                    "action": "bootstrap",
+                    "step": task.current_step,
+                    "attempt": task.current_attempt,
+                },
             )
+
+            if not transition(task, TaskStatus.PROMPT_SENT):
+                logger.warning(
+                    "Prompt sent but transition to PROMPT_SENT failed for %s (status=%s)",
+                    task.id,
+                    task.status.value,
+                )
     except (
         RuntimeError,
         subprocess.CalledProcessError,

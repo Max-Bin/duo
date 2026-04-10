@@ -1780,7 +1780,7 @@ class TestCreateWorktree:
 
 class TestStartSuccess:
     def test_start_and_run(self, runner: CliRunner, tmp_path: Path):
-        """start creates task + worktree, starts session immediately."""
+        """start creates task + worktree, starts session in defer mode by default."""
         with (
             patch("duo.cli._create_worktree") as mock_wt,
             patch("duo.cli.subprocess.run"),
@@ -1793,8 +1793,39 @@ class TestStartSuccess:
             )
             assert result.exit_code == 0
             assert "Created task: my-task" in result.output
+            assert "Session ready (deferred)" in result.output
+            assert "duo send my-task" in result.output
+            mock_start.assert_called_once()
+            # Verify defer=True is passed by default
+            _, kwargs = mock_start.call_args
+            assert kwargs.get("defer") is True
+
+    def test_start_immediate(self, runner: CliRunner, tmp_path: Path):
+        """start --immediate sends bootstrap immediately (old behavior)."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.subprocess.run"),
+            patch("duo.commander.start_session") as mock_start,
+            patch("duo.scheduler.enqueue_or_start", return_value="started"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "my-task"), "abc123")
+            result = runner.invoke(
+                main,
+                [
+                    "start",
+                    "my-task",
+                    "--repo",
+                    str(tmp_path),
+                    "--desc",
+                    "hello",
+                    "--immediate",
+                ],
+            )
+            assert result.exit_code == 0
             assert "Session started" in result.output
             mock_start.assert_called_once()
+            _, kwargs = mock_start.call_args
+            assert kwargs.get("defer") is False
 
     def test_start_queued(self, runner: CliRunner, tmp_path: Path):
         """start queues task when slots are full."""
@@ -1885,6 +1916,42 @@ class TestSendSuccess:
             assert data["sent"] is False
             assert data["queued"] is True
             mock_send.assert_not_called()
+
+    def test_send_deferred_task_uses_bootstrap(self, runner: CliRunner):
+        """send to SESSION_STARTING task sends bootstrap instead of dialog prompt."""
+        task = _make_task("deferred-task")
+        task.status = TaskStatus.SESSION_STARTING
+        task.pane_label = "deferred-task"
+        save_task(task)
+        with (
+            patch("duo.transport.send_bootstrap") as mock_boot,
+            patch(
+                "duo.commander.build_bootstrap_prompt",
+                return_value="bootstrap+prompt",
+            ),
+        ):
+            result = runner.invoke(main, ["send", "deferred-task", "my instruction"])
+            assert result.exit_code == 0
+            assert "First prompt sent" in result.output
+            mock_boot.assert_called_once_with("deferred-task", "bootstrap+prompt")
+
+    def test_send_deferred_task_json_output(self, runner: CliRunner):
+        """send --json-output to deferred task returns first_prompt: true."""
+        task = _make_task("defer-json")
+        task.status = TaskStatus.SESSION_STARTING
+        task.pane_label = "defer-json"
+        save_task(task)
+        with (
+            patch("duo.transport.send_bootstrap"),
+            patch("duo.commander.build_bootstrap_prompt", return_value="bootstrap"),
+        ):
+            result = runner.invoke(
+                main, ["send", "defer-json", "hello", "--json-output"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["sent"] is True
+            assert data["first_prompt"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -5416,7 +5483,7 @@ class TestStartFlags:
             assert "worktree" in data
 
     def test_start_json_output(self, runner: CliRunner, tmp_path: Path):
-        """start --json-output returns structured JSON with pane label."""
+        """start --json-output returns structured JSON with deferred status."""
         with (
             patch("duo.cli._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
@@ -5430,7 +5497,7 @@ class TestStartFlags:
             data = json.loads(result.output.strip().split("\n")[-1])
             assert data["created"] is True
             assert data["task"] == "s-json"
-            assert data["status"] == "started"
+            assert data["status"] == "deferred"
             assert "pane_label" in data
 
     def test_start_auto_queued_json_output(self, runner: CliRunner, tmp_path: Path):

@@ -292,6 +292,11 @@ def completion(shell: str) -> None:
     is_flag=True,
     help="Use plan.md from a thinking session as the task description",
 )
+@click.option(
+    "--immediate",
+    is_flag=True,
+    help="Send bootstrap prompt immediately (default: defer until 'duo send')",
+)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def start(
     name: str,
@@ -300,6 +305,7 @@ def start(
     model: str | None,
     start_queued: bool,
     from_thinking: bool,
+    immediate: bool,
     *,
     as_json: bool = False,
 ) -> None:
@@ -460,9 +466,10 @@ def start(
         return
 
     # Start Copilot session
+    defer = not immediate
     if not as_json:
         click.echo("Starting Copilot session...")
-    start_session(task)
+    start_session(task, defer=defer)
     if as_json:
         click.echo(
             json.dumps(
@@ -473,12 +480,17 @@ def start(
                     "branch": branch,
                     "incarnation": task.incarnation_id,
                     "pane_label": task.pane_label,
-                    "status": "started",
+                    "status": "deferred" if defer else "started",
                 }
             )
         )
     else:
-        click.echo(f"Session started. Pane label: {task.pane_label}")
+        if defer:
+            click.echo(f"Session ready (deferred). Pane: {task.pane_label}")
+            click.echo("  Copilot is idle — no PR consumed yet.")
+            click.echo(f"  Send first prompt: duo send {name} 'your instruction'")
+        else:
+            click.echo(f"Session started. Pane label: {task.pane_label}")
 
 
 @main.command()
@@ -522,6 +534,37 @@ def send(name: str, prompt: str, *, as_json: bool = False) -> None:
                 f"Task '{name}' is queued — prompt saved and will be sent when task starts.",
                 err=True,
             )
+        return
+
+    if task.status == TaskStatus.SESSION_STARTING:
+        # Deferred start — Copilot is idle at ❯ prompt, send as bootstrap
+        from duo.commander import build_bootstrap_prompt
+        from duo.protocol import append_event, atomic_write_text, now_iso, save_task, transition
+        from duo.transport import send_bootstrap
+
+        # Persist prompt file (like normal send path) for resume/replay
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(prompt_path, prompt)
+
+        bootstrap = build_bootstrap_prompt(task, override_prompt=prompt)
+        send_bootstrap(task.pane_label, bootstrap)
+        task.last_prompt_sent_at = now_iso()
+        save_task(task)
+        append_event(
+            task,
+            "pr_consumed",
+            {
+                "action": "bootstrap",
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+            },
+        )
+        transition(task, TaskStatus.PROMPT_SENT)
+        if as_json:
+            click.echo(json.dumps({"sent": True, "task": name, "first_prompt": True}))
+        else:
+            click.echo(f"First prompt sent to '{name}' (session was deferred).")
         return
 
     send_task_prompt(task, prompt)

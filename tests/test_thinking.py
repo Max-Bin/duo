@@ -141,6 +141,7 @@ class TestSpawnClaudePane:
             patch("duo.transport.name_pane") as mock_name,
             patch("duo.transport.send_shell_command") as mock_cmd,
             patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.config.get_config", return_value=True),
             patch("time.sleep"),
         ):
             pane_id = _spawn_claude_pane("think-x", "/tmp/test")
@@ -172,6 +173,7 @@ class TestSpawnClaudePane:
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command", side_effect=RuntimeError("fail")),
             patch("duo.transport.kill_pane") as mock_kill,
+            patch("duo.config.get_config", return_value=True),
             patch("time.sleep"),
         ):
             with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
@@ -195,6 +197,7 @@ class TestSpawnClaudePane:
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command", side_effect=RuntimeError("fail")),
             patch("duo.transport.kill_pane", return_value=False),
+            patch("duo.config.get_config", return_value=True),
             patch("time.sleep"),
         ):
             with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
@@ -233,12 +236,15 @@ class TestEnsurePane:
         with (
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=False),
+            patch("duo.config.get_config", return_value=True),
             patch("duo.transport.send_shell_command") as mock_cmd,
             patch("duo.transport.wait_for_idle", return_value=True),
         ):
             label = ensure_pane("my-app")
             assert label == "think-my-app"
-            mock_cmd.assert_called_once_with("think-my-app", "claude")
+            mock_cmd.assert_called_once_with(
+                "think-my-app", "claude --dangerously-skip-permissions"
+            )
 
     def test_writes_scaffold_files(self) -> None:
         with (
@@ -588,8 +594,73 @@ class TestShellQuoting:
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command") as mock_cmd,
             patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.config.get_config", return_value=True),
             patch("time.sleep"),
         ):
             _spawn_claude_pane("think-x", "/path/with spaces/dir")
             cd_call = mock_cmd.call_args_list[0]
             assert "'/path/with spaces/dir'" in cd_call[0][1]
+
+
+class TestBypassPermissions:
+    """bypass_permissions config controls --dangerously-skip-permissions flag."""
+
+    def test_spawn_with_bypass_enabled(self) -> None:
+        mock_run = MagicMock(
+            return_value=MagicMock(returncode=0, stdout="%99\n", stderr="")
+        )
+        with (
+            patch("subprocess.run", mock_run),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command") as mock_cmd,
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.config.get_config", return_value=True),
+            patch("time.sleep"),
+        ):
+            _spawn_claude_pane("think-x", "/tmp/test")
+            claude_call = mock_cmd.call_args_list[1]
+            assert claude_call[0][1] == "claude --dangerously-skip-permissions"
+
+    def test_spawn_with_bypass_disabled(self) -> None:
+        mock_run = MagicMock(
+            return_value=MagicMock(returncode=0, stdout="%99\n", stderr="")
+        )
+        with (
+            patch("subprocess.run", mock_run),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command") as mock_cmd,
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.config.get_config", return_value=False),
+            patch("time.sleep"),
+        ):
+            _spawn_claude_pane("think-x", "/tmp/test")
+            claude_call = mock_cmd.call_args_list[1]
+            assert claude_call[0][1] == "claude"
+
+    def test_ensure_pane_recover_with_bypass_enabled(self) -> None:
+        write_thinking_claude_md("bp-test")
+        write_plan_template("bp-test")
+        with (
+            patch("duo.thinking._pane_exists", return_value=True),
+            patch("duo.thinking._pane_alive", return_value=False),
+            patch("duo.config.get_config", return_value=True),
+            patch("duo.transport.send_shell_command") as mock_cmd,
+            patch("duo.transport.wait_for_idle", return_value=True),
+        ):
+            ensure_pane("bp-test")
+            mock_cmd.assert_called_once_with(
+                "think-bp-test", "claude --dangerously-skip-permissions"
+            )
+
+    def test_ensure_pane_recover_with_bypass_disabled(self) -> None:
+        write_thinking_claude_md("bp-off")
+        write_plan_template("bp-off")
+        with (
+            patch("duo.thinking._pane_exists", return_value=True),
+            patch("duo.thinking._pane_alive", return_value=False),
+            patch("duo.config.get_config", return_value=False),
+            patch("duo.transport.send_shell_command") as mock_cmd,
+            patch("duo.transport.wait_for_idle", return_value=True),
+        ):
+            ensure_pane("bp-off")
+            mock_cmd.assert_called_once_with("think-bp-off", "claude")

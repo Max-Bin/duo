@@ -190,6 +190,7 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
     Returns the raw tmux pane ID (e.g. ``%42``).
     Raises ``RuntimeError`` on failure.
     """
+    from duo.config import get_config
     from duo.transport import (
         get_tmux_session_target,
         name_pane,
@@ -226,7 +227,10 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
         time.sleep(_SPLIT_WAIT)
         send_shell_command(label, f"cd {shlex.quote(working_dir)}")
         time.sleep(_CD_WAIT)
-        send_shell_command(label, "claude")
+        claude_cmd = "claude"
+        if get_config("bypass_permissions"):
+            claude_cmd += " --dangerously-skip-permissions"
+        send_shell_command(label, claude_cmd)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
         # Clean up orphaned pane
         from duo.transport import kill_pane
@@ -247,6 +251,7 @@ def ensure_pane(name: str) -> str:
 
     Returns the pane label.
     """
+    from duo.config import get_config
     from duo.transport import send_shell_command, wait_for_idle
 
     label = _pane_label(name)
@@ -262,7 +267,10 @@ def ensure_pane(name: str) -> str:
         if not _pane_alive(label):
             # Pane exists but Claude Code exited — restart
             logger.info("Recovering dead thinking pane %s", label)
-            send_shell_command(label, "claude")
+            claude_cmd = "claude"
+            if get_config("bypass_permissions"):
+                claude_cmd += " --dangerously-skip-permissions"
+            send_shell_command(label, claude_cmd)
             wait_for_idle(label, timeout=30)
         return label
 

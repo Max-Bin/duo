@@ -111,6 +111,14 @@ class TestBuildBootstrapPrompt:
         assert "heartbeat" in prompt.lower()
         assert "result" in prompt.lower()
 
+    def test_override_prompt_appends_task(self):
+        """build_bootstrap_prompt with override_prompt appends user instruction."""
+        task = _make_task()
+        prompt = build_bootstrap_prompt(task, override_prompt="Implement auth module")
+        assert str(task.dir) in prompt
+        assert "Implement auth module" in prompt
+        assert "第一个任务" in prompt
+
 
 # ---------------------------------------------------------------------------
 # build_task_prompt
@@ -573,6 +581,7 @@ class TestStartSession:
             "auto_allow_all": True,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -609,6 +618,7 @@ class TestStartSession:
             "auto_allow_all": False,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -646,6 +656,7 @@ class TestStartSession:
             "auto_allow_all": False,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -682,6 +693,7 @@ class TestStartSession:
             "auto_allow_all": True,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -723,6 +735,7 @@ class TestStartSession:
             "auto_allow_all": True,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -776,6 +789,7 @@ class TestStartSession:
             "auto_allow_all": True,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -837,6 +851,7 @@ class TestStartSession:
             "auto_allow_all": False,
             "auto_claude_commander": False,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with (
@@ -865,9 +880,104 @@ class TestStartSession:
             assert task.status == TaskStatus.FAILED
             mock_kill.assert_called_once_with("%42")
 
+    def test_start_session_defer_skips_bootstrap(self):
+        """start_session(defer=True) skips bootstrap prompt and pr_consumed."""
+        from unittest.mock import MagicMock
 
-# ---------------------------------------------------------------------------
-# write_commander_claude_md and start_claude_commander
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", return_value=True),
+            patch("duo.commander.send_bootstrap") as mock_boot,
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task, defer=True)
+
+            # Bootstrap should NOT be called
+            mock_boot.assert_not_called()
+            # Task stays at SESSION_STARTING (not PROMPT_SENT)
+            assert task.status == TaskStatus.SESSION_STARTING
+
+
+class TestBypassPermissions:
+    """Verify bypass_permissions config controls --yolo and --dangerously-skip-permissions."""
+
+    def test_copilot_yolo_when_bypass_enabled(self):
+        """copilot command includes --yolo when bypass_permissions=True."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+        config_values = {
+            "auto_allow_all": False,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
+        }
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+            start_session(task)
+            copilot_calls = [
+                c for c in mock_send.call_args_list if "--yolo" in str(c)
+            ]
+            assert len(copilot_calls) == 1
+
+    def test_copilot_no_yolo_when_bypass_disabled(self):
+        """copilot command omits --yolo when bypass_permissions=False."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+        config_values = {
+            "auto_allow_all": False,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": False,
+        }
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+            start_session(task)
+            copilot_calls = [
+                c for c in mock_send.call_args_list if "--yolo" in str(c)
+            ]
+            assert len(copilot_calls) == 0
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -1248,6 +1358,7 @@ class TestClaudeCommander:
             "auto_allow_all": True,
             "auto_claude_commander": True,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1286,6 +1397,7 @@ class TestClaudeCommander:
             "auto_allow_all": True,
             "auto_claude_commander": True,
             "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
         }
 
         with tempfile.TemporaryDirectory() as tmp:
