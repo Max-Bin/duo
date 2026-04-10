@@ -659,3 +659,28 @@ class TestImportCycleGuard:
                 text=True,
             )
             assert result.returncode == 0, f"Failed to import {mod}: {result.stderr}"
+
+
+class TestDocstringCoverageGuard:
+    """Guard: all public functions must have docstrings."""
+
+    # Inner functions of decorators — not truly public
+    ALLOWLIST = {
+        ("transport.py", "decorator"),
+        ("transport.py", "wrapper"),
+    }
+
+    def test_public_functions_have_docstrings(self) -> None:
+        import ast
+
+        missing = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            tree = ast.parse(f.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_") and not ast.get_docstring(node):
+                        if (f.name, node.name) not in self.ALLOWLIST:
+                            missing.append(f"{f.name}:{node.lineno} {node.name}")
+        assert missing == [], "Public functions without docstrings:\n" + "\n".join(
+            f"  {m}" for m in missing
+        )
