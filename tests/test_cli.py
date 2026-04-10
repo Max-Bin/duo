@@ -4446,6 +4446,44 @@ class TestDryRun:
         assert "Would merge" in result.output
         assert "dry-merge" in result.output or task.branch in result.output
 
+    def test_merge_dry_run_json(self, runner: CliRunner):
+        """merge --dry-run --json-output returns structured preview."""
+        task = _make_task("dry-merge-json")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(
+            main, ["merge", "dry-merge-json", "--dry-run", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["dry_run"] is True
+        assert data["target"] == "main"
+        assert "branch" in data
+
+    def test_merge_json_output(self, runner: CliRunner, tmp_path: Path):
+        """merge --json-output returns structured result."""
+        task = _make_task("merge-json")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "merge_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=f"worktree /main\n  branch refs/heads/main\n\nworktree {wt_dir}\n  branch refs/heads/{task.branch}\n",
+                stderr="",
+            )
+            result = runner.invoke(main, ["merge", "merge-json", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["merged"] is True
+            assert data["branch"] == task.branch
+            assert "worktree_removed" in data
+            assert "branch_deleted" in data
+
 
 # ---------------------------------------------------------------------------
 # diff command

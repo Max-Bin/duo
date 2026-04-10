@@ -673,7 +673,8 @@ def recover(as_json: bool) -> None:
 @main.command()
 @click.argument("name")
 @click.option("--dry-run", is_flag=True, help="Preview merge without executing")
-def merge(name: str, dry_run: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
     """Merge a completed task's worktree to main."""
     task = _load_task_or_fail(name)
 
@@ -686,11 +687,23 @@ def merge(name: str, dry_run: bool) -> None:
     worktree = task.worktree
 
     if dry_run:
-        click.echo("Would merge:")
-        click.echo(f"  Branch: {task.branch}")
-        click.echo("  Into: main")
-        click.echo(f"  Worktree: {task.worktree}")
-        click.echo("\nRun without --dry-run to execute.")
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "dry_run": True,
+                        "branch": task.branch,
+                        "target": "main",
+                        "worktree": task.worktree,
+                    }
+                )
+            )
+        else:
+            click.echo("Would merge:")
+            click.echo(f"  Branch: {task.branch}")
+            click.echo("  Into: main")
+            click.echo(f"  Worktree: {task.worktree}")
+            click.echo("\nRun without --dry-run to execute.")
         return
 
     if not os.path.exists(worktree):
@@ -700,18 +713,22 @@ def merge(name: str, dry_run: bool) -> None:
         )
 
     # Fetch and rebase
-    click.echo("Fetching and rebasing...")
+    if not as_json:
+        click.echo("Fetching and rebasing...")
     r = _run_git(["fetch", "origin", "main"], cwd=worktree, check=False)
     if r.returncode != 0:
-        click.echo("Warning: fetch failed, proceeding with local state", err=True)
+        if not as_json:
+            click.echo("Warning: fetch failed, proceeding with local state", err=True)
 
     r = _run_git(["rebase", "origin/main"], cwd=worktree, check=False)
     if r.returncode != 0:
         abort = _run_git(["rebase", "--abort"], cwd=worktree, check=False)
         if abort.returncode != 0:
-            click.echo(
-                f"Warning: could not abort rebase: {abort.stderr.strip()}", err=True
-            )
+            if not as_json:
+                click.echo(
+                    f"Warning: could not abort rebase: {abort.stderr.strip()}",
+                    err=True,
+                )
         raise DuoUserError(
             f"Rebase conflict while merging '{name}'.\n{r.stderr}",
             fix=f"Resolve conflicts manually in '{worktree}', then run 'duo merge {name}' again.",
@@ -736,7 +753,8 @@ def merge(name: str, dry_run: bool) -> None:
         )
 
     # ff-only merge
-    click.echo(f"Merging {task.branch} into main...")
+    if not as_json:
+        click.echo(f"Merging {task.branch} into main...")
     r = _run_git(["merge", task.branch, "--ff-only"], cwd=main_worktree, check=False)
     if r.returncode != 0:
         raise DuoUserError(
@@ -745,18 +763,33 @@ def merge(name: str, dry_run: bool) -> None:
         )
 
     # Cleanup
-    click.echo("Cleaning up worktree and branch...")
+    if not as_json:
+        click.echo("Cleaning up worktree and branch...")
     r = _run_git(["worktree", "remove", worktree], cwd=main_worktree, check=False)
-    if r.returncode != 0:
+    wt_removed = r.returncode == 0
+    if not wt_removed and not as_json:
         click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
     r = _run_git(["branch", "-d", task.branch], cwd=main_worktree, check=False)
-    if r.returncode != 0:
+    branch_deleted = r.returncode == 0
+    if not branch_deleted and not as_json:
         click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
     from duo.protocol import append_event
 
     append_event(task, "task_merged", {"branch": task.branch})
-    click.echo(f"Merged {name}. Remember to `git push` when ready.")
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "merged": True,
+                    "branch": task.branch,
+                    "worktree_removed": wt_removed,
+                    "branch_deleted": branch_deleted,
+                }
+            )
+        )
+    else:
+        click.echo(f"Merged {name}. Remember to `git push` when ready.")
 
 
 @main.command()
