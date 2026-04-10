@@ -2029,6 +2029,39 @@ class TestStop:
             data = json.loads(result.output)
             assert data["stopped"] is False
 
+    @pytest.mark.parametrize(
+        "state",
+        [
+            TaskStatus.CREATED,
+            TaskStatus.QUEUED,
+            TaskStatus.SESSION_STARTING,
+            TaskStatus.PROMPT_SENT,
+            TaskStatus.ACKED,
+            TaskStatus.RUNNING,
+            TaskStatus.RESULT_REPORTED,
+            TaskStatus.VERIFYING,
+            TaskStatus.CORRECTING,
+            TaskStatus.ESCALATED,
+        ],
+    )
+    def test_stop_from_all_non_terminal_states(
+        self, runner: CliRunner, state: TaskStatus
+    ):
+        """stop successfully transitions to BLOCKED from every non-terminal state."""
+        tid = f"stop-{state.value}"
+        task = _make_task(tid)
+        task.status = state
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["stop", tid])
+            assert result.exit_code == 0
+            assert "Stopped" in result.output
+
+        reloaded = load_task(tid)
+        assert reloaded is not None
+        assert reloaded.status == TaskStatus.BLOCKED
+
 
 # ---------------------------------------------------------------------------
 
@@ -4665,6 +4698,39 @@ class TestResume:
             data = json.loads(result.output)
             assert data["resumed"][0]["resumed"] is False
             assert "Cannot normalize" in data["resumed"][0]["error"]
+
+    @pytest.mark.parametrize(
+        "state",
+        [
+            TaskStatus.PROMPT_SENT,
+            TaskStatus.ACKED,
+            TaskStatus.RUNNING,
+            TaskStatus.RESULT_REPORTED,
+            TaskStatus.VERIFYING,
+            TaskStatus.CORRECTING,
+        ],
+    )
+    def test_resume_dead_pane_normalizes_active_state(
+        self,
+        runner: CliRunner,
+        state: TaskStatus,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """resume with dead pane normalizes active states to FAILED before start."""
+        tid = f"resume-{state.value}"
+        task = _make_task(tid)
+        task.status = state
+        save_task(task)
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        monkeypatch.setattr("duo.commander.send_task_prompt", MagicMock())
+        result = runner.invoke(main, ["resume", tid])
+        assert result.exit_code == 0
+        assert "Resumed" in result.output
+        # normalize_for_restart should have moved it to FAILED before start_session
+        mock_start.assert_called_once()
 
 
 class TestHelpTexts:

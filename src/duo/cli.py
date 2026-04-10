@@ -888,7 +888,7 @@ def stop(name: str, *, as_json: bool = False) -> None:
 
     task = _load_task_or_fail(name)
 
-    terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+    terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED}
     if task.status in terminal_states:
         if as_json:
             click.echo(
