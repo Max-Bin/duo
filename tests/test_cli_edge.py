@@ -439,3 +439,48 @@ class TestPragmaNoCoverDocumented:
                     if not after or after == "#":
                         undocumented.append(f"{f.name}:{i}")
         assert undocumented == [], f"pragma: no cover without rationale: {undocumented}"
+
+
+class TestModuleAllExports:
+    """Guard: every name in __all__ must exist in its module."""
+
+    MODULES = [
+        "duo.ceo_log",
+        "duo.ceo_state",
+        "duo.cli",
+        "duo.commander",
+        "duo.config",
+        "duo.dashboard",
+        "duo.errors",
+        "duo.poller",
+        "duo.protocol",
+        "duo.scheduler",
+        "duo.thinking",
+        "duo.transport",
+        "duo.verifier",
+    ]
+
+    def test_all_exports_exist(self) -> None:
+        """Every name listed in __all__ must be an actual attribute."""
+        import importlib
+
+        missing: list[str] = []
+        for mod_name in self.MODULES:
+            mod = importlib.import_module(mod_name)
+            missing.extend(
+                f"{mod_name}.{name}"
+                for name in getattr(mod, "__all__", [])
+                if not hasattr(mod, name)
+            )
+        assert missing == [], f"__all__ references non-existent attributes: {missing}"
+
+    def test_no_empty_all(self) -> None:
+        """Every module must export at least one name."""
+        import importlib
+
+        empty: list[str] = []
+        for mod_name in self.MODULES:
+            mod = importlib.import_module(mod_name)
+            if not getattr(mod, "__all__", []):
+                empty.append(mod_name)
+        assert empty == [], f"Modules with empty __all__: {empty}"
