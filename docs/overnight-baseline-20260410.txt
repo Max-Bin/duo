@@ -1,78 +1,67 @@
-# Duo Overnight Baseline — Session 2 Update
-# Generated after Rounds FQ–GE
+# Duo Overnight Baseline — 2026-04-10
 
-## Summary
-- Tests: 2069 (up from 2045 at session start)
-- Statement coverage: 100% (5330 stmts, 0 miss)
-- Branch coverage: 99.33% (1936 branches, 49 partial)
+## Git Status
+- HEAD: cc38bd4
+- Branch: main
+- Commits: 407
 
-## Branch Coverage by Module (100% = perfect)
-- __init__.py:     100% stmt, 100% branch
-- ceo_log.py:      100% stmt, 100% branch
-- ceo_state.py:    100% stmt, 100% branch
-- cli.py:          100% stmt, 99% branch (46 partial — display conditionals)
-- commander.py:    100% stmt, 100% branch  <-- NEW this session
-- config.py:       100% stmt, 100% branch  <-- NEW this session
-- dashboard.py:    100% stmt, 100% branch  <-- NEW this session
-- errors.py:       100% stmt, 100% branch
-- poller.py:       100% stmt, 100% branch
-- protocol.py:     100% stmt, 100% branch
-- scheduler.py:    100% stmt, 100% branch
-- thinking.py:     100% stmt, 100% branch
-- transport.py:    100% stmt, 99% branch (3 partial — Protocol stubs)
-- verifier.py:     100% stmt, 100% branch
+........................................................................ [ 97%]
+......................................................                   [100%]
+2214 passed in 78.00s (0:01:17)
 
-## Key Improvements This Session
-1. commander.py: 6 branch gaps -> 0 (100% branch)
-2. dashboard.py: 1 branch gap -> 0 (100% branch)
-3. transport.py: 9 branch gaps -> 3 (Protocol stubs only)
-4. config.py: rubber-duck audit + NaN/Infinity/non-dict hardening
-5. Overall: 62 -> 49 partial branches
-
-## Security Audits Completed
-- config.py (Round GD): NaN/Infinity, non-dict JSON, UTF-8 encoding
-- transport.py (Round FR): path traversal, shell quoting, pane leak
-- dashboard.py (Round FS): non-dict JSONL, markup escape, heartbeat OSError
-- ceo_log.py (Round FV): session ID path traversal
-- protocol.py (Round FW): read_json OSError broadening
-
-## Remaining Work
-- cli.py: 46 branch gaps (display conditionals in 27 commands)
-- transport.py: 3 Protocol stub gaps (inherent, cannot test)
-Source lines: 10070
-Statements: 4774
-
-=== Test + Coverage Output ===
-1757 passed, 1 xfailed in 74.73s
-
+## Coverage Report
 Name                   Stmts   Miss  Cover   Missing
 ----------------------------------------------------
 src/duo/__init__.py        7      0   100%
-src/duo/ceo_log.py        52      0   100%
+src/duo/ceo_log.py        57      0   100%
 src/duo/ceo_state.py      18      0   100%
-src/duo/cli.py          2644      0   100%
-src/duo/commander.py     491      0   100%
-src/duo/config.py         78      0   100%
-src/duo/dashboard.py      90      0   100%
-src/duo/errors.py         17      0   100%
-src/duo/poller.py         62      0   100%
-src/duo/protocol.py      295      0   100%
-src/duo/scheduler.py      50      0   100%
-src/duo/thinking.py      164      0   100%
-src/duo/transport.py     665      0   100%
-src/duo/verifier.py      141      0   100%
+src/duo/cli.py          3073      0   100%
+src/duo/commander.py     665      0   100%
+src/duo/config.py        119      0   100%
+src/duo/dashboard.py      96      0   100%
+src/duo/errors.py         18      0   100%
+src/duo/poller.py         63      0   100%
+src/duo/protocol.py      372      0   100%
+src/duo/scheduler.py      51      0   100%
+src/duo/thinking.py      174      0   100%
+src/duo/transport.py     713      0   100%
+src/duo/verifier.py      185      0   100%
 ----------------------------------------------------
-TOTAL                   4774      0   100%
-Required test coverage of 100.0% reached. Total coverage: 100.00%
+TOTAL                   5611      0   100%
 
-=== Ruff Check ===
-All checks passed!
+## Module Sizes (lines)
+      39 src/duo/__init__.py
+     150 src/duo/ceo_log.py
+      44 src/duo/ceo_state.py
+    5988 src/duo/cli.py
+    1752 src/duo/commander.py
+     235 src/duo/config.py
+     186 src/duo/dashboard.py
+      38 src/duo/errors.py
+     147 src/duo/poller.py
+     947 src/duo/protocol.py
+     146 src/duo/scheduler.py
+     426 src/duo/thinking.py
+    1632 src/duo/transport.py
+     444 src/duo/verifier.py
+   12174 total
 
-=== Overnight Rounds Completed ===
-BH: transport.py rubber-duck audit (2C/3H fixed, +16 tests) -- commit 2729e66
-BI: verifier.py rubber-duck audit (2C/3H fixed, +8 tests) -- commit 2fe8653
-BJ: protocol.py rubber-duck audit (4C/4H fixed, +10 tests) -- commit f5a77b9
-BK: pragma documentation (7 pragmas documented) -- commit 7027634
-BL: docs cross-reference audit (stale numbers fixed) -- commit be946ea
-BM: known-issues.md review (4 resolved verified, 2 new documented) -- commit 7e9707f
-BN: baseline snapshot (this file)
+## CLI Commands
+Total top-level: 54
+
+## Recent Commits (last 15)
+cc38bd4 docs+fix: rubber-duck review of known-issues — promote or defer each
+7aa964c docs: cross-reference audit + accuracy pass on all markdown
+87a12aa test: ceo-* command branch coverage — all pragmas documented
+03c8d0a fix: rubber-duck audit of protocol.py — FSM and atomic write hardening
+6812408 security: rubber-duck audit of verifier.py — harden path/secret/scope
+d25f9a9 refactor: rubber-duck audit of transport.py — 4 high findings resolved
+fd98070 docs: update READMEs and CLAUDE.md for duo go
+fff67ee feat: duo go — one-command CEO + Executor setup
+c3ee1e7 feat: --reuse-pane option for duo start
+1fc51a3 feat: go-session state persistence (save/load/clear)
+595b6db feat: write_project_claude_md with marker-based merge strategy
+28df61d docs: plan for duo go — the one-command user journey
+71fdd40 feat: write_commander_claude_md generates full CEO operating manual
+a43ea12 security: early writable_paths validation in load_task() + docs accuracy
+832e8ed docs: fix command counts in READMEs + improve writable_paths error messages
