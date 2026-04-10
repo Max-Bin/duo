@@ -1,6 +1,6 @@
 # Duo — Architecture Specification
 
-> **Duo** is a lightweight agent-orchestration runtime (≈ 10 000 lines of Python)
+> **Duo** is a lightweight agent-orchestration runtime (≈ 11 000 lines of Python)
 > that coordinates coding tasks across isolated git worktrees.  A **Commander**
 > (Python CLI) directs an **Executor** (Copilot CLI / Claude Code) through a
 > durable, file-based protocol.
@@ -88,19 +88,19 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~2 555 | Click CLI entry point — 51 commands + `config` (4 sub) / `events` (4 sub) subgroups |
-| `protocol.py` | ~315 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
-| `commander.py` | ~499 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
-| `transport.py` | ~717 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
-| `thinking.py` | ~174 | Pre-start brainstorming with Claude Code — problem decomposition and analysis |
-| `verifier.py` | ~149 | Quality gates — security scope, secret-leak detection, symlink defense, acceptance tests |
-| `poller.py` | ~69 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
-| `scheduler.py` | ~60 | FIFO queue, `max_parallel` throttling, auto-dequeue on slot availability |
-| `config.py` | ~81 | Persistent JSON config with type coercion and validated ranges |
-| `dashboard.py` | ~94 | Rich live terminal dashboard — task table, queue panel, event stream |
-| `ceo_log.py` | ~62 | CEO session event logging — structured JSONL with categories |
-| `ceo_state.py` | ~22 | CEO session state persistence |
-| `errors.py` | ~22 | Domain-specific exception hierarchy |
+| `cli.py` | ~5 700 | Click CLI entry point — 50+ commands + `config` / `events` subgroups, CEO commands |
+| `protocol.py` | ~800 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
+| `commander.py` | ~1 400 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
+| `transport.py` | ~1 580 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
+| `thinking.py` | ~400 | Pre-start brainstorming with Claude Code — problem decomposition and analysis |
+| `verifier.py` | ~370 | Quality gates — security scope, secret-leak detection, symlink defense, acceptance tests |
+| `poller.py` | ~137 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
+| `scheduler.py` | ~136 | FIFO queue, `max_parallel` throttling, auto-dequeue on slot availability |
+| `config.py` | ~200 | Persistent JSON config with type coercion and validated ranges |
+| `dashboard.py` | ~177 | Rich live terminal dashboard — task table, queue panel, event stream |
+| `ceo_log.py` | ~142 | CEO session event logging — structured JSONL with categories |
+| `ceo_state.py` | ~44 | CEO session state persistence |
+| `errors.py` | ~38 | Domain-specific exception hierarchy |
 
 ---
 

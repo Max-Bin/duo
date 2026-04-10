@@ -28,7 +28,7 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — thin Click CLI entry point (51 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion + CEO workflow commands)
+└── cli.py         — thin Click CLI entry point (52 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion + CEO workflow commands)
 ```
 
 ### transport.py — Protocol Classes
@@ -100,7 +100,7 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 858+ tests, **100% test coverage required** (enforced via `make coverage`)
+- 1944+ tests, **100% test coverage required** (enforced via `make coverage`)
 - Tests organized by module in `tests/test_*.py` (10 test files)
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
