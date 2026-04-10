@@ -1796,7 +1796,7 @@ class TestPollTask:
         ret = poll_task(task, poller)
 
         assert ret == PollResult.RESULT_READY
-        mock_verify.assert_called_once_with(task)
+        mock_verify.assert_called_once_with(task, result_obj)
 
     @patch("duo.commander.verify_and_advance")
     @patch("duo.commander.read_result_for_step")

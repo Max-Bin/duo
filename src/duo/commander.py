@@ -34,6 +34,7 @@ from duo.config import get_config
 from duo.poller import AdaptivePoller, PollResult, age
 from duo.protocol import (
     DUO_DIR,
+    StepResult,
     Task,
     TaskStatus,
     append_event,
@@ -789,11 +790,12 @@ def resend_last_prompt(task: Task) -> None:
 # === Verify and Advance ===
 
 
-def verify_and_advance(task: Task) -> None:
+def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
     """Verify the current step result and advance or correct."""
     step = task.current_step
     attempt = task.current_attempt
-    result = read_result_for_step(task, step, attempt)
+    if result is None:
+        result = read_result_for_step(task, step, attempt)
 
     if result is None:
         return
@@ -957,7 +959,7 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
     if poll_result == PollResult.RESULT_READY:
         result = read_result_for_step(task, step, attempt)
         if result and result.incarnation == inc:
-            verify_and_advance(task)
+            verify_and_advance(task, result)
         elif result:
             logger.warning(
                 "Result incarnation mismatch for %s: got %s, expected %s",

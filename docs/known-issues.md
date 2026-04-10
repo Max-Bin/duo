@@ -654,22 +654,13 @@ root-anchored path matching. Added Unicode NFC normalization.
 
 ## Protocol Hardening Deferred (Round ET audit)
 
-### HIGH — SecurityPolicy loses defaults on load
+### HIGH — SecurityPolicy loses defaults on load — RESOLVED
 
-When a task is loaded from JSON, `SecurityPolicy` fields use
-`field(default_factory=...)` which only applies at construction.
-If the JSON has an empty `secret_patterns: []`, the loaded policy
-will have no patterns, even though new tasks get the full default
-list. This means older tasks created before new patterns were added
-won't benefit from the expanded list.
+**Status: Fixed** in commit `941619b` (Round EV).
 
-**Impact:** Low — tasks are short-lived and usually created with
-current defaults. Only affects tasks created with older code that
-are later verified by newer code.
-
-**Fix:** `load_task()` could merge loaded patterns with current
-defaults, but this risks unexpected behavior changes for existing
-tasks. Deferred pending design decision.
+`load_task()` now merges saved patterns with `DEFAULT_SECRET_PATTERNS`
+using `dict.fromkeys()` for dedup. Older tasks benefit from newly-added
+patterns when verified by newer code.
 
 ### MED — load_task type confusion
 
