@@ -30,6 +30,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 1 FSM doc accuracy guard: architecture.md transition table must match protocol.TRANSITIONS
 - 2 config doc guards: getting-started.md and architecture.md must list all config keys
 - 1 no-duplicate-test-class guard: prevents Python class shadowing (found 20 lost tests!)
+- 1 no-shadowed-methods guard: prevents Python method shadowing within test classes
+- `is_pane_alive()` and `split_window_horizontal()` transport functions
+- Shared `conftest.py` with `_isolate_tasks_dir` fixture (replaces 5 per-file copies)
+- 3 conftest isolation guards: verify TASKS_DIR, CONFIG_PATH, _CORRUPTED_DIR point to tmp
+- 4 scheduler ACTIVE_STATUSES consistency guards
+- 1 DuoUserError fix= suggestion guard (all raise sites must include fix=)
+- 1 command help text guard (all 52 commands must have help >= 10 chars)
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
@@ -73,6 +80,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - **4 shadowed methods recovered**: duplicate method names in `TestCeoSelect` for ceo-approve tests overwrote ceo-select tests
 - Consolidated duplicate `TestFmtTs` property test classes (removed redundant weaker assertion)
 - Extracted `kill_pane()` into transport layer — all 7 direct tmux subprocess calls now routed through validated transport function
+- Routed `go` command's 3 direct tmux subprocess calls through transport layer (`is_pane_alive`, `split_window_horizontal`, `kill_pane`)
 - Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
 - Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
 - Resolved fnmatch case sensitivity known-issue (implementation uses PurePosixPath.match, always case-sensitive)
