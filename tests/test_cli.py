@@ -2007,6 +2007,28 @@ class TestKillSuccess:
             assert "Warning: worktree removal failed" in result.output
             assert "Warning: branch deletion failed" in result.output
 
+    def test_kill_json_output(self, runner: CliRunner, tmp_path: Path):
+        """kill --json-output returns structured JSON."""
+        task = _make_task("kill-json")
+        wt_dir = tmp_path / "kill_json_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="worktree /main\n  branch refs/heads/main\n\n",
+                stderr="",
+            )
+            result = runner.invoke(main, ["kill", "kill-json", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["killed"] is True
+            assert "pane_killed" in data
+            assert "worktree_removed" in data
+            assert "branch_deleted" in data
+
 
 # ---------------------------------------------------------------------------
 # merge command

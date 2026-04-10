@@ -859,14 +859,16 @@ def stop(name: str, *, as_json: bool = False) -> None:
 
 @main.command()
 @click.argument("name")
-def kill(name: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def kill(name: str, *, as_json: bool = False) -> None:
     """Kill a task and clean up."""
     task = _load_task_or_fail(name)
 
     # Try to kill the pane
     from duo.transport import cleanup_pane_state, kill_pane
 
-    if not kill_pane(task.pane_label):
+    pane_killed = kill_pane(task.pane_label)
+    if not pane_killed and not as_json:
         click.echo("Warning: failed to kill pane", err=True)
 
     cleanup_pane_state(task.pane_label)
@@ -889,18 +891,21 @@ def kill(name: str) -> None:
     repo_cwd = main_worktree or "."
 
     # Remove worktree
+    wt_removed = False
     if os.path.exists(task.worktree):
         r = _run_git(
             ["worktree", "remove", "--force", task.worktree], cwd=repo_cwd, check=False
         )
-        if r.returncode != 0:
+        wt_removed = r.returncode == 0
+        if not wt_removed and not as_json:
             click.echo(
                 f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
             )
 
     # Remove branch
     r = _run_git(["branch", "-D", task.branch], cwd=repo_cwd, check=False)
-    if r.returncode != 0:
+    branch_deleted = r.returncode == 0
+    if not branch_deleted and not as_json:
         click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
     from duo.protocol import append_event
@@ -910,7 +915,19 @@ def kill(name: str) -> None:
     from duo.protocol import save_task
 
     save_task(task)
-    click.echo(f"Killed {name}.")
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "killed": True,
+                    "pane_killed": pane_killed,
+                    "worktree_removed": wt_removed,
+                    "branch_deleted": branch_deleted,
+                }
+            )
+        )
+    else:
+        click.echo(f"Killed {name}.")
 
 
 _MAX_BATCH_FILE_BYTES = 10_000_000  # 10 MB
