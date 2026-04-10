@@ -511,3 +511,22 @@ class TestSecurityGuards:
                 if "eval(" in stripped or "exec(" in stripped:
                     violations.append(f"{f.name}:{i}: {stripped[:60]}")
         assert violations == [], f"eval/exec found in production code: {violations}"
+
+
+class TestVersionConsistency:
+    """Guard: runtime version must match pyproject.toml."""
+
+    def test_version_matches_pyproject(self) -> None:
+        """duo.__version__ must equal pyproject.toml version."""
+        import tomllib
+
+        pyproject = (
+            Path(duo.cli.__file__).resolve().parent.parent.parent / "pyproject.toml"
+        )
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
+        expected = data["project"]["version"]
+        assert duo.__version__ == expected, (
+            f"Version mismatch: duo.__version__={duo.__version__!r}, "
+            f"pyproject.toml={expected!r}"
+        )
