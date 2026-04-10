@@ -2023,6 +2023,45 @@ def _doctor_check_copilot_health() -> list[CheckResult]:
     return results
 
 
+def _doctor_check_capi_error() -> list[CheckResult]:
+    """Check journals for recent CAPIError events (backend context limit).
+
+    Reads each active task's journal for ``capi_error`` events.  Unlike pane
+    content reading, journal checks are race-free and replay-safe.
+    """
+    from duo.protocol import read_jsonl
+
+    terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+    try:
+        tasks = list_tasks()
+    except (FileNotFoundError, OSError, ValueError):
+        return []
+
+    active = [t for t in tasks if t.status not in terminal]
+    if not active:
+        return []
+
+    results: list[CheckResult] = []
+    for task in active:
+        if not task.journal_path.exists():
+            continue
+        events = read_jsonl(task.journal_path)
+        capi_events = [e for e in events if e.get("event") == "capi_error"]
+        if capi_events:
+            last = capi_events[-1]
+            ts = last.get("ts", "unknown")[:19]
+            results.append(
+                CheckResult(
+                    f"capi:{task.id}",
+                    "fail",
+                    f"CAPIError detected at {ts}",
+                    "Session context limit exhausted — restart: duo stop + duo start",
+                )
+            )
+
+    return results
+
+
 def _emit_restart_signal(task_id: str) -> None:
     """Write a restart-recommended signal file for a task.
 
@@ -2071,6 +2110,7 @@ def doctor(json_output: bool, strict: bool) -> None:
     """Check environment dependencies and configuration."""
     results: list[CheckResult] = [fn() for fn in _DOCTOR_CHECKS]
     results.extend(_doctor_check_copilot_health())
+    results.extend(_doctor_check_capi_error())
 
     counts = {"pass": 0, "warn": 0, "fail": 0}
     for r in results:
@@ -2168,18 +2208,14 @@ def resume(name: str | None) -> None:
             try:
                 restart_session(task)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-                click.echo(
-                    f"  Failed to resume '{task.id}': {exc}", err=True
-                )
+                click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
                 continue
             click.echo(f"Resumed task '{task.id}' — restarted session")
         else:
             try:
                 start_session(task)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-                click.echo(
-                    f"  Failed to resume '{task.id}': {exc}", err=True
-                )
+                click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
                 continue
             click.echo(f"Resumed task '{task.id}' — started new session")
 
@@ -3108,7 +3144,7 @@ def _gather_budget_info(task: Task) -> dict[str, Any]:
 
 
 def _gather_session_health(task: Task) -> dict[str, Any] | None:
-    """Collect session age, fd count, and estimated remaining capacity."""
+    """Collect session age, fd count, PR usage, and session risk level."""
     from duo.transport import get_pane_pid
 
     pid = get_pane_pid(task.pane_label)
@@ -3119,15 +3155,26 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
     kqueue_count = _get_pid_kqueue_count(pid)
     child_count = _get_pid_child_count(pid)
 
-    # Session age from task created_at
+    # Session age from session_started_at (preferred) or created_at
     age_seconds = 0.0
     try:
         from datetime import UTC, datetime
 
-        created = datetime.fromisoformat(task.created_at.replace("Z", "+00:00"))
+        ts = getattr(task, "session_started_at", None) or task.created_at
+        created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         age_seconds = (datetime.now(UTC) - created).total_seconds()
     except (ValueError, TypeError, AttributeError):
         pass
+
+    # Count PR-consuming events as a proxy for session context volume
+    pr_count = 0
+    has_capi_error = False
+    if task.journal_path.exists():
+        from duo.protocol import read_jsonl
+
+        events = read_jsonl(task.journal_path)
+        pr_count = sum(1 for e in events if e.get("event") == "pr_consumed")
+        has_capi_error = any(e.get("event") == "capi_error" for e in events)
 
     # Estimate remaining capacity based on fd growth rate
     est_remaining_hours: float | None = None
@@ -3138,7 +3185,7 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
             est_remaining_hours = remaining_fds / fd_rate_per_hour
 
     health_status = "healthy"
-    if fd_count >= _COPILOT_FD_CRITICAL:
+    if has_capi_error or fd_count >= _COPILOT_FD_CRITICAL:
         health_status = "critical"
     elif (
         fd_count >= _COPILOT_FD_WARN
@@ -3146,6 +3193,16 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
         or child_count >= _COPILOT_CHILD_WARN
     ):
         health_status = "degraded"
+
+    # Session risk: high if CAPIError seen or age > 4h with many PRs
+    age_hours = age_seconds / 3600
+    risk = "low"
+    if has_capi_error:
+        risk = "high"
+    elif age_hours > 4 and pr_count > 50:
+        risk = "high"
+    elif age_hours > 2 or pr_count > 30:
+        risk = "medium"
 
     return {
         "pid": pid,
@@ -3157,6 +3214,8 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
             round(est_remaining_hours, 1) if est_remaining_hours is not None else None
         ),
         "status": health_status,
+        "pr_count": pr_count,
+        "risk": risk,
     }
 
 
@@ -3237,6 +3296,16 @@ def ceo_now(json_output: bool) -> None:
         cap_str = f", ~{cap:.1f}h remaining" if cap is not None else ""
         line = f"Health:    {h['status']} (age {age_str}, {', '.join(parts)}{cap_str})"
         click.echo(click.style(line, fg=color))
+        # Session risk line
+        risk = h.get("risk", "low")
+        pr_count = h.get("pr_count", 0)
+        risk_color = {"low": "green", "medium": "yellow", "high": "red"}
+        r_color = risk_color.get(risk, "white")
+        click.echo(
+            click.style(
+                f"Risk:      {risk} (PRs={pr_count}, age={age_str})", fg=r_color
+            )
+        )
 
     if data["git"]:
         g = data["git"]

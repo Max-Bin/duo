@@ -52,8 +52,10 @@ from duo.protocol import (
 from duo.transport import (
     approve_permission,
     clear_bootstrap_done,
+    detect_copilot_api_error,
     diagnose_pane,
     get_tmux_session_target,
+    is_capi_context_error,
     is_process_alive,
     name_pane,
     read_pane,
@@ -534,7 +536,9 @@ def start_session(task: Task) -> None:
     if not wait_for_idle(
         task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0
     ):
-        logger.warning("Copilot did not stabilize within %ss for %s", _IDLE_TIMEOUT_START, task.id)
+        logger.warning(
+            "Copilot did not stabilize within %ss for %s", _IDLE_TIMEOUT_START, task.id
+        )
         append_event(
             task,
             "startup_timeout",
@@ -548,7 +552,11 @@ def start_session(task: Task) -> None:
         if not wait_for_idle(
             task.pane_label, timeout=_IDLE_TIMEOUT_ALLOW_ALL, poll_interval=1.0
         ):
-            logger.warning("/allow-all did not stabilize within %ss for %s", _IDLE_TIMEOUT_ALLOW_ALL, task.id)
+            logger.warning(
+                "/allow-all did not stabilize within %ss for %s",
+                _IDLE_TIMEOUT_ALLOW_ALL,
+                task.id,
+            )
     else:
         click.echo("Skipping /allow-all (auto_allow_all=false)")
 
@@ -891,15 +899,28 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
             send_task_prompt(task, prompt)
         else:
             terminal = diagnose_pane(task.pane_label)
-            if "error" in terminal.lower() or "rate limit" in terminal.lower():
+            if detect_copilot_api_error(terminal):
+                capi = is_capi_context_error(terminal)
+                event_type = "capi_error" if capi else "api_error"
                 append_event(
                     task,
-                    "api_error",
+                    event_type,
                     {
                         "incarnation": inc,
                         "terminal": terminal[-_TERMINAL_SLICE:],
                     },
                 )
+                if capi:
+                    logger.critical(
+                        "CAPIError detected for task '%s' — session context "
+                        "limit likely exhausted. Restart recommended.",
+                        task.id,
+                    )
+                    signal = task.dir / "restart-recommended"
+                    with contextlib.suppress(OSError):
+                        signal.write_text(
+                            "CAPIError detected — backend context limit.\n"
+                        )
                 if wait_for_dialog(task.pane_label, timeout=_DIALOG_TIMEOUT_MONITOR):
                     # Check PR budget before consuming a Premium Request
                     if not _check_pr_budget(task):

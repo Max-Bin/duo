@@ -87,6 +87,8 @@ __all__ = [
     "set_pr_callback",
     "strip_ansi",
     "type_text",
+    "detect_copilot_api_error",
+    "is_capi_context_error",
     "wait_for_dialog",
     "wait_for_idle",
 ]
@@ -1490,6 +1492,28 @@ def doctor() -> str:
 def diagnose_pane(label: str) -> str:
     """Diagnostic fallback: read terminal when heartbeat times out."""
     return read_pane(label, 200)
+
+
+_CAPI_ERROR_PATTERNS = ("CAPIError", "rate limit")
+
+
+def detect_copilot_api_error(content: str) -> bool:
+    """Detect Copilot CLI backend errors in pane content.
+
+    Uses narrow patterns to avoid false positives from user code output.
+    Matches CAPIError (backend context/request limit) and rate limit messages.
+    """
+    lower = content.lower()
+    return any(p.lower() in lower for p in _CAPI_ERROR_PATTERNS)
+
+
+def is_capi_context_error(content: str) -> bool:
+    """Detect CAPIError specifically (backend context limit exhausted).
+
+    More severe than a rate limit — the session typically cannot recover
+    and should be restarted.
+    """
+    return "CAPIError" in content
 
 
 def is_process_alive(label: str) -> bool:

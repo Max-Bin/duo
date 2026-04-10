@@ -3050,3 +3050,52 @@ class TestWaitForDialogMonotonic:
         result = wait_for_dialog("test", timeout=10, interval=5)
         assert result is False
         assert mock_time.monotonic.call_count >= 2
+
+
+class TestDetectCopilotApiError:
+    """Tests for detect_copilot_api_error() and is_capi_context_error()."""
+
+    def test_detects_capi_error(self):
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("✗ Execution failed: CAPIError: 400") is True
+
+    def test_detects_rate_limit(self):
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("rate limit exceeded, try again") is True
+
+    def test_rate_limit_case_insensitive(self):
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("Rate Limit hit") is True
+
+    def test_no_match_on_generic_error(self):
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("error: something went wrong") is False
+
+    def test_no_match_on_clean_content(self):
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("all good, working fine") is False
+
+    def test_empty_content(self):
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("") is False
+
+    def test_is_capi_context_error_positive(self):
+        from duo.transport import is_capi_context_error
+
+        assert is_capi_context_error("CAPIError: 400 Bad Request") is True
+
+    def test_is_capi_context_error_case_sensitive(self):
+        from duo.transport import is_capi_context_error
+
+        assert is_capi_context_error("capierror: something") is False
+
+    def test_is_capi_context_error_negative(self):
+        from duo.transport import is_capi_context_error
+
+        assert is_capi_context_error("rate limit exceeded") is False

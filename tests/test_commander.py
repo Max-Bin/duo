@@ -703,7 +703,10 @@ class TestStartSession:
             # Session still proceeds (best-effort)
             assert task.status == TaskStatus.PROMPT_SENT
             # But startup timeout is logged in journal
-            events = [json.loads(line) for line in task.journal_path.read_text().strip().split("\n")]
+            events = [
+                json.loads(line)
+                for line in task.journal_path.read_text().strip().split("\n")
+            ]
             timeout_events = [e for e in events if e.get("event") == "startup_timeout"]
             assert len(timeout_events) == 1
             assert timeout_events[0]["data"]["phase"] == "copilot_start"
@@ -1562,7 +1565,9 @@ class TestPollTask:
         # Verify journal records the incarnation mismatch
         journal = task.journal_path.read_text().strip().split("\n")
         events = [json.loads(line) for line in journal]
-        mismatch = [e for e in events if e.get("event") == "result_incarnation_mismatch"]
+        mismatch = [
+            e for e in events if e.get("event") == "result_incarnation_mismatch"
+        ]
         assert len(mismatch) == 1
         assert mismatch[0]["data"]["got"] == "stale-inc"
         assert mismatch[0]["data"]["expected"] == task.incarnation_id
@@ -1714,7 +1719,7 @@ class TestPollTask:
             for e in events
         )
 
-    @patch("duo.commander.diagnose_pane", return_value="error: API limit")
+    @patch("duo.commander.diagnose_pane", return_value="CAPIError: 400 Bad Request")
     @patch("duo.commander.is_process_alive", return_value=True)
     def test_poll_heartbeat_timeout_alive_error_budget_exceeded(
         self, mock_alive, mock_diag, monkeypatch: pytest.MonkeyPatch
@@ -1754,7 +1759,10 @@ class TestPollTask:
         assert not any(e.get("event") == "api_error" for e in events)
 
     @patch("duo.commander.wait_for_dialog", return_value=False)
-    @patch("duo.commander.diagnose_pane", return_value="error: something")
+    @patch(
+        "duo.commander.diagnose_pane",
+        return_value="✗ Execution failed: CAPIError: 400",
+    )
     @patch("duo.commander.is_process_alive", return_value=True)
     def test_poll_heartbeat_timeout_alive_dialog_timeout(
         self, mock_alive, mock_diag, mock_wait
@@ -1767,13 +1775,58 @@ class TestPollTask:
         poll_task(task, poller)
 
         events = read_jsonl(task.journal_path)
-        assert any(e.get("event") == "api_error" for e in events)
+        assert any(e.get("event") == "capi_error" for e in events)
         # No pr_consumed for error_retry because dialog timed out
         assert not any(
             e.get("event") == "pr_consumed"
             and e.get("data", {}).get("action") == "error_retry"
             for e in events
         )
+
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch(
+        "duo.commander.diagnose_pane",
+        return_value="✗ Execution failed: CAPIError: 400 Bad Request",
+    )
+    @patch("duo.commander.is_process_alive", return_value=True)
+    def test_poll_heartbeat_capi_error_logs_capi_event(
+        self, mock_alive, mock_diag, mock_wait, mock_select
+    ):
+        """CAPIError in pane → capi_error event (not api_error) + restart signal."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        poll_task(task, poller)
+
+        events = read_jsonl(task.journal_path)
+        assert any(e.get("event") == "capi_error" for e in events)
+        assert not any(e.get("event") == "api_error" for e in events)
+        # restart-recommended signal file should exist
+        assert (task.dir / "restart-recommended").exists()
+
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch(
+        "duo.commander.diagnose_pane",
+        return_value="error: rate limit exceeded",
+    )
+    @patch("duo.commander.is_process_alive", return_value=True)
+    def test_poll_heartbeat_rate_limit_logs_api_error(
+        self, mock_alive, mock_diag, mock_wait, mock_select
+    ):
+        """Rate limit → api_error event (not capi_error), no restart signal."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+
+        poll_task(task, poller)
+
+        events = read_jsonl(task.journal_path)
+        assert any(e.get("event") == "api_error" for e in events)
+        assert not any(e.get("event") == "capi_error" for e in events)
+        assert not (task.dir / "restart-recommended").exists()
 
     @patch("duo.commander.resend_last_prompt")
     @patch("duo.commander.read_ack_for_step", return_value=None)
@@ -2042,7 +2095,6 @@ class TestLogMonitor:
         assert "task-1" in captured.out
         assert "result_ready" in captured.out
         assert "[duo]" in captured.out
-
 
     @patch("duo.commander.time.sleep", side_effect=StopIteration)
     @patch("duo.commander.poll_task", return_value=PollResult.WORKING)

@@ -27,6 +27,7 @@ from duo.cli import (
     _bench_journal_append,
     _compare_results,
     _create_worktree,
+    _doctor_check_capi_error,
     _doctor_check_claude_cli,
     _doctor_check_config,
     _doctor_check_copilot_cli,
@@ -4009,9 +4010,7 @@ class TestResume:
         mock_restart.assert_called_once()
         mock_send.assert_called_once()
         # Verify old pane was killed before restart
-        kill_calls = [
-            c for c in mock_sub.call_args_list if "kill-pane" in str(c)
-        ]
+        kill_calls = [c for c in mock_sub.call_args_list if "kill-pane" in str(c)]
         assert len(kill_calls) == 1
         mock_cleanup.assert_called_once_with(task.pane_label)
 
@@ -5802,7 +5801,55 @@ class TestEmitRestartSignal:
         assert not signal_path.exists()
 
 
-# ── CEO cleanup command ──────────────────────────────────────────────
+class TestDoctorCheckCapiError:
+    """Tests for _doctor_check_capi_error()."""
+
+    def test_no_tasks(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [])
+        assert _doctor_check_capi_error() == []
+
+    def test_list_tasks_error(self, monkeypatch: pytest.MonkeyPatch):
+        def _raise():
+            raise FileNotFoundError
+
+        monkeypatch.setattr("duo.cli.list_tasks", _raise)
+        assert _doctor_check_capi_error() == []
+
+    def test_no_active_tasks(self, monkeypatch: pytest.MonkeyPatch):
+        task = MagicMock(status=TaskStatus.COMPLETED)
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        assert _doctor_check_capi_error() == []
+
+    def test_no_journal(self, monkeypatch: pytest.MonkeyPatch):
+        from pathlib import Path
+
+        task = MagicMock(
+            status=TaskStatus.RUNNING,
+            journal_path=Path("/nonexistent/journal.jsonl"),
+        )
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        assert _doctor_check_capi_error() == []
+
+    def test_no_capi_events(self, monkeypatch: pytest.MonkeyPatch):
+        task = _make_task()
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        append_event(task, "api_error", {"terminal": "rate limit"})
+        results = _doctor_check_capi_error()
+        assert results == []
+
+    def test_capi_error_detected(self, monkeypatch: pytest.MonkeyPatch):
+        task = _make_task()
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        append_event(task, "capi_error", {"terminal": "CAPIError: 400"})
+        results = _doctor_check_capi_error()
+        assert len(results) == 1
+        assert results[0].status == "fail"
+        assert "CAPIError" in results[0].message
+        assert "restart" in results[0].fix.lower()
 
 
 class TestFindIdleChildren:
@@ -9733,6 +9780,90 @@ class TestCeoNow:
         assert result is not None
         assert result["age_seconds"] == 0.0
         assert result["est_remaining_hours"] is None
+
+    def test_risk_low_fresh_session(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """Fresh session with few PRs → low risk."""
+        task = make_task("health-risk-low")
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result is not None
+        assert result["risk"] == "low"
+        assert result["pr_count"] >= 0
+
+    def test_risk_high_capi_error(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """CAPIError in journal → high risk + critical status."""
+        task = make_task("health-risk-capi")
+        append_event(task, "capi_error", {"terminal": "CAPIError: 400"})
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result["risk"] == "high"
+        assert result["status"] == "critical"
+
+    def test_risk_medium_many_prs(self, make_task, monkeypatch: pytest.MonkeyPatch):
+        """31+ PRs consumed → medium risk."""
+        task = make_task("health-risk-med")
+        for i in range(35):
+            append_event(task, "pr_consumed", {"action": "task_prompt", "idx": i})
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result["risk"] == "medium"
+        assert result["pr_count"] == 35
+
+    def test_ceo_now_displays_risk(
+        self,
+        runner: CliRunner,
+        make_task,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Risk line appears in ceo-now output."""
+        make_task("now-risk")
+        from duo.ceo_state import save_ceo_focus
+
+        save_ceo_focus("now-risk", session_id="s1")
+
+        monkeypatch.setattr("duo.transport.resolve_label", lambda label: "%1")
+        monkeypatch.setattr("duo.transport.is_in_dialog", lambda label: False)
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="abc msg\n"),
+        ):
+            result = runner.invoke(main, ["ceo-now"])
+        assert result.exit_code == 0
+        assert "Risk:" in result.output
+
+    def test_risk_high_old_session_many_prs(
+        self, make_task, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Session >4h with >50 PRs → high risk."""
+        from datetime import UTC, datetime, timedelta
+
+        task = make_task("health-risk-old")
+        five_hours_ago = (datetime.now(UTC) - timedelta(hours=5)).isoformat()
+        task.created_at = five_hours_ago
+        save_task(task)
+        for i in range(55):
+            append_event(task, "pr_consumed", {"action": "task_prompt", "idx": i})
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
+        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        result = _gather_session_health(task)
+        assert result["risk"] == "high"
+        assert result["pr_count"] == 55
 
 
 class TestGatherBudgetInfo:
