@@ -609,6 +609,38 @@ class TestKill:
         result = runner.invoke(main, ["kill", "foo/bar"])
         assert result.exit_code != 0
 
+    def test_kill_empty_worktree_list(self, runner: CliRunner):
+        """kill handles empty git worktree list gracefully."""
+        task = _make_task("kill-empty-wt")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "kill-empty-wt"])
+            assert result.exit_code == 0
+
+    def test_kill_worktree_list_no_match(self, runner: CliRunner):
+        """kill handles worktree list where no line matches worktree pattern."""
+        task = _make_task("kill-no-match")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        # All lines contain worktree_base_path or don't start with 'worktree '
+        wt_output = "branch refs/heads/main\nbare\n"
+        proc = MagicMock(returncode=0, stdout=wt_output, stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "kill-no-match"])
+            assert result.exit_code == 0
+
 
 # ---------------------------------------------------------------------------
 # logs command
@@ -2074,6 +2106,23 @@ class TestStop:
             assert data["stopped"] is True
             assert data["previous_status"] == "running"
             assert "worktree" in data
+
+    def test_stop_json_pane_kill_failure_silent(self, runner: CliRunner):
+        """stop --json-output with kill_pane failure doesn't print warning text."""
+        task = _make_task("stop-json-fail")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.transport.kill_pane", return_value=False),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["stop", "stop-json-fail", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["stopped"] is True
+            # No text warning in JSON mode
+            assert "Warning" not in result.output.split("\n")[0]
 
     def test_stop_json_already_terminal(self, runner: CliRunner):
         """stop --json-output on terminal task returns reason."""
