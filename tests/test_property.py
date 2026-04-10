@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import json
 import re
 import string
 import unicodedata
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from duo.ceo_log import _validate_session_id
 from duo.config import set_config
 from duo.poller import age
-from duo.protocol import prompt_hash
+from duo.protocol import atomic_write_text, prompt_hash, read_jsonl
 from duo.transport import _validate_label
 from duo.verifier import _match_writable
 
@@ -311,6 +313,114 @@ class TestConfigCoercionProperty:
         monkeypatch.setattr(cfg, "CONFIG_PATH", tmp_path / "config.json")
         with pytest.raises(ValueError, match="Cannot convert"):
             set_config("auto_allow_all", val)
+
+
+# ---------------------------------------------------------------------------
+# Atomic write roundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicWriteRoundtrip:
+    """Property: atomic_write_text → read gives back the same content."""
+
+    # Exclude bare \r (Python text-mode normalizes to \n) and surrogates
+    # (\ud800-\udfff can't be encoded to UTF-8). Our function targets JSON/text.
+    _text_strategy = st.text(
+        alphabet=st.characters(
+            blacklist_characters="\r",
+            blacklist_categories=("Cs",),
+        ),
+        min_size=0,
+        max_size=5000,
+    )
+
+    @given(content=_text_strategy)
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_text_roundtrip(self, tmp_path: Path, content: str) -> None:
+        """Any unicode text (sans bare CR) survives atomic write + read."""
+        p = tmp_path / f"roundtrip-{hash(content)}.txt"
+        atomic_write_text(p, content)
+        assert p.read_text(encoding="utf-8") == content
+
+    @given(
+        content=st.text(
+            alphabet=st.characters(
+                blacklist_characters="\r",
+                blacklist_categories=("Cs",),
+            ),
+            min_size=1,
+            max_size=1000,
+        )
+    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_overwrites_cleanly(self, tmp_path: Path, content: str) -> None:
+        """Successive atomic writes always leave a readable file."""
+        p = tmp_path / "overwrite.txt"
+        atomic_write_text(p, "initial")
+        atomic_write_text(p, content)
+        assert p.read_text(encoding="utf-8") == content
+
+
+# ---------------------------------------------------------------------------
+# JSONL append + read roundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestJsonlRoundtrip:
+    """Property: appending N JSONL lines then reading back gives N events."""
+
+    @given(n=st.integers(min_value=1, max_value=20))
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_append_count(self, tmp_path: Path, n: int) -> None:
+        """Appending N lines to a JSONL file gives N events on read_jsonl."""
+        p = tmp_path / f"journal-{n}.jsonl"
+        for i in range(n):
+            line = json.dumps({"event": "test", "i": i}) + "\n"
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(line)
+        events = read_jsonl(p)
+        assert len(events) == n
+        assert all(e["event"] == "test" for e in events)
+
+    @given(
+        n=st.integers(min_value=1, max_value=20),
+        tail=st.integers(min_value=1, max_value=20),
+    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_tail_never_exceeds_total(self, tmp_path: Path, n: int, tail: int) -> None:
+        """read_jsonl(tail=K) returns min(K, N) events."""
+        p = tmp_path / f"journal-{n}-{tail}.jsonl"
+        for i in range(n):
+            line = json.dumps({"event": "test", "i": i}) + "\n"
+            with open(p, "a", encoding="utf-8") as f:
+                f.write(line)
+        events = read_jsonl(p, tail=tail)
+        assert len(events) == min(n, tail)
+        if tail <= n:
+            assert events[-1]["i"] == n - 1
+
+
+# ---------------------------------------------------------------------------
+# Prompt hash stability
+# ---------------------------------------------------------------------------
+
+
+class TestPromptHashStability:
+    """Property: same input → same hash, different input → different hash."""
+
+    @given(text=st.text(min_size=1, max_size=5000))
+    def test_deterministic(self, text: str) -> None:
+        """Same text always produces the same hash."""
+        assert prompt_hash(text) == prompt_hash(text)
+
+    @given(
+        a=st.text(min_size=1, max_size=1000),
+        b=st.text(min_size=1, max_size=1000),
+    )
+    def test_collision_resistant(self, a: str, b: str) -> None:
+        """Different texts produce different hashes (modulo rare collisions)."""
+        assume(a != b)
+        assert prompt_hash(a) != prompt_hash(b)
 
 
 # ---------------------------------------------------------------------------
