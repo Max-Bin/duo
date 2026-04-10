@@ -588,6 +588,32 @@ class TestLogs:
         assert len(data) >= 1
         assert data[0]["event"] == "task_created"
 
+    def test_filter_events(self, runner: CliRunner):
+        """logs --filter narrows events by event type substring."""
+        task = _make_task("filter-task")
+        from duo.protocol import append_event
+
+        append_event(task, "step_started", {"step": 1})
+        append_event(task, "step_completed", {"step": 1})
+        result = runner.invoke(main, ["logs", "filter-task", "--filter", "completed"])
+        assert result.exit_code == 0
+        assert "step_completed" in result.output
+        assert "task_created" not in result.output
+
+    def test_filter_no_match(self, runner: CliRunner):
+        """logs --filter with no matching events shows no event lines."""
+        _make_task("filter-empty")
+        result = runner.invoke(
+            main, ["logs", "filter-empty", "--filter", "nonexistent"]
+        )
+        assert result.exit_code == 0
+        event_lines = [
+            l
+            for l in result.output.strip().splitlines()
+            if "·" in l or "✓" in l or "✗" in l
+        ]
+        assert len(event_lines) == 0
+
 
 # ---------------------------------------------------------------------------
 # inspect command

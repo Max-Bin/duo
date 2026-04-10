@@ -1242,9 +1242,17 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 )
 @click.option("--all", "show_all", is_flag=True, help="Show all events")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option(
+    "--filter", "event_filter", default=None, help="Filter by event type substring"
+)
 @click.pass_context
 def logs(
-    ctx: click.Context, name: str, lines: int, show_all: bool, as_json: bool
+    ctx: click.Context,
+    name: str,
+    lines: int,
+    show_all: bool,
+    as_json: bool,
+    event_filter: str | None,
 ) -> None:
     """Show task journal events."""
     from duo.protocol import read_jsonl
@@ -1255,6 +1263,9 @@ def logs(
     if not events:
         click.echo("No events recorded.")
         return
+
+    if event_filter:
+        events = [ev for ev in events if event_filter in ev.get("event", "")]
 
     if not show_all:
         events = events[-lines:]
