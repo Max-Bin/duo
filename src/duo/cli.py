@@ -471,6 +471,7 @@ def status(name: str | None = None, *, as_json: bool = False) -> None:
                 "worktree": task.worktree,
                 "branch": task.branch,
                 "created_at": task.created_at,
+                "session_started_at": task.session_started_at,
                 "description": task.description,
             }
             click.echo(json.dumps(output, indent=2))
@@ -493,6 +494,8 @@ def _print_task(task: Task) -> None:
     click.echo(f"    Attempt:     {task.current_attempt}")
     click.echo(f"    Incarnation: {task.incarnation_id}")
     click.echo(f"    Worktree:    {task.worktree}")
+    if task.session_started_at:
+        click.echo(f"    Session:     {task.session_started_at[:19]}")
 
 
 @main.command("list")
@@ -514,6 +517,7 @@ def list_cmd(as_json: bool) -> None:
                 "worktree": t.worktree,
                 "branch": t.branch,
                 "created_at": t.created_at,
+                "session_started_at": t.session_started_at,
             }
             for t in tasks
         ]

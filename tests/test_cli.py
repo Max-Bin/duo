@@ -216,6 +216,18 @@ class TestStatus:
         assert task.status.value in result.output
         assert task.incarnation_id in result.output
 
+    def test_named_task_shows_session_started(self, runner: CliRunner):
+        """status displays Session line when session_started_at is set."""
+        task = _make_task()
+        task.session_started_at = "2025-01-15T10:30:00Z"
+        from duo.protocol import save_task
+
+        save_task(task)
+        result = runner.invoke(main, ["status", "test-task"])
+        assert result.exit_code == 0
+        assert "Session:" in result.output
+        assert "2025-01-15T10:30:00" in result.output
+
     def test_no_name_no_tasks(self, runner: CliRunner):
         result = runner.invoke(main, ["status"])
         assert result.exit_code == 0
@@ -4418,6 +4430,7 @@ class TestJsonOutput:
         assert "worktree" in data[0]
         assert "branch" in data[0]
         assert "created_at" in data[0]
+        assert "session_started_at" in data[0]
 
     def test_list_json_empty(self, runner: CliRunner):
         """list --json-output with no tasks still shows 'No tasks.'."""
@@ -4451,6 +4464,7 @@ class TestJsonOutput:
         assert "worktree" in data
         assert "branch" in data
         assert "created_at" in data
+        assert "session_started_at" in data
 
     def test_status_json_not_found(self, runner: CliRunner):
         """status --json-output with unknown task shows error."""
