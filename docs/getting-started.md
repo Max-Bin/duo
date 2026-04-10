@@ -142,7 +142,7 @@ duo start fix-auth --repo . --desc "Fix authentication bug in login handler"
 
 This command:
 
-1. Creates a git worktree at `/tmp/duo-worktrees/fix-auth` (configurable via `worktree_base_path`)
+1. Creates a git worktree at `~/.duo/worktrees/fix-auth` (configurable via `worktree_base_path`)
 2. Creates a new branch `duo/fix-auth` from your current HEAD
 3. Opens a tmux pane with Copilot CLI
 4. **Waits for your first `duo send`** before consuming a Premium Request (defer mode)
@@ -330,12 +330,13 @@ Configuration is stored at `~/.duo/config.json`.
 | `max_corrections` | 3 | 1–100 | Auto-retries before escalation |
 | `pr_budget` | 0 | 0–100000 | Max premium requests per task (0 = unlimited) |
 | `auto_allow_all` | true | — | Auto-allow all operations |
+| `auto_claude_commander` | true | — | Open a Claude Code commander pane alongside Copilot |
 | `bypass_permissions` | true | — | Add --yolo (Copilot) / --dangerously-skip-permissions (Claude) |
 | `heartbeat_timeout` | 90 | 1–3600 | Seconds to wait for task heartbeat |
 | `task_timeout` | 0 | 0–604800 | Max seconds per task (0 = disabled) |
 | `poll_base_interval` | 5.0 | >0–300 | Initial polling interval in seconds |
 | `poll_max_interval` | 120.0 | >0–3600 | Maximum polling interval in seconds |
-| `worktree_base_path` | `/tmp/duo-worktrees` | — | Base directory for git worktrees |
+| `worktree_base_path` | `~/.duo/worktrees` | — | Base directory for git worktrees |
 
 ---
 

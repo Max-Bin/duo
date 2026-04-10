@@ -135,7 +135,7 @@ Executor.  Every piece of state is a file on disk — no sockets, no IPC.
 Worktrees live outside `~/.duo/`:
 
 ```
-/tmp/duo-worktrees/
+~/.duo/worktrees/
 └── {task_id}/                           # Isolated git worktree per task
     ├── .git
     ├── CLAUDE.md                        # Auto-generated project context
@@ -150,7 +150,7 @@ Worktrees live outside `~/.duo/`:
 {
   "id": "my-task",
   "description": "Fix auth bug",
-  "worktree": "/tmp/duo-worktrees/my-task",
+  "worktree": "~/.duo/worktrees/my-task",
   "branch": "duo/my-task",
   "base_commit": "abc123",
   "pane_label": "my-task",
@@ -618,7 +618,7 @@ validation.
 | `max_parallel` | `3` | 1–100 | Maximum concurrent tasks |
 | `pr_budget` | `0` | int | PR cap per task (0 = unlimited) |
 | `task_timeout` | `0` | int | Max seconds per task (0 = disabled) |
-| `worktree_base_path` | `"/tmp/duo-worktrees"` | path | Where git worktrees are created |
+| `worktree_base_path` | `"~/.duo/worktrees"` | path | Where git worktrees are created |
 
 ---
 
