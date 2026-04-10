@@ -6,6 +6,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- GitHub Actions CI workflow with 3-job pipeline: lint+typecheck+coverage, Python 3.12/3.13 compat matrix, CLI smoke tests
+- CI badge in README and README.zh-CN
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
 - `duo start --immediate` flag to skip defer mode and send bootstrap immediately
 - `bypass_permissions` config (default: true) — controls `--yolo` for Copilot CLI and `--dangerously-skip-permissions` for Claude Code
@@ -78,6 +80,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `DUO_COPILOT_MODEL` env var length bounded to 64 chars
 
 ### Changed
+- Cleaned 4 unused `noqa` directives; remaining 3 SIM115 noqas annotated with rationale
+- `__all__` exports sorted alphabetically in `__init__`, `poller`, `transport` (RUF022)
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
 - Removed last `@pytest.mark.xfail` — all tests now pass without expected failures
 - All modules now export `__all__` (added to `errors.py`)

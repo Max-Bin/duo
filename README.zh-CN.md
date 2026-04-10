@@ -1,5 +1,6 @@
 # Duo
 
+[![CI](https://github.com/Max-Bin/duo/actions/workflows/ci.yml/badge.svg)](https://github.com/Max-Bin/duo/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
