@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2069%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2251%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -16,7 +16,7 @@ AI 编程 agent 能力强，但每次交互都要消耗一个 Premium Request，
 
 ## Duo 怎么解决
 
-Duo 把工作拆成 **Commander**（Python CLI，负责调度和决策）和 **Executor**（Copilot CLI，负责写代码），用 JSON 文件协议经 tmux 通信。每个任务有独立的 git worktree，多路并行互不干扰。13 状态 FSM 跟踪任务全生命周期，内置自动验证、纠错预算和日志回放崩溃恢复。
+Duo 把工作拆成 **Commander**（Python CLI，负责调度和决策）和 **Executor**（Copilot CLI，负责写代码），用 JSON 文件协议经 tmux 通信。每个任务有独立的 git worktree，多路并行互不干扰。16 状态 FSM 跟踪任务全生命周期，内置自动验证、纠错预算和日志回放崩溃恢复。
 
 ## 架构
 
@@ -72,7 +72,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 | 概念 | 说明 |
 |------|------|
 | **Task** | 隔离的工作单元，拥有独立 git worktree、tmux pane 和状态目录。 |
-| **FSM** | 13 状态机，跟踪任务从 CREATED 到 COMPLETED 的全过程。验证失败进入 CORRECTING 循环（最多 3 次），超限则 ESCALATED。 |
+| **FSM** | 16 状态机，跟踪任务从 CREATED 到 COMPLETED 的全过程。验证失败进入 CORRECTING 循环（最多 3 次），超限则 ESCALATED。 |
 | **CEO** | `ceo-*` 命令让编排 agent 程序化地处理权限弹窗、选择选项、驱动审批流程。 |
 | **Pane** | 每个 executor 运行在独立的 tmux pane 中，Commander 通过文件读写通信，从不直接操作终端。 |
 | **Premium Request** | AI agent 交互的计费单位。Duo 的整体设计目标就是让每个任务消耗最少的 PR。 |
