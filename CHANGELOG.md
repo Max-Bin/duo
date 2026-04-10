@@ -20,6 +20,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo send --json-output` — structured prompt delivery results
 - `duo start --json-output` — task creation results for scripting
 - `duo resume --json-output` — session recovery results with per-task details
+- `duo cleanup --json-output` — structured cleanup results (normal and corrupted)
+- `duo doctor` stale-locks check — warns about orphaned `.lock` files in TASKS_DIR
 - `__all__` exports on all modules (cli.py was the last)
 
 ### Fixed
