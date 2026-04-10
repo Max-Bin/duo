@@ -470,3 +470,58 @@ and transitions to BLOCKED. Monitor detects heartbeat timeout and auto-restarts,
 undoing the stop. Fixed: `poll_task` re-reads task status from disk before
 auto-restarting. Also handles corrupt `task.json` (load_task returns None)
 by skipping restart instead of proceeding blindly.
+
+---
+
+## Copilot CAPIError 400 Bad Request on long sessions
+
+**Status: Open, upstream bug in Copilot CLI. Mitigation: session restart.**
+
+**Observation:**
+After many hours of continuous use (~270+ commits, thousands of tool
+calls, extensive sub-agent usage including rubber-duck cross-model
+reviews), Copilot CLI returned:
+
+```
+✗ Execution failed: CAPIError: 400 400 Bad Request
+   (Request ID: 1BA7:1E4B4B:EC2120:105B75E:69D8105F)
+```
+
+The session then exited to the main ❯ prompt, losing the free
+continuation window. PR consumption increased by 1 from the
+pre-failure state.
+
+**Likely cause:**
+Context window exceeded the backend's allowed size.  Copilot CLI does
+not transparently compact or offload context before hitting this
+limit — the backend simply rejects the request with 400.
+
+**Impact:**
+- **Forced session restart** (costs 1 bootstrap PR)
+- **Loses in-memory state** (scratchpad, recent reasoning chains)
+- **CEO tooling cannot detect this until after the fact** — the
+  failure is silent from `duo watch` / `ceo-status` perspective
+  (the pane drops to main ❯ prompt which may look like an idle state)
+
+**Duo-side mitigation (to implement):**
+
+1. **Predictive backoff**: Track the session's tool-call count and
+   elapsed time.  When either exceeds a threshold (e.g., 200 tool
+   calls OR 4 hours), `duo ceo-now` should PROMINENT warn and suggest
+   a voluntary `duo ceo-restart` before hitting the cliff.
+2. **Post-failure detection**: `duo watch` should detect the
+   "Execution failed: CAPIError" string in the pane output and
+   immediately emit a restart-recommended signal rather than
+   reporting the subsequent idle state as normal.
+3. **`duo doctor` heuristic**: Add a check for CAPIError pattern in
+   recent Copilot output and flag it as critical.
+4. **Graceful restart on detection**: `duo ceo-restart` should be
+   invoked automatically when CAPIError is detected, to save the
+   remaining session budget.
+
+**Priority:** High.  Second observed root cause of forced session
+restart (first was kqueue leak, see entry above).  Long-running
+automated CEO loops must budget for this failure mode.
+
+**First observed:** During the overnight autonomous loop after
+Round CV, at approximately 270 commits / 1796 tests.
