@@ -848,10 +848,10 @@ def verify_and_advance(task: Task) -> None:
 def _count_corrections(task: Task, step: int) -> int:
     """Count correction events for a step from the journal.
 
-    Reads events in reverse to avoid scanning the entire journal for
+    Uses tail-bounded read to avoid loading the entire journal for
     long-running tasks.
     """
-    events = read_jsonl(task.journal_path)
+    events = read_jsonl(task.journal_path, tail=200)
     count = 0
     for ev in reversed(events):
         event_type = ev.get("event", "")
@@ -859,7 +859,7 @@ def _count_corrections(task: Task, step: int) -> int:
         if event_type == "correction_sent" and data.get("step") == step:
             count += 1
         elif event_type == "task_created":
-            break  # no need to scan before task creation
+            break
     return count
 
 
