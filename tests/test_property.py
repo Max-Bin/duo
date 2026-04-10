@@ -1123,3 +1123,38 @@ class TestValidateTaskNameProperties:
 
         with pytest.raises(click.BadParameter, match="letters, numbers"):
             _validate_task_name(name)
+
+
+class TestSchedulerActiveStatusesProperty:
+    """Property tests for scheduler.ACTIVE_STATUSES consistency."""
+
+    def test_active_statuses_are_valid(self) -> None:
+        """Every ACTIVE_STATUS must be a valid TaskStatus."""
+        from duo.scheduler import ACTIVE_STATUSES
+
+        for s in ACTIVE_STATUSES:
+            assert isinstance(s, TaskStatus)
+
+    def test_terminal_states_not_active(self) -> None:
+        """Terminal states must never be in ACTIVE_STATUSES."""
+        from duo.scheduler import ACTIVE_STATUSES
+
+        terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+        overlap = ACTIVE_STATUSES & terminal
+        assert overlap == set(), f"Terminal states in ACTIVE_STATUSES: {overlap}"
+
+    def test_queued_not_active(self) -> None:
+        """QUEUED and CREATED must not consume slots."""
+        from duo.scheduler import ACTIVE_STATUSES
+
+        idle = {TaskStatus.CREATED, TaskStatus.QUEUED, TaskStatus.BLOCKED}
+        overlap = ACTIVE_STATUSES & idle
+        assert overlap == set(), f"Idle states in ACTIVE_STATUSES: {overlap}"
+
+    def test_active_statuses_have_transitions(self) -> None:
+        """Every active status must have outgoing transitions in the FSM."""
+        from duo.scheduler import ACTIVE_STATUSES
+
+        for s in ACTIVE_STATUSES:
+            assert s in TRANSITIONS, f"{s} not in FSM TRANSITIONS"
+            assert len(TRANSITIONS[s]) > 0, f"{s} has no outgoing transitions"
