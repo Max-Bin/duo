@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import string
 import unicodedata
@@ -943,3 +944,86 @@ class TestExtractResponseProperty:
         result = extract_response(before, after, "some question")
         # Real line should survive filtering
         assert real_line in result
+
+
+# ---------------------------------------------------------------------------
+# Config type coercion property tests
+# ---------------------------------------------------------------------------
+
+
+class TestConfigSetCoercion:
+    """Property tests for config set_config type coercion."""
+
+    @given(val=st.integers(min_value=1, max_value=100))
+    def test_max_parallel_round_trip(self, val: int) -> None:
+        """Integer config values survive set→get round trip."""
+        import tempfile
+
+        import duo.config as cfg
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg.CONFIG_PATH = Path(td) / "config.json"
+            result = set_config("max_parallel", str(val))
+            assert result == val
+            assert isinstance(result, int)
+
+    @given(
+        val=st.floats(
+            min_value=0.01, max_value=300.0, allow_nan=False, allow_infinity=False
+        )
+    )
+    def test_poll_base_round_trip(self, val: float) -> None:
+        """Float config values survive coercion and are finite."""
+        import tempfile
+
+        import duo.config as cfg
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg.CONFIG_PATH = Path(td) / "config.json"
+            result = set_config("poll_base_interval", str(val))
+            assert isinstance(result, float)
+            assert math.isfinite(result)
+
+    @given(val=st.sampled_from(["true", "false", "1", "0", "yes", "no"]))
+    def test_bool_coercion_all_accepted_forms(self, val: str) -> None:
+        """All documented bool representations are accepted."""
+        import tempfile
+
+        import duo.config as cfg
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg.CONFIG_PATH = Path(td) / "config.json"
+            result = set_config("auto_allow_all", val)
+            assert isinstance(result, bool)
+            if val.lower() in ("true", "1", "yes"):
+                assert result is True
+            else:
+                assert result is False
+
+    @given(
+        val=st.text(min_size=1, max_size=20).filter(
+            lambda s: s.lower() not in ("true", "false", "1", "0", "yes", "no")
+        )
+    )
+    def test_invalid_bool_rejected(self, val: str) -> None:
+        """Non-bool strings are rejected for bool config keys."""
+        import tempfile
+
+        import duo.config as cfg
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg.CONFIG_PATH = Path(td) / "config.json"
+            with pytest.raises(ValueError, match="Cannot convert"):
+                set_config("auto_allow_all", val)
+
+    @given(val=st.sampled_from(["inf", "-inf", "nan", "NaN", "INF"]))
+    def test_nonfinite_float_rejected(self, val: str) -> None:
+        """Non-finite float values are rejected."""
+        import tempfile
+
+        import duo.config as cfg
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg.CONFIG_PATH = Path(td) / "config.json"
+            with pytest.raises(ValueError, match="finite"):
+                set_config("poll_base_interval", val)
