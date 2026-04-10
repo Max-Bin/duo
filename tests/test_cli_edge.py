@@ -221,3 +221,27 @@ class TestSafeJoinPropertyBased:
         result = _safe_join("/base/path", name)
         resolved_base = str(Path("/base/path").resolve())
         assert result.startswith(resolved_base)
+
+
+class TestCommandSectionsComplete:
+    """Every Click command in 'main' must be listed in _COMMAND_SECTIONS."""
+
+    def test_all_commands_in_sections(self) -> None:
+        """No command should fall through to the 'Other' catch-all section."""
+        from duo.cli import _COMMAND_SECTIONS
+
+        sectioned = {name for names in _COMMAND_SECTIONS.values() for name in names}
+        ctx = click.Context(main)
+        registered = set(main.list_commands(ctx))
+        orphaned = registered - sectioned
+        assert orphaned == set(), f"Commands not in _COMMAND_SECTIONS: {orphaned}"
+
+    def test_no_phantom_section_entries(self) -> None:
+        """Every name in _COMMAND_SECTIONS must be a real registered command."""
+        from duo.cli import _COMMAND_SECTIONS
+
+        ctx = click.Context(main)
+        registered = set(main.list_commands(ctx))
+        sectioned = {name for names in _COMMAND_SECTIONS.values() for name in names}
+        phantom = sectioned - registered
+        assert phantom == set(), f"Phantom entries in _COMMAND_SECTIONS: {phantom}"

@@ -44,7 +44,16 @@ BENCH_DIR = DUO_DIR / "bench-results"
 __all__ = ["main"]
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
-    "Task Lifecycle": ["start", "send", "stop", "status", "merge", "diff", "kill"],
+    "Task Lifecycle": [
+        "start",
+        "go",
+        "send",
+        "stop",
+        "status",
+        "merge",
+        "diff",
+        "kill",
+    ],
     "Thinking": ["think"],
     "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
     "Batch & Queue": ["batch", "queue"],
@@ -62,6 +71,8 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-focus-show",
         "ceo-focus-clear",
         "ceo-now",
+        "ceo-cleanup",
+        "ceo-restart",
         "ceo-session-start",
         "ceo-session-list",
         "ceo-session-replay",
