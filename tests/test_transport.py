@@ -1256,6 +1256,14 @@ class TestApprovePermission:
         # Should pick "Yes, approve" (option 1 inside box), not be confused by scrollback
         mock_select.assert_called_once_with("test", "1")
 
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
+    def test_no_bottom_border_parses_all_options(self, mock_read, mock_select):
+        """1182->1196: dialog without ╰─ — for loop exhausts all lines."""
+        mock_read.return_value = "╭──\n  1. Yes\n  2. No\n"
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
 
 # ---------------------------------------------------------------------------
 # select_other_option
@@ -1399,6 +1407,38 @@ class TestSendOptionOtherMessage:
         assert len(enter_calls) == 3
         mock_pr.assert_called_once()
 
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_no_bottom_border_parses_all_lines(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
+    ):
+        """1332->1347: dialog without ╰─ — for loop exhausts all lines."""
+        mock_read.return_value = "╭─ Choose: ─╮\n  ❯ 1. Run\n  2. Other\n"
+        result = send_option_other_message("test", "my text")
+        assert result is True
+
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_non_option_lines_inside_box_skipped(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
+    ):
+        """1341->1332: lines inside box that don't match option regex are skipped."""
+        mock_read.return_value = (
+            "╭─ Action ─╮\nSome description text\n  ❯ 1. Run\n  2. Other\n╰─\n"
+        )
+        result = send_option_other_message("test", "hello")
+        assert result is True
+        down_calls = [c for c in mock_keys.call_args_list if c == call("test", "Down")]
+        assert len(down_calls) == 1  # navigate from 1 to 2
+
 
 class TestSelectOtherOption:
     """Tests for select_other_option — delegates to send_option_other_message."""
@@ -1515,6 +1555,52 @@ class TestSendTextDialogMessage:
         mock_read.side_effect = ["no text", "no text", "my answer", "dismissed"]
         result = send_text_dialog_message("test", "my answer")
         assert result is True
+
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.resolve_label", return_value="%42")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_text_never_visible_exhausts_verification(
+        self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect
+    ):
+        """1409->1429: typed text never appears — all 3 verify attempts run."""
+        mock_read.return_value = "nothing relevant here"
+        pid_run = MagicMock(returncode=0, stdout="12345\n")
+        with (
+            patch("subprocess.run", return_value=pid_run),
+            patch("os.kill"),
+        ):
+            result = send_text_dialog_message("test", "my answer")
+        # Enter still sent (after exhausted verification), dialog dismissed
+        assert result is True
+
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.resolve_label", return_value="%42")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    def test_sigwinch_skipped_on_nonzero_returncode(
+        self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect
+    ):
+        """1422->1426: subprocess returns non-zero, SIGWINCH not sent."""
+        call_count = {"n": 0}
+
+        def fake_read(label, lines):
+            call_count["n"] += 1
+            if call_count["n"] <= 2:
+                return "no text"
+            return "my answer visible"
+
+        mock_read.side_effect = fake_read
+        pid_run = MagicMock(returncode=1, stdout="")
+        with (
+            patch("subprocess.run", return_value=pid_run),
+            patch("os.kill") as mock_kill,
+        ):
+            result = send_text_dialog_message("test", "my answer")
+        assert result is True
+        mock_kill.assert_not_called()
 
 
 # === Edge-case tests: ANSI stripping, dialog detection robustness ===

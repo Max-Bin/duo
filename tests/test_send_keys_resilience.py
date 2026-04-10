@@ -296,3 +296,28 @@ class TestMinimumDimensionsConstants:
         critical = {"Enter", "Up", "Down", "Tab", "Escape", "C-c", "C-d"}
         missing = critical - set(_KEY_TO_HEX.keys())
         assert not missing, f"Critical keys missing from _KEY_TO_HEX: {missing}"
+
+
+class TestAutoResizeContentUnchanged:
+    """460->465: auto-resize succeeds but pane content stays the same."""
+
+    @pytest.fixture(autouse=True)
+    def _alive(self, monkeypatch):
+        monkeypatch.setattr("duo.transport.is_pane_process_alive", lambda _: True)
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.ensure_minimum_pane_size")
+    def test_resize_ok_but_content_unchanged_returns_false(
+        self, mock_ensure, mock_read, mock_send, mock_time
+    ):
+        """Resize succeeded, key resent, but content unchanged → False."""
+        # 1 retry: initial read + retry read + post-resize read = 3 reads
+        mock_read.return_value = "same"
+        mock_time.sleep = MagicMock()
+        mock_ensure.return_value = True
+
+        result = send_keys_verified("test-pane", "Enter", settle=0.05, retries=1)
+        assert result is False
+        mock_ensure.assert_called_once()
