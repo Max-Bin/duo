@@ -797,6 +797,37 @@ class TestStartSession:
             start_session(task)
             assert task.status == TaskStatus.PROMPT_SENT
 
+    def test_start_session_name_pane_failure_cleans_up(self):
+        """name_pane failure kills orphaned pane and transitions FAILED."""
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch(
+                "duo.commander.name_pane",
+                side_effect=RuntimeError("name failed"),
+            ),
+            patch("duo.commander.kill_pane") as mock_kill,
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            mock_run.return_value = split_result
+
+            start_session(task)
+
+            assert task.status == TaskStatus.FAILED
+            mock_kill.assert_called_once_with("%42")
+            events = [
+                json.loads(line)
+                for line in task.journal_path.read_text().strip().split("\n")
+            ]
+            fail_events = [
+                e for e in events if e.get("event") == "session_start_failed"
+            ]
+            assert len(fail_events) == 1
+            assert "name_pane" in fail_events[0]["data"]["error"]
+
     def test_start_session_bootstrap_timeout_cleans_up(self):
         """TimeoutExpired during bootstrap kills pane and transitions FAILED."""
         task = _make_task()

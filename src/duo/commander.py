@@ -521,8 +521,15 @@ def start_session(task: Task) -> None:
 
     pane_id = result.stdout.strip()
 
-    # Label the pane
-    name_pane(pane_id, task.pane_label)
+    # Label and tile the pane.  If either fails, kill the orphaned pane
+    # to avoid leaks.
+    try:
+        name_pane(pane_id, task.pane_label)
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        kill_pane(pane_id)
+        append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
+        transition(task, TaskStatus.FAILED)
+        return
 
     # Tile layout — target the new pane to resolve correct window
     try:
