@@ -774,3 +774,30 @@ ordering. True queue-entry-time ordering would require persisting
 
 - **read_json PermissionError crash** (MED → RESOLVED): Broadened
   exception handler from `FileNotFoundError` to `OSError`.
+
+### config.py (Round GD, commit `0b501d0`)
+
+- **Non-finite numeric values bypass validation** (HIGH → RESOLVED):
+  Added `math.isfinite()` guard in both `load_config()` and `set_config()`.
+  NaN/Infinity now rejected with fallback to defaults (load) or ValueError (set).
+
+- **Non-dict JSON crashes load_config** (HIGH → RESOLVED): Added
+  `isinstance(stored, dict)` check. Arrays, strings, null, numbers
+  now fall back to defaults with warning.
+
+- **int() overflow on large floats** (HIGH → RESOLVED): Wrapped
+  `int(value)` in try/except for `ValueError`/`OverflowError`.
+
+- **UnicodeDecodeError not caught** (MED → RESOLVED): Added explicit
+  `encoding="utf-8"` on read and `UnicodeDecodeError` to exception handler.
+
+- **Concurrent read-modify-write race** (MED → DEFERRED): `set_config`
+  and `reset_config` do load→mutate→save without file locking. Atomic
+  writes prevent corruption but not lost updates. Low risk: config changes
+  are rare and typically user-initiated. File locking adds complexity
+  disproportionate to the risk.
+
+- **Boolean coercion too permissive** (LOW → DEFERRED): Unrecognized
+  strings silently become `False`. Acceptable for CLI usage where values
+  come from `duo config set` (documented true/false). Would need explicit
+  allowlist + error for full strictness.
