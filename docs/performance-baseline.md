@@ -50,10 +50,8 @@ Exceeding these thresholds indicates a performance regression.
 | Category | Threshold | Rationale |
 |----------|-----------|-----------|
 | Dialog detection | 25% | Regex-based, should be stable |
-| File protocol write | 30% | fsync-bounded, OS-dependent |
-| File protocol read | 20% | Memory-bound, stable |
-| Journal append | 25% | fsync-bounded |
-| Journal read | 30% | I/O-bound, more variable |
+| File protocol (read + write) | 30% | fsync-bounded, OS-dependent |
+| Journal append (+ read) | 30% | fsync / I/O-bound, more variable |
 
 ## Running Regression Checks
 

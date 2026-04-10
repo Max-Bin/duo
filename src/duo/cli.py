@@ -5475,7 +5475,8 @@ def _think_ask(name: str, text: str) -> None:
     type_text(label, text)
     send_keys(label, "Enter")
 
-    result = wait_for_response_stable(label)
+    timeout = 120.0
+    result = wait_for_response_stable(label, timeout=timeout)
 
     if result == "dialog":
         raise DuoUserError(
@@ -5484,7 +5485,7 @@ def _think_ask(name: str, text: str) -> None:
         )
     if result == "timeout":
         raise DuoUserError(
-            "Thinking pane not responding after timeout",
+            f"Thinking pane not responding after {int(timeout)}s",
             fix=f"Try: duo think {name} --close",
         )
 
