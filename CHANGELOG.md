@@ -23,6 +23,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo cleanup --json-output` — structured cleanup results (normal and corrupted)
 - `duo events list --json-output` — machine-readable event listing
 - `duo events clear --json-output` — structured clear results
+- `duo batch --json-output` — structured batch creation results
+- `duo diff --json-output` — structured diff info (files, stat, base commit)
+- `duo version --json-output` — machine-readable version info
 - `duo doctor` stale-locks check — warns about orphaned `.lock` files in TASKS_DIR
 - `duo doctor` orphan-worktrees check — detects stale `duo-*` git worktrees
 - `duo doctor --fix` — auto-resolve stale locks, quarantined tasks, and orphan worktrees
