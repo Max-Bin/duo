@@ -194,3 +194,26 @@ class TestContentTruncation:
         log_decision(session_id, "t1", "select", long_content, elapsed_ms=0)
         events = replay_session(session_id)
         assert len(events[1]["content"]) == 500
+
+
+class TestSessionStatsEdgeCases:
+    def test_decision_without_elapsed_ms(self) -> None:
+        """session_stats handles decisions missing elapsed_ms."""
+        session_id = start_ceo_session()
+        # Manually append a decision event without elapsed_ms
+        from duo.ceo_log import _append_event
+        from duo.protocol import now_iso
+
+        _append_event(
+            session_id,
+            {
+                "event": "decision",
+                "ts": now_iso(),
+                "task": "t1",
+                "decision_type": "approve",
+                "content": "yes",
+            },
+        )
+        stats = session_stats(session_id)
+        assert stats["decisions_made"] == 1
+        assert stats["avg_decision_ms"] == 0

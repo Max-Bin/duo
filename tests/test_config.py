@@ -404,3 +404,30 @@ class TestWorktreeDefault:
         path = config_mod.DEFAULTS["worktree_base_path"]
         assert "/tmp" not in path
         assert ".duo/worktrees" in path
+
+
+class TestConfigBranchEdgeCases:
+    """Cover rare branches in load_config and reset_config."""
+
+    def test_reset_nonexistent_key_is_noop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Resetting a key that's not in DEFAULTS or config does nothing."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        config_mod.save_config({"copilot_model": "test"})
+        config_mod.reset_config("totally_nonexistent_key")
+        cfg = config_mod.load_config()
+        assert cfg["copilot_model"] == "test"
+
+    def test_load_config_unknown_type_passthrough(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Config value with a type not in bool/int/float/str is stored as-is."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        # Add a list-type default to trigger the else branch
+        monkeypatch.setitem(config_mod.DEFAULTS, "tags", ["default"])
+        cfg_path.write_text(json.dumps({"tags": ["a", "b"]}))
+        cfg = config_mod.load_config()
+        assert cfg["tags"] == ["a", "b"]
