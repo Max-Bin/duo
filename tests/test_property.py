@@ -534,3 +534,138 @@ class TestFSMTransitionsProperty:
         for source, targets in TRANSITIONS.items():
             if source not in allowed_self:
                 assert source not in targets, f"{source} has unexpected self-transition"
+
+
+# ---------------------------------------------------------------------------
+# _validate_label: path-safety on transport labels
+# ---------------------------------------------------------------------------
+
+
+class TestValidateLabelPathSafety:
+    """Property: _validate_label rejects all path-traversal attempts."""
+
+    @given(
+        label=st.from_regex(r"[a-zA-Z0-9_.\-]{1,50}", fullmatch=True),
+    )
+    def test_valid_labels_accepted(self, label: str) -> None:
+        """Labels matching ^[a-zA-Z0-9_.-]+$ are accepted."""
+        _validate_label(label)  # should not raise
+
+    @given(
+        label=st.text(min_size=1, max_size=50).filter(
+            lambda s: not re.fullmatch(r"[a-zA-Z0-9_.\-]+", s)
+        ),
+    )
+    def test_invalid_labels_rejected(self, label: str) -> None:
+        """Labels with path-unsafe characters are rejected."""
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            _validate_label(label)
+
+    @given(
+        prefix=st.sampled_from(["../", "./", "/", "~/"]),
+        suffix=st.from_regex(r"[a-z]{1,10}", fullmatch=True),
+    )
+    def test_path_traversal_rejected(self, prefix: str, suffix: str) -> None:
+        """Path traversal prefixes are always rejected."""
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            _validate_label(prefix + suffix)
+
+
+# ---------------------------------------------------------------------------
+# _match_writable: glob edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestMatchWritableGlobProperty:
+    """Property: _match_writable with strict patterns."""
+
+    @given(
+        filename=st.from_regex(r"[a-z]{1,10}\.(py|js|ts|md)", fullmatch=True),
+    )
+    def test_star_glob_matches_flat_files(self, filename: str) -> None:
+        """'src/*' matches any file directly under src/."""
+        assert _match_writable(f"src/{filename}", "src/*")
+
+    @given(
+        depth=st.integers(min_value=1, max_value=5),
+        filename=st.from_regex(r"[a-z]{1,8}\.py", fullmatch=True),
+    )
+    def test_double_star_matches_any_depth(self, depth: int, filename: str) -> None:
+        """'src/**' matches files at any depth under src/."""
+        path = "src/" + "/".join(["sub"] * depth) + f"/{filename}"
+        assert _match_writable(path, "src/**")
+
+    @given(
+        filename=st.from_regex(r"[a-z]{1,8}\.py", fullmatch=True),
+    )
+    def test_no_match_outside_pattern(self, filename: str) -> None:
+        """Files outside the writable pattern are rejected."""
+        assert not _match_writable(f"other/{filename}", "src/*")
+
+
+# ---------------------------------------------------------------------------
+# Config: all DEFAULTS keys have consistent types
+# ---------------------------------------------------------------------------
+
+
+class TestConfigDefaultsConsistency:
+    """Property: DEFAULTS values are self-consistent."""
+
+    def test_all_defaults_have_known_types(self) -> None:
+        """Every default value is str, int, float, or bool."""
+        from duo.config import DEFAULTS
+
+        for key, value in DEFAULTS.items():
+            assert isinstance(value, (str, int, float, bool)), (
+                f"{key} has unexpected type {type(value)}"
+            )
+
+    def test_no_empty_string_keys(self) -> None:
+        """No DEFAULTS key is empty or whitespace-only."""
+        from duo.config import DEFAULTS
+
+        for key in DEFAULTS:
+            assert key.strip(), "Empty key in DEFAULTS"
+            assert re.fullmatch(r"[a-z][a-z0-9_]*", key), (
+                f"Key '{key}' doesn't follow snake_case"
+            )
+
+    def test_numeric_defaults_are_non_negative(self) -> None:
+        """All numeric defaults are >= 0 (no accidental negatives)."""
+        from duo.config import DEFAULTS
+
+        for key, value in DEFAULTS.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                assert value >= 0, f"{key} has negative default {value}"
+
+
+# ---------------------------------------------------------------------------
+# _fmt_ts: timestamp formatting robustness
+# ---------------------------------------------------------------------------
+
+
+class TestFmtTsProperty:
+    """Property: _fmt_ts never crashes on any input."""
+
+    @given(text=st.text(min_size=0, max_size=100))
+    def test_never_raises(self, text: str) -> None:
+        """_fmt_ts handles any string without raising."""
+        from duo.cli import _fmt_ts
+
+        result = _fmt_ts(text)
+        assert isinstance(result, str)
+        assert len(result) <= max(len(text), 8)
+
+    @given(
+        dt=st.datetimes(
+            min_value=datetime(2020, 1, 1),
+            max_value=datetime(2030, 12, 31),
+        )
+    )
+    def test_valid_iso_extracts_time(self, dt: datetime) -> None:
+        """Valid ISO timestamps produce HH:MM:SS output."""
+        iso = dt.isoformat()
+        from duo.cli import _fmt_ts
+
+        result = _fmt_ts(iso)
+        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", result)
