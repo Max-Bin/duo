@@ -296,57 +296,44 @@ to miss them and `ceo-loop` to spin without handling them.
 
 ---
 
-## Deferred findings from rubber-duck audits (Rounds BH-BJ) — LOW PRIORITY
+## Deferred findings from rubber-duck audits (Rounds BH-BJ) — REVIEWED (Round BM)
 
-**Status: Open, low priority. All CRITICAL/HIGH findings resolved; these are MED/LOW residuals.**
+**Status: Rubber-duck reviewed in Round BM. Verdicts below.**
 
 ### Transport layer (Round BH, commit `2729e66`)
 
-- **`safe_enter()` TOCTOU window** (MED): Read-then-act over tmux is
-  architecturally inherent. We read pane content, decide it's safe, then
-  send keys — but content could change between read and send. Mitigated
-  with post-send detection logging (CRITICAL level). Full fix would
-  require tmux-side atomic "read-and-send-if-match" which doesn't exist.
+- **`safe_enter()` TOCTOU window** (MED → DEFER): Read-then-act over tmux is
+  architecturally inherent. Full fix requires tmux-side atomic "read-and-send-if-match"
+  which doesn't exist. Mitigated with post-send detection logging.
 
 - **`_THREAD_LOCKS` unbounded growth** (MED → RESOLVED): Added automatic
   eviction in `_get_thread_lock()` — when cache exceeds `_MAX_CACHED_LOCKS`
-  (256), idle entries (no active flock owner) are evicted. Combined with
-  existing `cleanup_pane_state()` for deterministic cleanup.
+  (256), idle entries are evicted.
 
-- **`read_pane()` output not sanitized** (LOW): Raw tmux pane capture may
-  contain ANSI escape sequences. Consumers handle this ad-hoc. A central
-  sanitizer would be cleaner but risks breaking dialog detection regexes.
+- **`read_pane()` output not sanitized** (LOW → CLOSE): Raw tmux pane capture may
+  contain ANSI escape sequences. Central sanitizer risks breaking dialog detection
+  regexes. Not worth the churn.
 
 ### Verifier layer (Round BI, commit `2fe8653`)
 
-- **~~`fnmatch` case sensitivity~~** — **RESOLVED**: The implementation uses
-  `PurePosixPath.match()` (not `fnmatch`), which is case-sensitive on all
-  platforms. Cross-platform behavior is consistent. No action needed.
+- **~~`fnmatch` case sensitivity~~** — **RESOLVED**: Uses `PurePosixPath.match()`
+  which is case-sensitive on all platforms.
 
-- **Regex-based secret detection** (LOW): Pattern matching can't catch
-  base64-encoded secrets or secrets split across lines. Would need a more
-  sophisticated scanner (e.g., trufflehog integration). Current patterns
-  cover common formats (AWS keys, GitHub tokens, etc.).
+- **Regex-based secret detection** (LOW → CLOSE): Pattern matching can't catch
+  base64-encoded secrets or cross-line secrets. Would need trufflehog-level
+  scanner. Current patterns cover common formats.
 
 ### Protocol layer (Round BJ, commit `f5a77b9`)
 
-- **`save_task()` last-write-wins** (MED): No optimistic locking. If two
-  processes call `save_task()` concurrently, the last one wins silently.
-  Fix would require a `Task.version` field + compare-and-swap. Deferred
-  as too invasive — would touch every test that creates/saves tasks.
+- **`save_task()` last-write-wins** (MED → DEFER): No optimistic locking.
+  Fix needs `Task.version` + compare-and-swap — too invasive for current scope.
 
-- **`TRANSITIONS` dict is mutable** — **RESOLVED** (Round CE, commit `998ed0c`):
-  Now uses `MappingProxyType` with `frozenset` values. Immutability test added.
+- **`TRANSITIONS` dict is mutable** — **RESOLVED** (Round CE).
 
-- **Journal rotation crash window** (LOW): During rotation, old journal
-  is replaced atomically via `atomic_write_text`. If the process crashes
-  after computing the new content but before calling `atomic_write_text`,
-  no data is lost (old file intact). If crash during `atomic_write_text`,
-  tmp file may be orphaned but old journal survives (rename is atomic).
-  Acceptable risk.
+- **Journal rotation crash window** (LOW → CLOSE): Atomic rename semantics
+  guarantee no data loss. Orphaned tmp file is acceptable risk.
 
-**Priority:** Low. These are defense-in-depth improvements, not
-correctness bugs. Revisit when any becomes a real-world problem.
+**Priority:** All remaining items are DEFER (architectural) or CLOSE (won't fix).
 
 ---
 
@@ -548,12 +535,11 @@ severity and deferred.
 `verify_and_advance()` now accepts an optional `result` parameter.
 `poll_task()` passes the already-read result, eliminating redundant I/O.
 
-### S3 — Watch event filename collision (LOW)
+### S3 — Watch event filename collision (LOW) — CLOSED
 
-`watch_tasks()` creates per-task signal files. If two tasks have
-IDs that differ only in case, the files could collide on
-case-insensitive filesystems (macOS default). Not a practical
-concern since task IDs are validated, but documented for awareness.
+**Status: Won't fix** (Round BM review). Task IDs can't practically coexist
+with case-only differences, and timestamped filenames make collision vanishingly
+unlikely.
 
 ### S4 — Inconsistent event/transition ordering (LOW) — RESOLVED
 
@@ -575,18 +561,19 @@ ensuring consistent journal ordering.
 `name_pane()` failure after `split-window` now kills the orphaned
 pane and transitions the task to FAILED.
 
-### MED — watch_tasks daemon threads outlive function
+### MED — watch_tasks daemon threads outlive function — OPEN (PROMOTE)
 
 `watch_tasks()` spawns daemon threads that can continue running
 after the function returns if the stop event is not set properly.
-Not observed in practice.
+Threads inside `wait_for_dialog(timeout=300)` may sit for 5 min after stop.
+**Round BM verdict: PROMOTE — real bug, should add longer join or cancellation.**
 
-### HIGH (deferred) — No per-task cross-process lock
+### HIGH (deferred) — No per-task cross-process lock — OPEN (PROMOTE)
 
 Multiple `duo monitor` processes can race on the same task's
-poll/verify/send cycle. Fixing requires file-based locking, which
-is too invasive for overnight work. Mitigated by single-monitor
-usage pattern.
+poll/verify/send cycle. The codebase already uses `fcntl`/lock patterns
+elsewhere, so the fix is less greenfield than originally thought.
+**Round BM verdict: PROMOTE — real correctness race, fix cost is moderate.**
 
 ### HIGH (deferred) — No poll failure counter — RESOLVED
 
@@ -596,16 +583,15 @@ Monitor now tracks consecutive poll errors per task. After 10
 consecutive failures, the task transitions to FAILED with a
 `poll_errors_exhausted` event. Counter resets on successful poll.
 
-**Priority:** Medium overall. The two HIGH items should be
-addressed in a future focused session.
+**Priority:** Remaining open items reviewed in Round BM. Two items promoted
+to fix-next (daemon thread lifetime, cross-process lock). Others closed or deferred.
 
 ---
 
-## Verifier Architectural Limitations (Round ET audit)
+## Verifier Architectural Limitations (Round ET audit) — Reviewed Round BM
 
-These are inherent to the verify-by-diff architecture and cannot
-be fixed without fundamental design changes. Documented for
-awareness and to inform future design decisions.
+These are inherent to the verify-by-diff architecture. **Round BM verdict: all DEFER —
+require fundamental design changes beyond current scope.**
 
 ### CRITICAL (architectural) — Symlink escape with no git-visible diff
 
@@ -666,13 +652,13 @@ root-anchored path matching. Added Unicode NFC normalization.
 using `dict.fromkeys()` for dedup. Older tasks benefit from newly-added
 patterns when verified by newer code.
 
-### MED — load_task type confusion — PARTIALLY RESOLVED
+### MED — load_task type confusion — RESOLVED
 
-**Status: Partially fixed** in commit `034896d` (Round FA).
+**Status: Resolved** (Round FA commit `034896d` + Round BM hardening).
 
-Added type validation for `current_attempt` (int) and `status` (str)
-in `load_task()`. Together with existing `subtasks` (list) and
-`current_step` (int) checks, the most critical fields are now validated.
+Added type validation for all critical fields. Round BM added: top-level
+`isinstance(data, dict)` check (non-dict JSON rejected) and non-dict
+`security_policy` tolerance (falls back to defaults).
 
 ### MED — FSM validation weaker than documented — RESOLVED
 
@@ -757,12 +743,13 @@ ordering. True queue-entry-time ordering would require persisting
 - **Heartbeat read OSError** (MED → RESOLVED): Wrapped `read_heartbeat`
   in try/except OSError — degrades to "—" not crash.
 
-- **Journal re-read per refresh** (MED → DEFERRED): Performance
-  optimization for large journals. Not a correctness issue.
+- **Journal re-read per refresh** (MED → CLOSED): Performance
+  optimization for large journals. Not a correctness issue. Not worth
+  caching complexity unless users feel lag. Closed in Round BM review.
 
-- **Single-frame state inconsistency** (MED → DEFERRED): Dashboard and
-  queue panel can use different task snapshots. Architectural change
-  needed (pass single snapshot to all panels).
+- **Single-frame state inconsistency** (MED → CLOSED): Dashboard and
+  queue panel can use different task snapshots. Pure UI snapshot skew
+  for one refresh frame. Not worth architectural churn. Closed in Round BM.
 
 ### ceo_log.py (Round FV, commit `c5d9f0c`)
 
@@ -791,16 +778,14 @@ ordering. True queue-entry-time ordering would require persisting
 - **UnicodeDecodeError not caught** (MED → RESOLVED): Added explicit
   `encoding="utf-8"` on read and `UnicodeDecodeError` to exception handler.
 
-- **Concurrent read-modify-write race** (MED → DEFERRED): `set_config`
-  and `reset_config` do load→mutate→save without file locking. Atomic
-  writes prevent corruption but not lost updates. Low risk: config changes
-  are rare and typically user-initiated. File locking adds complexity
-  disproportionate to the risk.
+- **Concurrent read-modify-write race** (MED → CLOSED): `set_config`
+  and `reset_config` do load→mutate→save without file locking. Lost updates
+  only possible on concurrent config writes, which are rare and low-impact.
+  Closed in Round BM review.
 
-- **Boolean coercion too permissive** (LOW → DEFERRED): Unrecognized
-  strings silently become `False`. Acceptable for CLI usage where values
-  come from `duo config set` (documented true/false). Would need explicit
-  allowlist + error for full strictness.
+- **Boolean coercion too permissive** (LOW → RESOLVED): Invalid boolean
+  strings now raise `ValueError` with accepted-values hint. Fixed in
+  Round BM (commit TBD).
 
 ---
 
@@ -875,30 +860,26 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
   `True` even on unexpected tmux errors. Now returns `True` only on success
   or known "pane already gone" messages; returns `False` on genuine failures.
 
-### Deferred (MED/LOW)
+### Deferred (MED/LOW) — Reviewed Round BM
 
-- **Multi-step pane interactions lack `pane_lock()`** (MED): `send_shell_command`,
+- **Multi-step pane interactions lack `pane_lock()`** (MED → PROMOTE): `send_shell_command`,
   `send_bootstrap`, `send_message` perform read→type→Enter sequences without
-  holding `pane_lock()`. Concurrent callers on the same label could interleave.
-  Low real-world risk since Commander serializes calls, but should be hardened.
+  holding `pane_lock()`. `pane_lock()` already exists — wrapping these is low-cost.
+  **Round BM verdict: PROMOTE.**
 
-- **`send_option_other_message` assumes "Other" is last option** (MED):
-  Navigates by position rather than matching option text. A Copilot UI change
-  could cause wrong option selection. Structural matching would be more robust.
+- **`send_option_other_message` assumes "Other" is last option** (MED → DEFER):
+  Navigates by position rather than matching option text. Fragile but only if
+  Copilot UI changes; needs text-based option matching. **Round BM: DEFER.**
 
-- **Dialog detection relies on hard-coded Copilot strings** (MED): Prompt and
-  dialog detection uses exact string matches (`"Type @"`, spinner glyphs,
-  `"mention files"`). Copilot UI changes could cause misdetection. Should
-  fail closed on unknown states.
+- **Dialog detection relies on hard-coded Copilot strings** (MED → DEFER): Intrinsic
+  to UI-automation approach. **Round BM: DEFER.**
 
-- **`_PR_LOG` retains raw prompt snippets in memory** (MED): `_record_pr`
-  stores `prompt[:80]` / `text[:80]` in `_PR_LOG`. `cleanup_pane_state()`
-  does not scrub per-label entries. Low practical risk in short-lived
-  processes but sensitive text could linger in long-running sessions.
+- **`_PR_LOG` retains raw prompt snippets in memory** (MED → CLOSED): Bounded
+  in-memory local-process risk; not worth extra complexity. **Round BM: CLOSE.**
 
-- **`send_text_dialog_message` submits even without echo verification** (LOW):
-  After 3 retries, submits Enter even if typed text was never confirmed
-  visible. Could submit empty/wrong answer if input was dropped.
+- **`send_text_dialog_message` submits even without echo verification** (LOW → PROMOTE):
+  Fails open currently — safest fix is don't press Enter unless text was observed.
+  **Round BM verdict: PROMOTE.**
 
 ## Round BI: Rubber-Duck Security Audit of verifier.py
 
@@ -922,23 +903,22 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
   patterns. Also added 8 new default patterns for Azure, database URLs,
   AWS secret keys, and GitHub/GH tokens.
 
-### Deferred (MED/LOW)
+### Deferred (MED/LOW) — Reviewed Round BM
 
-- **TOCTOU between verification and acceptance** (HIGH — architectural):
+- **TOCTOU between verification and acceptance** (HIGH — architectural → DEFER):
   Executor can modify files after verifier reads the diff. Mitigation would
-  require `git write-tree` snapshot or worktree freeze during verification.
-  Accepted risk for now as executor is supervised.
+  require `git write-tree` snapshot or worktree freeze. **Round BM: DEFER.**
 
-- **Large diff / file-count DoS** (MED — mitigation exists): `subprocess.run`
-  buffers full output before `_MAX_DIFF_BYTES` check. Streaming would require
-  `Popen` refactor. 10 MB limit provides reasonable protection.
+- **Large diff / file-count DoS** (MED — mitigation exists → DEFER): `subprocess.run`
+  buffers full output before `_MAX_DIFF_BYTES` check. Needs streaming refactor.
+  **Round BM: DEFER.**
 
-- **`verify_step()` ignores `StepResult` fields** (MED): `result.status` and
-  `result.files_changed` are not validated against actual git state. Low
-  practical risk since commander already validates result status.
+- **`verify_step()` ignores `StepResult` fields** (MED → CLOSED): Git/worktree
+  state is the real source of truth; validating executor-reported file lists
+  adds little security value. **Round BM: CLOSE.**
 
-- **`fnmatch` `*` matches `/`** (MED — previously documented): Remains as
-  architectural decision. Segment-aware matching would be breaking change.
+- **`fnmatch` `*` matches `/`** (MED → CLOSED): This is current documented
+  semantics; changing it would be a breaking policy change. **Round BM: CLOSE.**
 
 ## Round BJ: Rubber-Duck Audit of protocol.py (FSM + Atomic Writes)
 
@@ -960,19 +940,15 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
   (missing keys) raised KeyError instead of returning None. Fixed: added
   `current_attempt >= 1` check and wrapped subtask parsing in try/except.
 
-### Deferred (MED/LOW)
+### Deferred (MED/LOW) — Reviewed Round BM
 
 - **No task-level file locking for `save_task`/`transition`** (CRITICAL —
-  architectural): Two Commander processes can race on task.json. In practice,
-  Duo uses a single Commander per task. Full file locking would require
-  per-task lock files. Accepted risk for current architecture.
+  architectural → DEFER): Two Commander processes can race on task.json.
+  Needs global atomic slot-claiming; not a small patch. **Round BM: DEFER.**
 
-- **Crash window between `save_task` and journal** (HIGH — architectural):
-  If process dies after `save_task()` but before journal append in
-  `transition()`, task.json has new state but journal doesn't. Would need
-  journal-first architecture or sequence numbers. Accepted for now.
+- **Crash window between `save_task` and journal** (HIGH — architectural → DEFER):
+  Needs journal-first architecture or sequence numbers. **Round BM: DEFER.**
 
-- **FSM allows protocol-skipping transitions** (MED): Graph permits paths
-  like PROMPT_SENT→VERIFYING without artifact evidence. Would need
-  artifact guards in `transition()`. Low practical risk as Commander
-  follows the protocol.
+- **FSM allows protocol-skipping transitions** (MED → CLOSED): Permissiveness
+  appears intentional for async/recovery flows. Adding artifact guards would
+  over-constrain the architecture. **Round BM: CLOSE.**

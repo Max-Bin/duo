@@ -644,6 +644,9 @@ def load_task(task_id: str) -> Task | None:
     data = read_json(TASKS_DIR / task_id / "task.json")
     if data is None:
         return None
+    if not isinstance(data, dict):
+        logger.warning("Task '%s' task.json is not a JSON object", task_id)
+        return None
 
     if not isinstance(data.get("subtasks"), list):
         logger.warning("Task '%s' has invalid subtasks field", task_id)
@@ -699,6 +702,8 @@ def load_task(task_id: str) -> Task | None:
         return None
 
     sp = data.get("security_policy", {})
+    if not isinstance(sp, dict):
+        sp = {}
     loaded_patterns = sp.get("secret_patterns", [])
     merged_patterns = list(dict.fromkeys(DEFAULT_SECRET_PATTERNS + loaded_patterns))
     security_policy = SecurityPolicy(

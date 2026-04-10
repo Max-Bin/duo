@@ -85,6 +85,11 @@ class TestSetConfig:
             result = config_mod.set_config("auto_allow_all", falsy)
             assert result is False
 
+    def test_rejects_invalid_bool(self):
+        for invalid in ("maybe", "yep", "nah", "2", "tru"):
+            with pytest.raises(ValueError, match="Cannot convert"):
+                config_mod.set_config("auto_allow_all", invalid)
+
     def test_coerces_int(self):
         result = config_mod.set_config("max_corrections", "7")
         assert result == 7

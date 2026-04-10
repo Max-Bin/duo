@@ -164,7 +164,16 @@ def set_config(key: str, value: str) -> bool | int | float | str:
     if key in DEFAULTS:
         default_type = type(DEFAULTS[key])
         if default_type is bool:
-            coerced = value.lower() in ("true", "1", "yes")
+            low = value.lower()
+            if low in ("true", "1", "yes"):
+                coerced = True
+            elif low in ("false", "0", "no"):
+                coerced = False
+            else:
+                raise ValueError(
+                    f"Cannot convert '{value}' to bool for key '{key}'"
+                    " (accepted: true/false, 1/0, yes/no)"
+                )
         elif default_type is int:
             try:
                 coerced = int(value)

@@ -425,6 +425,28 @@ class TestTaskCRUD:
         (task_dir / "task.json").write_text('{"id": "corrupted-task"}')
         assert load_task("corrupted-task") is None
 
+    def test_load_task_non_dict_json(self):
+        """load_task returns None when task.json is a JSON array or scalar."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "array-task"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text("[1, 2, 3]")
+        assert load_task("array-task") is None
+
+    def test_load_task_non_dict_security_policy(self):
+        """load_task tolerates non-dict security_policy by using defaults."""
+        import duo.protocol
+
+        create_task("bad-sp", "desc", "/w", "b", "c", [_make_subtask()])
+        task_path = duo.protocol.TASKS_DIR / "bad-sp" / "task.json"
+        data = json.loads(task_path.read_text())
+        data["security_policy"] = "not-a-dict"
+        task_path.write_text(json.dumps(data))
+        loaded = load_task("bad-sp")
+        assert loaded is not None
+        assert loaded.security_policy.writable_paths == []
+
     def test_load_invalid_status_task(self):
         """load_task returns None when status value is invalid."""
         import duo.protocol
