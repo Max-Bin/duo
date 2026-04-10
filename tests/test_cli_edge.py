@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import string
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
@@ -621,3 +622,15 @@ class TestPublicAPIStability:
         """duo.__all__ must contain all expected public symbols."""
         missing = self.EXPECTED_EXPORTS - set(duo.__all__)
         assert missing == set(), f"Missing from duo.__all__: {sorted(missing)}"
+
+
+class TestDeadCodeGuard:
+    """Guard: vulture must find zero dead code at 80% confidence."""
+
+    def test_no_dead_code(self) -> None:
+        result = subprocess.run(
+            ["vulture", "src/duo/", "--min-confidence", "80"],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"vulture found dead code:\n{result.stdout}"
