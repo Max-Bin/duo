@@ -7,7 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - GitHub Actions CI workflow with 3-job pipeline: lint+typecheck+coverage, Python 3.12/3.13 compat matrix, CLI smoke tests
+- GitHub Actions release workflow for automated PyPI publishing + GitHub Releases on tag push
+- Dependabot for automated dependency updates (GitHub Actions + pip)
+- CODEOWNERS for PR review gating
 - CI badge in README and README.zh-CN
+- 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
+- 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
 - `duo start --immediate` flag to skip defer mode and send bootstrap immediately
 - `bypass_permissions` config (default: true) — controls `--yolo` for Copilot CLI and `--dangerously-skip-permissions` for Claude Code
