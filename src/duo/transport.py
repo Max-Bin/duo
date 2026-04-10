@@ -1599,7 +1599,7 @@ def send_bootstrap(label: str, prompt: str) -> None:
         try:
             read_pane(label, 5)
             type_text(label, prompt)
-        except Exception:
+        except Exception:  # re-raised; rollback bootstrap flag on any failure
             with _LOCK:
                 _BOOTSTRAP_DONE.discard(label)
             raise

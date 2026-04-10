@@ -793,3 +793,41 @@ class TestChangelogFormatGuard:
         headers = re.findall(r"^### (.+)$", content, re.MULTILINE)
         for h in headers:
             assert h.strip() in valid, f"Invalid CHANGELOG category: ### {h}"
+
+
+class TestExceptionHandlingGuard:
+    """Guard: no bare excepts; broad except Exception must be justified."""
+
+    def test_no_bare_excepts(self) -> None:
+        import ast
+
+        bad = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            tree = ast.parse(f.read_text())
+            bad.extend(
+                f"{f.name}:{node.lineno}"
+                for node in ast.walk(tree)
+                if isinstance(node, ast.ExceptHandler) and node.type is None
+            )
+        assert bad == [], "Bare except handlers:\n" + "\n".join(f"  {b}" for b in bad)
+
+    def test_broad_exception_handlers_documented(self) -> None:
+        """All except Exception must have an inline comment justifying why."""
+        import ast
+
+        unjustified = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            lines = f.read_text().splitlines()
+            tree = ast.parse(f.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ExceptHandler) and node.type is not None:
+                    if isinstance(node.type, ast.Name) and node.type.id == "Exception":
+                        line = (
+                            lines[node.lineno - 1] if node.lineno <= len(lines) else ""
+                        )
+                        if "#" not in line:
+                            unjustified.append(f"{f.name}:{node.lineno}")
+        assert unjustified == [], (
+            "except Exception without justification comment:\n"
+            + "\n".join(f"  {u}" for u in unjustified)
+        )
