@@ -25,6 +25,12 @@ from duo.protocol import (
     prompt_hash,
     read_jsonl,
 )
+from duo.thinking import (
+    THINKING_DIR,
+    _validate_name,
+    extract_response,
+    thinking_dir,
+)
 from duo.transport import _validate_label, strip_ansi
 from duo.verifier import _match_writable, _validate_writable_patterns
 
@@ -838,3 +844,102 @@ class TestPollerBackoffProperty:
             poller._ramp()
         poller._reset()
         assert poller.interval == 5.0
+
+
+# ---------------------------------------------------------------------------
+# Thinking session property tests
+# ---------------------------------------------------------------------------
+
+
+SAFE_NAME_ALPHABET = string.ascii_letters + string.digits + "_-"
+
+
+class TestThinkingNameValidation:
+    """Property tests for thinking session name validation."""
+
+    @given(
+        name=st.text(alphabet=SAFE_NAME_ALPHABET, min_size=1, max_size=32).filter(
+            lambda s: s[0].isalnum()
+        )
+    )
+    def test_valid_names_accepted(self, name: str) -> None:
+        """Safe names (alphanumeric start, then alnum/underscore/hyphen) are accepted."""
+        _validate_name(name)  # should not raise
+
+    @given(
+        name=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cs",),
+                whitelist_categories=("L", "N", "P", "S", "Z"),
+            ),
+            min_size=1,
+            max_size=32,
+        ).filter(lambda s: not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$", s))
+    )
+    def test_unsafe_names_rejected(self, name: str) -> None:
+        """Names with special chars, starting with non-alnum, etc. are rejected."""
+        with pytest.raises(ValueError, match="Invalid thinking session name"):
+            _validate_name(name)
+
+    @given(
+        name=st.text(alphabet=SAFE_NAME_ALPHABET, min_size=1, max_size=16).filter(
+            lambda s: s[0].isalnum()
+        )
+    )
+    def test_thinking_dir_is_subpath(self, name: str) -> None:
+        """thinking_dir always returns a path under THINKING_DIR."""
+        result = thinking_dir(name)
+        assert result.parent == THINKING_DIR
+        assert result.name == name
+
+
+class TestExtractResponseProperty:
+    """Property tests for extract_response text delta extraction."""
+
+    @given(
+        common=st.lists(st.text(min_size=0, max_size=80), min_size=0, max_size=10),
+        response=st.lists(st.text(min_size=1, max_size=80), min_size=1, max_size=10),
+        user_msg=st.text(min_size=1, max_size=40),
+    )
+    def test_user_message_filtered_from_output(
+        self, common: list[str], response: list[str], user_msg: str
+    ) -> None:
+        """The user's own message should not appear in the extracted response."""
+        before = "\n".join(common)
+        after = "\n".join(common + [user_msg] + response)
+        result = extract_response(before, after, user_msg)
+        # User message line should be filtered out
+        for line in result.splitlines():
+            assert line.strip() != user_msg.strip()
+
+    @given(
+        prefix=st.lists(st.text(min_size=0, max_size=40), min_size=0, max_size=5),
+    )
+    def test_identical_content_yields_empty(self, prefix: list[str]) -> None:
+        """When before == after, the response should be empty."""
+        content = "\n".join(prefix)
+        result = extract_response(content, content, "test query")
+        assert result.strip() == ""
+
+    @given(
+        noise=st.sampled_from(["● Edit", "● Read", "● Bash", "● Grep", ">", "❯", ""]),
+        real_line=st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cs", "Cc", "Zl", "Zp"),
+            ),
+            min_size=1,
+            max_size=80,
+        ).filter(
+            lambda s: (
+                not s.strip().startswith(("●", ">", "❯"))
+                and s.strip() not in ("", ">", "❯")
+            )
+        ),
+    )
+    def test_noise_lines_filtered(self, noise: str, real_line: str) -> None:
+        """Tool output markers and empty lines are filtered, real content preserved."""
+        before = "prompt line"
+        after = f"prompt line\n{noise}\n{real_line}"
+        result = extract_response(before, after, "some question")
+        # Real line should survive filtering
+        assert real_line in result
