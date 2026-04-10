@@ -13267,3 +13267,187 @@ class TestCliBranchGapsBatch3:
         ):
             result = runner.invoke(main, ["cleanup", "--json-output"])
         assert result.exit_code == 0
+
+
+class TestCliBranchGapsBatch4:
+    """Close ceo-stats, ceo-metrics display, and ceo-dispatch gaps."""
+
+    # -- ceo-session-stats text: empty decision_types (4291→exit) --
+    def test_ceo_session_stats_no_decision_types(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """ceo-session-stats text skips Types when empty (4291→exit)."""
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "ceo-sess")
+        sid = start_ceo_session()
+        # No decisions logged → decision_types will be empty
+        result = runner.invoke(main, ["ceo-session-stats", sid])
+        assert result.exit_code == 0
+        assert "Types:" not in result.output
+
+    # -- ceo-metrics text: empty dialog_kinds, decision_types, patterns (4834,4845,4861) --
+    def test_ceo_metrics_text_all_empty(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """ceo-metrics text skips all sections when empty (4834,4845,4861)."""
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "ceo-sess")
+        sid = start_ceo_session()
+        # Session with event but no dialogs/decisions
+        from duo.ceo_log import _append_event
+
+        _append_event(sid, {"event": "session_started", "ts": "2025-01-01T00:00:00"})
+        result = runner.invoke(main, ["ceo-metrics"])
+        assert result.exit_code == 0
+        assert "Dialog kinds:" not in result.output
+        assert "Decision types:" not in result.output
+        assert "Top dialog patterns:" not in result.output
+
+    # -- ceo-metrics: dialog with empty content → skip counting (4801→4799) --
+    def test_ceo_metrics_empty_content_dialogs(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """ceo-metrics: empty dialog content is not counted (4801→4799)."""
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "ceo-sess")
+        sid = start_ceo_session()
+        from duo.ceo_log import _append_event
+
+        _append_event(
+            sid,
+            {
+                "event": "dialog_detected",
+                "ts": "2025-01-01T00:00:00",
+                "task": "t1",
+                "dialog_kind": "option",
+                "content": "",
+            },
+        )
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        # Empty content should not appear in top_dialog_patterns
+        patterns = data.get("top_dialog_patterns", [])
+        assert all(p["content"] != "" for p in patterns)
+
+    # -- ceo-metrics: session with < 2 timestamps → skip duration (4757→4748) --
+    def test_ceo_metrics_single_timestamp(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """ceo-metrics: session with 1 event skips duration calc (4757→4748)."""
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path / "ceo-sess")
+        sid = start_ceo_session()
+        from duo.ceo_log import _append_event
+
+        _append_event(
+            sid,
+            {"event": "session_started", "ts": "2025-01-01T00:00:00"},
+        )
+        result = runner.invoke(main, ["ceo-metrics", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["avg_session_duration_s"] == 0.0
+
+    # -- ceo-dispatch: permission denied by policy (4001→4005) --
+    def test_dispatch_permission_not_auto_approve(self):
+        """_handle_dialog: permission with auto_approve=False → falls through (4001→4005)."""
+        from duo.cli import _handle_dialog
+
+        policy = {"permission_dialogs": {"auto_approve": False}}
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=True),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            # kind="unknown" so it falls through all kind checks to "paused"
+            result = _handle_dialog("task1", "lbl", policy, "Allow?", "unknown")
+        assert result == "paused"
+
+    # -- ceo-dispatch: opt_policy not a dict (4009→4014) --
+    def test_dispatch_opt_policy_not_dict(self):
+        """_handle_dialog: option_dialogs set to non-dict → defaults (4009→4014)."""
+        from duo.cli import _handle_dialog
+
+        policy = {"option_dialogs": "invalid"}
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            result = _handle_dialog("task1", "lbl", policy, "Choose:", "option")
+        assert result == "paused"
+
+    # -- ceo-dispatch: rule action=select_option (4020→4044) --
+    def test_dispatch_rule_select_option(self):
+        """_handle_dialog: rule with action=select_option (4020→4044)."""
+        from duo.cli import _handle_dialog
+
+        policy = {
+            "option_dialogs": {
+                "rules": [{"match": "Choose", "action": "select_option", "option": "3"}]
+            }
+        }
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+        ):
+            result = _handle_dialog(
+                "task1", "lbl", policy, "Choose something", "option"
+            )
+        assert result == "rule_selected_3"
+        mock_sel.assert_called_once_with("lbl", "3")
+
+    # -- ceo-dispatch: text dialog auto_respond empty response (4048→4052) --
+    def test_dispatch_text_empty_response(self):
+        """_handle_dialog: text auto_respond with empty response → paused (4048→4052)."""
+        from duo.cli import _handle_dialog
+
+        policy = {"text_dialogs": {"action": "auto_respond", "response": ""}}
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            result = _handle_dialog("task1", "lbl", policy, "Enter path:", "text")
+        assert result == "paused"
+
+    # -- ceo-dispatch: bullet_policy with non-select_first default (4055→4064) --
+    def test_dispatch_bullet_policy_pause_default(self):
+        """_handle_dialog: bullet with default=pause → paused (4055→4064)."""
+        from duo.cli import _handle_dialog
+
+        policy = {"bullet_dialogs": {"default": "pause"}}
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            result = _handle_dialog("task1", "lbl", policy, "Pick one:", "bullet")
+        assert result == "paused"
