@@ -22,6 +22,7 @@ from duo.verifier import (
     _check_security_scope,
     _check_task_scope,
     _check_untracked,
+    _match_writable,
     git_diff,
     git_diff_names,
     git_untracked,
@@ -191,6 +192,38 @@ class TestRunInWorktree:
             side_effect=subprocess.TimeoutExpired(cmd="sleep", timeout=300),
         ):
             assert run_in_worktree(str(tmp_path), "sleep 999") == 124
+
+
+# ---------------------------------------------------------------------------
+# _match_writable — root-anchored path matching with Unicode normalization
+# ---------------------------------------------------------------------------
+
+
+class TestMatchWritable:
+    def test_root_anchored_rejects_nested_prefix(self):
+        """src/* must NOT match other/src/a.py (the old PurePosixPath bug)."""
+        assert _match_writable("other/src/a.py", "src/*") is False
+
+    def test_root_anchored_matches_direct(self):
+        assert _match_writable("src/a.py", "src/*") is True
+
+    def test_wildcard_matches_deep(self):
+        """* in fnmatch matches across path separators."""
+        assert _match_writable("src/sub/a.py", "src/*") is True
+
+    def test_star_matches_everything(self):
+        assert _match_writable("any/deep/path.py", "*") is True
+
+    def test_unicode_nfc_normalization(self):
+        """Accented filenames match regardless of NFC/NFD encoding."""
+        # NFD: e + combining acute accent
+        nfd_path = "src/caf\u0065\u0301.py"
+        # NFC: precomposed é
+        nfc_pattern = "src/caf\u00e9.py"
+        assert _match_writable(nfd_path, nfc_pattern) is True
+
+    def test_no_match(self):
+        assert _match_writable("docs/readme.md", "src/*") is False
 
 
 # ---------------------------------------------------------------------------
@@ -441,6 +474,23 @@ class TestCheckSecretLeak:
             ("pypi-AgEIcHlwaS", "+PYPI_TOKEN=pypi-AgEIcHlwaSOmeLongToken"),
             ("npm_", "+NPM_TOKEN=npm_xxxxxxxxxxxxxxxxxxxx"),
             ("AIZA", "+GOOGLE_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXX"),
+            (
+                "-----BEGIN ENCRYPTED PRIVATE KEY",
+                "+-----BEGIN ENCRYPTED PRIVATE KEY-----",
+            ),
+            (
+                "-----BEGIN PGP PRIVATE KEY BLOCK",
+                "+-----BEGIN PGP PRIVATE KEY BLOCK-----",
+            ),
+            ("ghu_", "+GITHUB_USER=ghu_xxxxxxxxxxxxxxxxxxxx"),
+            ("xoxc-", "+SLACK_CLIENT=xoxc-xxxxxxxxxxxx"),
+            ("xoxa-", "+SLACK_APP=xoxa-xxxxxxxxxxxx"),
+            ("ya29.", "+GOOGLE_OAUTH=ya29.a0ARrdaM_xxxxxxx"),
+            ("sk-svcacct-", "+OPENAI_SVC=sk-svcacct-xxxxxxxxxxxx"),
+            ("AIza", "+FIREBASE_KEY=AIzaSyCxxxxxxxxxxxx"),
+            ("SG.", "+SENDGRID_KEY=SG.xxxxxxxxxxxx"),
+            ("sq0csp-", "+SQUARE_SECRET=sq0csp-xxxxxxxxxxxx"),
+            ("sq0atp-", "+SQUARE_TOKEN=sq0atp-xxxxxxxxxxxx"),
         ],
     )
     def test_modern_token_patterns(self, pattern, sample):

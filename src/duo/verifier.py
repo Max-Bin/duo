@@ -8,13 +8,14 @@ from __future__ import annotations
 
 __all__ = ["Correction", "Pass", "run_in_worktree", "verify_step"]
 
+import fnmatch
 import logging
 import os
 import re
 import shlex
 import subprocess
+import unicodedata
 from dataclasses import dataclass
-from pathlib import PurePosixPath
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,20 @@ from duo.protocol import StepResult, Subtask, Task, append_event
 
 _GIT_TIMEOUT = 30  # seconds for git diff/ls-files
 _TEST_SUITE_TIMEOUT = 300  # seconds for acceptance test commands
+
+
+def _match_writable(rel_path: str, pattern: str) -> bool:
+    """Root-anchored path matching for writable_paths patterns.
+
+    Unlike PurePosixPath.match(), this anchors patterns to the repo root
+    so ``src/*`` only matches files directly under ``src/``, not under
+    ``other/src/``.  Both the path and pattern are NFC-normalized for
+    consistent matching on macOS/Linux.
+    """
+    norm_path = unicodedata.normalize("NFC", rel_path)
+    norm_pat = unicodedata.normalize("NFC", pattern)
+    return fnmatch.fnmatch(norm_path, norm_pat)
+
 
 # === Result types ===
 
@@ -198,9 +213,9 @@ def _check_security_scope(
             )
             return Correction(reason)
 
-        # Match resolved relative path against writable_paths
+        # Match resolved relative path against writable_paths (root-anchored)
         rel_real = os.path.relpath(real_path, real_worktree)
-        if not any(PurePosixPath(rel_real).match(pat) for pat in writable_paths):
+        if not any(_match_writable(rel_real, pat) for pat in writable_paths):
             reason = f"Security violation: '{path}' is outside writable paths {writable_paths}"
             append_event(
                 task,
@@ -221,7 +236,7 @@ def _check_task_scope(
 ) -> None:
     """SOFT warning when changes go beyond target_files (never rejects)."""
     for path in sorted(changed):
-        if not any(PurePosixPath(path).match(pat) for pat in target_files):
+        if not any(_match_writable(path, pat) for pat in target_files):
             append_event(
                 task,
                 "task_scope_warning",

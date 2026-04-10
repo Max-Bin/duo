@@ -209,10 +209,21 @@ class SecurityPolicy:
             "-----BEGIN EC PRIVATE KEY",
             "-----BEGIN OPENSSH PRIVATE KEY",
             "-----BEGIN PRIVATE KEY",
+            "-----BEGIN ENCRYPTED PRIVATE KEY",
+            "-----BEGIN PGP PRIVATE KEY BLOCK",
             "glpat-",
             "pypi-AgEIcHlwaS",
             "npm_",
             "AIZA",
+            "ghu_",
+            "xoxc-",
+            "xoxa-",
+            "ya29.",
+            "sk-svcacct-",
+            "AIza",
+            "SG.",
+            "sq0csp-",
+            "sq0atp-",
         ]
     )
     forbidden_commands: list[str] = field(default_factory=list)
@@ -298,8 +309,8 @@ def prompt_hash(prompt: str) -> str:
 def read_json(path: Path) -> dict[str, Any] | None:
     """Read a JSON file, return None if missing or invalid."""
     try:
-        data: dict[str, Any] = json.loads(path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
         return None
     else:
         return data
@@ -365,17 +376,20 @@ def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
         return []
     result: deque[dict[str, Any]] | list[dict[str, Any]]
     result = deque(maxlen=tail) if tail is not None else []
-    with open(path, encoding="utf-8") as f:
-        for raw in f:
-            stripped = raw.strip()
-            if stripped:
-                try:
-                    result.append(json.loads(stripped))
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Malformed journal line in %s: %s", path, stripped[:120]
-                    )
-                    continue
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for raw in f:
+                stripped = raw.strip()
+                if stripped:
+                    try:
+                        result.append(json.loads(stripped))
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Malformed journal line in %s: %s", path, stripped[:120]
+                        )
+                        continue
+    except OSError:
+        return []
     return list(result)
 
 
@@ -437,6 +451,9 @@ def transition(task: Task, new_status: TaskStatus) -> bool:
         )
         return False
     task.status = new_status
+    # Save task.json first so a save failure keeps journal consistent
+    # (journal won't record a transition that didn't persist to task.json).
+    save_task(task)
     append_event(
         task,
         "status_changed",
@@ -446,7 +463,6 @@ def transition(task: Task, new_status: TaskStatus) -> bool:
             "incarnation": task.incarnation_id,
         },
     )
-    save_task(task)
     return True
 
 

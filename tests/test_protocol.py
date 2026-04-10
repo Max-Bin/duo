@@ -583,6 +583,13 @@ class TestJsonIOEdgeCases:
         result = read_json(bad)
         assert result is None
 
+    def test_read_json_unicode_decode_error(self, tmp_path: Path):
+        """read_json returns None when file contains invalid UTF-8."""
+        bad = tmp_path / "binary.json"
+        bad.write_bytes(b"\x80\x81\x82\x83")
+        result = read_json(bad)
+        assert result is None
+
     def test_write_json_creates_parent_dirs_under_tasks_dir(self):
         """write_json creates parent directories under TASKS_DIR if needed."""
         import duo.protocol
@@ -1304,6 +1311,14 @@ class TestReadJsonlEdgeCases:
         assert events[0]["msg"] == "🚀 日本語"
         assert events[1]["msg"] == "中文测试"
 
+    def test_oserror_returns_empty(self, tmp_path: Path) -> None:
+        """read_jsonl returns [] when file triggers OSError (e.g., permission denied)."""
+        path = tmp_path / "journal.jsonl"
+        path.write_text('{"event":"a"}\n')
+        with patch("builtins.open", side_effect=OSError("permission denied")):
+            events = read_jsonl(path)
+        assert events == []
+
 
 class TestAtomicWriteText:
     """Tests for atomic_write_text helper."""
@@ -1459,6 +1474,34 @@ class TestIncarnationLength:
     def test_is_hex(self):
         inc = new_incarnation()
         int(inc, 16)  # Raises ValueError if not valid hex
+
+
+class TestTransitionSaveBeforeJournal:
+    """transition() must persist task.json before appending to journal."""
+
+    def test_save_failure_prevents_journal_entry(self, tmp_path: Path):
+        """If save_task raises, no journal entry should be written."""
+        task = create_task("sav-fail", "d", "/w", "b", "c", [_make_subtask()])
+        with patch("duo.protocol.save_task", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                transition(task, TaskStatus.SESSION_STARTING)
+        # Journal should NOT contain a status_changed event
+        events = read_jsonl(task.journal_path)
+        status_events = [e for e in events if e.get("event") == "status_changed"]
+        assert len(status_events) == 0
+
+    def test_successful_transition_has_both(self, tmp_path: Path):
+        """Normal transition persists both task.json and journal."""
+        task = create_task("sav-ok", "d", "/w", "b", "c", [_make_subtask()])
+        transition(task, TaskStatus.SESSION_STARTING)
+        # Journal has the event
+        events = read_jsonl(task.journal_path)
+        status_events = [e for e in events if e.get("event") == "status_changed"]
+        assert len(status_events) >= 1
+        # task.json is persisted
+        loaded = load_task(task.id)
+        assert loaded is not None
+        assert loaded.status == TaskStatus.SESSION_STARTING
 
 
 class TestReadJsonlMalformed:
