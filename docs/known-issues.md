@@ -594,3 +594,101 @@ consecutive failures, the task transitions to FAILED with a
 
 **Priority:** Medium overall. The two HIGH items should be
 addressed in a future focused session.
+
+---
+
+## Verifier Architectural Limitations (Round ET audit)
+
+These are inherent to the verify-by-diff architecture and cannot
+be fixed without fundamental design changes. Documented for
+awareness and to inform future design decisions.
+
+### CRITICAL (architectural) — Symlink escape with no git-visible diff
+
+An executor could create a symlink pointing outside the worktree
+(e.g., `ln -s /etc/passwd src/data.txt`). If the symlink itself
+was committed before the current step, `git diff` won't show it —
+there's no changed content. The verifier only checks paths that
+appear in the diff, so the escape would be invisible.
+
+**Mitigation:** The verifier already rejects symlinks pointing
+outside the worktree for files that DO appear in the diff (added
+in earlier rounds). But a pre-existing symlink being read (not
+modified) is undetectable.
+
+**Impact:** Low in practice — the executor is a Copilot CLI session
+that doesn't have motivation to create persistent symlinks. The
+attack requires pre-existing symlinks, which would need to be
+planted in a prior step.
+
+### HIGH (architectural) — Ignored-file writes invisible to verifier
+
+Files matched by `.gitignore` won't appear in `git diff` or
+`git status --porcelain` for tracked files. An executor could
+write to gitignored paths (e.g., `.env`, `node_modules/`) without
+the verifier detecting it.
+
+**Mitigation:** `_check_untracked` catches NEW untracked files,
+but not writes to already-gitignored paths. A future improvement
+could scan the worktree for recently modified files regardless of
+git status.
+
+### HIGH — Diff size DoS on verifier
+
+The verifier buffers the entire `git diff` output into memory.
+A malicious or buggy executor creating very large changes (e.g.,
+adding a multi-GB binary) could exhaust memory.
+
+**Mitigation:** In practice, Copilot CLI won't generate multi-GB
+diffs. A future improvement could add `--stat` pre-check and
+reject diffs above a configurable threshold before reading content.
+
+### MED — PurePosixPath.match() root-anchoring bug — RESOLVED
+
+**Status: Fixed** in commit `87a4334` (Round ET).
+
+Replaced `PurePosixPath.match()` with `fnmatch.fnmatch()` for
+root-anchored path matching. Added Unicode NFC normalization.
+
+---
+
+## Protocol Hardening Deferred (Round ET audit)
+
+### HIGH — SecurityPolicy loses defaults on load
+
+When a task is loaded from JSON, `SecurityPolicy` fields use
+`field(default_factory=...)` which only applies at construction.
+If the JSON has an empty `secret_patterns: []`, the loaded policy
+will have no patterns, even though new tasks get the full default
+list. This means older tasks created before new patterns were added
+won't benefit from the expanded list.
+
+**Impact:** Low — tasks are short-lived and usually created with
+current defaults. Only affects tasks created with older code that
+are later verified by newer code.
+
+**Fix:** `load_task()` could merge loaded patterns with current
+defaults, but this risks unexpected behavior changes for existing
+tasks. Deferred pending design decision.
+
+### MED — load_task type confusion
+
+`load_task()` trusts JSON structure matches dataclass fields.
+A corrupted or manually-edited `task.json` with wrong types
+(e.g., `"step": "one"` instead of `"step": 1`) would cause
+runtime errors in unpredictable places rather than at load time.
+
+**Fix:** Add type validation in `load_task()` with early error
+reporting. Deferred as low-impact — task.json is written by
+atomic `save_task()`, not hand-edited.
+
+### MED — FSM validation weaker than documented
+
+The `TRANSITIONS` dict defines allowed transitions, but some
+paths in `commander.py` call `transition()` without checking the
+return value. A False return (illegal transition) is logged but
+the caller continues anyway.
+
+**Fix:** Audit all `transition()` call sites and handle False
+returns appropriately. Some are already handled (Round EO fixes).
+Remaining sites need individual assessment.
