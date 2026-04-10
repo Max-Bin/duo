@@ -57,6 +57,7 @@ from duo.transport import (
     detect_copilot_api_error,
     diagnose_pane,
     get_tmux_session_target,
+    is_at_main_prompt,
     is_capi_context_error,
     is_process_alive,
     kill_pane,
@@ -645,6 +646,22 @@ def start_session(task: Task, *, defer: bool = False) -> None:
             )
             # Do NOT continue to /allow-all or bootstrap — Copilot may not
             # be ready and we could be typing into a raw shell.
+            transition(task, TaskStatus.FAILED)
+            return
+
+        # Safety check: verify Copilot is actually at its main prompt,
+        # not a crash screen or raw shell that happened to stabilize.
+        pane_content = read_pane(task.pane_label)
+        if not is_at_main_prompt(pane_content):
+            logger.warning(
+                "Copilot pane stabilized but is not at main prompt for %s",
+                task.id,
+            )
+            append_event(
+                task,
+                "startup_failed",
+                {"reason": "not_at_prompt", "phase": "copilot_start"},
+            )
             transition(task, TaskStatus.FAILED)
             return
 

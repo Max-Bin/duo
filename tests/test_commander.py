@@ -523,6 +523,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", return_value=False),
@@ -556,6 +558,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", return_value=False),
@@ -589,6 +593,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command") as mock_send,
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -626,6 +632,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command") as mock_send,
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -664,6 +672,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command") as mock_send,
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -701,6 +711,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle", return_value=False),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap") as mock_bootstrap,
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -727,7 +739,48 @@ class TestStartSession:
             assert len(timeout_events) == 1
             assert timeout_events[0]["data"]["phase"] == "copilot_start"
 
-    def test_start_session_allow_all_timeout_warning(self):
+    def test_start_session_not_at_prompt_fails(self):
+        """When Copilot stabilizes but is not at main prompt, task fails."""
+        from unittest.mock import MagicMock
+
+        task = _make_task("prompt-check-fail")
+
+        config_values = {
+            "auto_allow_all": False,
+            "auto_claude_commander": False,
+            "copilot_model": "claude-opus-4.6",
+            "bypass_permissions": True,
+        }
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", return_value=True),
+            patch("duo.commander.read_pane", return_value="$ bash-3.2"),
+            patch("duo.commander.is_at_main_prompt", return_value=False),
+            patch("duo.commander.send_bootstrap") as mock_bootstrap,
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            assert task.status == TaskStatus.FAILED
+            mock_bootstrap.assert_not_called()
+            events = [
+                json.loads(line)
+                for line in task.journal_path.read_text().strip().split("\n")
+            ]
+            failed_events = [e for e in events if e.get("event") == "startup_failed"]
+            assert len(failed_events) == 1
+            assert failed_events[0]["data"]["reason"] == "not_at_prompt"
         """When /allow-all wait_for_idle returns False, warning is logged."""
         task = _make_task()
 
@@ -743,6 +796,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle", side_effect=[True, False]),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -797,6 +852,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle", return_value=True),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -859,6 +916,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle", return_value=True),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch(
                 "duo.commander.send_bootstrap",
                 side_effect=subprocess.TimeoutExpired(["tmux"], 10),
@@ -891,6 +950,8 @@ class TestStartSession:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle", return_value=True),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap") as mock_boot,
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", return_value=False),
@@ -929,6 +990,8 @@ class TestBypassPermissions:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command") as mock_send,
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -961,6 +1024,8 @@ class TestBypassPermissions:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command") as mock_send,
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
@@ -1368,6 +1433,8 @@ class TestClaudeCommander:
                 patch("duo.commander.name_pane"),
                 patch("duo.commander.send_shell_command"),
                 patch("duo.commander.wait_for_idle", return_value=True),
+                patch("duo.commander.read_pane", return_value="❯"),
+                patch("duo.commander.is_at_main_prompt", return_value=True),
                 patch("duo.commander.send_bootstrap"),
                 patch("duo.commander.time.sleep"),
                 patch(
@@ -1407,6 +1474,8 @@ class TestClaudeCommander:
                 patch("duo.commander.name_pane"),
                 patch("duo.commander.send_shell_command"),
                 patch("duo.commander.wait_for_idle", return_value=True),
+                patch("duo.commander.read_pane", return_value="❯"),
+                patch("duo.commander.is_at_main_prompt", return_value=True),
                 patch("duo.commander.send_bootstrap"),
                 patch("duo.commander.time.sleep"),
                 patch(
@@ -1563,6 +1632,8 @@ class TestStartSessionError:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", return_value=False),
@@ -3803,6 +3874,8 @@ class TestTransitionReturnValueGuards:
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
             patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", return_value=False),

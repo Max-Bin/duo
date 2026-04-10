@@ -2261,6 +2261,57 @@ class TestKillSuccess:
             assert "worktree_removed" in data
             assert "branch_deleted" in data
 
+    def test_kill_emits_status_changed_event(self, runner: CliRunner, tmp_path: Path):
+        """kill uses transition() to emit status_changed for journal replay."""
+        from duo.protocol import TaskStatus, read_jsonl, transition
+
+        task = _make_task("kill-trans")
+        transition(task, TaskStatus.SESSION_STARTING)
+        wt_dir = tmp_path / "kill_trans_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="worktree /main\n  branch refs/heads/main\n\n",
+                stderr="",
+            )
+            result = runner.invoke(main, ["kill", "kill-trans"])
+            assert result.exit_code == 0
+        events = read_jsonl(task.journal_path)
+        status_events = [e for e in events if e.get("event") == "status_changed"]
+        assert any(e["data"]["to"] == "failed" for e in status_events)
+
+    def test_kill_completed_task_uses_fallback(self, runner: CliRunner, tmp_path: Path):
+        """kill from COMPLETED falls back to direct save (no FAILED transition)."""
+        from duo.protocol import TaskStatus, transition
+
+        task = _make_task("kill-comp")
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+        transition(task, TaskStatus.COMPLETED)
+        wt_dir = tmp_path / "kill_comp_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="worktree /main\n  branch refs/heads/main\n\n",
+                stderr="",
+            )
+            result = runner.invoke(main, ["kill", "kill-comp"])
+            assert result.exit_code == 0
+        task_reloaded = load_task("kill-comp")
+        assert task_reloaded.status == TaskStatus.FAILED
+
 
 # ---------------------------------------------------------------------------
 # merge command

@@ -1047,13 +1047,15 @@ def kill(name: str, *, as_json: bool = False) -> None:
     if not branch_deleted and not as_json:
         click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
-    from duo.protocol import append_event
+    from duo.protocol import append_event, save_task, transition
 
     append_event(task, "task_killed", {})
-    task.status = TaskStatus.FAILED
-    from duo.protocol import save_task
-
-    save_task(task)
+    # Use transition() when valid (emits status_changed event for journal replay).
+    # For states without a FAILED transition (CREATED, COMPLETED, already FAILED),
+    # fall back to direct save.
+    if not transition(task, TaskStatus.FAILED):
+        task.status = TaskStatus.FAILED
+        save_task(task)
     if as_json:
         click.echo(
             json.dumps(
