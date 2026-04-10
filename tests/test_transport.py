@@ -1626,10 +1626,10 @@ class TestSendTextDialogMessage:
     @patch("duo.transport.resolve_label", return_value="%42")
     @patch("duo.transport.read_pane")
     @patch("duo.transport.type_text")
-    def test_text_never_visible_exhausts_verification(
+    def test_text_never_visible_aborts_enter(
         self, mock_type, mock_read, mock_resolve, mock_keys, mock_detect
     ):
-        """1409->1429: typed text never appears — all 3 verify attempts run."""
+        """Text never appears — Enter NOT sent, returns False."""
         mock_read.return_value = "nothing relevant here"
         pid_run = MagicMock(returncode=0, stdout="12345\n")
         with (
@@ -1637,8 +1637,9 @@ class TestSendTextDialogMessage:
             patch("os.kill"),
         ):
             result = send_text_dialog_message("test", "my answer")
-        # Enter still sent (after exhausted verification), dialog dismissed
-        assert result is True
+        # Enter NOT sent because text was never confirmed visible
+        mock_keys.assert_not_called()
+        assert result is False
 
     @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
     @patch("duo.transport.send_keys")

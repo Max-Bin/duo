@@ -1450,9 +1450,11 @@ def send_text_dialog_message(label: str, text: str) -> bool:
         _time.sleep(0.3)
 
         # Verify text is visible before sending Enter
+        text_confirmed = False
         for _attempt in range(3):
             content = read_pane(label, 20)
             if text in content:
+                text_confirmed = True
                 break
             # Text not visible — send SIGWINCH to force Ink TUI refresh
             try:
@@ -1468,6 +1470,14 @@ def send_text_dialog_message(label: str, text: str) -> bool:
             except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired):
                 pass
             _time.sleep(0.3)
+
+        if not text_confirmed:
+            logger.warning(
+                "Text not confirmed visible in pane '%s' after 3 attempts; "
+                "aborting Enter to avoid submitting empty/wrong answer",
+                label,
+            )
+            return False
 
         # Send Enter
         send_keys(label, "Enter")
