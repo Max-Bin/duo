@@ -2249,16 +2249,25 @@ def resume(name: str | None) -> None:
 @main.command()
 @click.argument("name")
 def retry(name: str) -> None:
-    """Retry a failed or blocked task from its current step."""
+    """Retry a failed, blocked, or escalated task from its current step."""
     from duo.protocol import transition
 
     task = _load_task_or_fail(name)
-    if task.status not in (TaskStatus.FAILED, TaskStatus.BLOCKED):
+    retryable = (TaskStatus.FAILED, TaskStatus.BLOCKED, TaskStatus.ESCALATED)
+    if task.status not in retryable:
         raise DuoUserError(
             f"task '{name}' is '{task.status.value}', not retryable",
-            fix=f"Only FAILED or BLOCKED tasks can be retried. Check with 'duo status {name}'.",
+            fix=(
+                f"Only FAILED, BLOCKED, or ESCALATED tasks can be retried. "
+                f"Check with 'duo status {name}'."
+            ),
         )
-    transition(task, TaskStatus.SESSION_STARTING)
+    # ESCALATED → PROMPT_SENT (re-send current step prompt)
+    # FAILED/BLOCKED → SESSION_STARTING (restart session)
+    if task.status == TaskStatus.ESCALATED:
+        transition(task, TaskStatus.PROMPT_SENT)
+    else:
+        transition(task, TaskStatus.SESSION_STARTING)
     click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
 
 

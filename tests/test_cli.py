@@ -5441,6 +5441,28 @@ class TestRetry:
         out = result.output + (result.stderr or "")
         assert "not retryable" in out.lower() or "not retryable" in out
 
+    def test_retry_blocked(self, runner: CliRunner):
+        """retry a BLOCKED task transitions to SESSION_STARTING."""
+        task = _make_task("retry-blocked")
+        task.status = TaskStatus.BLOCKED
+        save_task(task)
+        result = runner.invoke(main, ["retry", "retry-blocked"])
+        assert result.exit_code == 0
+        assert "retry" in result.output.lower()
+        reloaded = load_task("retry-blocked")
+        assert reloaded.status == TaskStatus.SESSION_STARTING
+
+    def test_retry_escalated(self, runner: CliRunner):
+        """retry an ESCALATED task transitions to PROMPT_SENT."""
+        task = _make_task("retry-esc")
+        task.status = TaskStatus.ESCALATED
+        save_task(task)
+        result = runner.invoke(main, ["retry", "retry-esc"])
+        assert result.exit_code == 0
+        assert "retry" in result.output.lower()
+        reloaded = load_task("retry-esc")
+        assert reloaded.status == TaskStatus.PROMPT_SENT
+
     def test_retry_not_found(self, runner: CliRunner):
         """retry a nonexistent task shows not-found error."""
         result = runner.invoke(main, ["retry", "nonexistent"])
