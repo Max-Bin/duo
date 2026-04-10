@@ -3,6 +3,24 @@
 Observations that warrant future investigation.  Not necessarily bugs —
 sometimes just suspicious correlations we don't yet fully understand.
 
+## Summary
+
+| Category | Status | Count |
+|----------|--------|-------|
+| Resolved / Closed | ✅ | ~50 |
+| Mitigated | ⚠️ | 2 |
+| Deferred (architectural) | 📋 | 4 |
+| Open (low priority) | 🔵 | 1 |
+
+**Remaining open/deferred items:**
+- Scheduler TOCTOU race (MED, mitigated by single-process architecture)
+- Symlink escape with no git-visible diff (CRITICAL architectural, inherent to diff-based verification)
+- Ignored-file writes invisible to verifier (HIGH architectural)
+- Diff size DoS on verifier (HIGH, practical risk low)
+- Copilot CAPIError on long sessions (upstream, mitigated with duo-side detection)
+
+---
+
 ## Tmux layout change correlates with input failures — ROOT CAUSE RESOLVED
 
 **Status: Root cause fixed** (commit `9165a7a`, Round BF); three-layer
