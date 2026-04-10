@@ -527,3 +527,67 @@ remaining items are about prevention and auto-recovery).
 
 **First observed:** During the overnight autonomous loop after
 Round CV, at approximately 270 commits / 1796 tests.
+
+## Rubber-duck audit findings — deferred items (Round EO)
+
+**Status:** Documented for future rounds.
+
+These findings were identified during independent rubber-duck
+cross-validation of `commander.py` (Rounds EL-EO) and verified by
+two separate audit agents. CRITICAL and HIGH findings were fixed
+in commits `56f2fa2` and `cc27168`. The items below are MEDIUM/LOW
+severity and deferred.
+
+### S1 — Double result file read (MEDIUM, perf)
+
+`poll_task` reads the result file to check incarnation, then
+`verify_and_advance` reads it again. The result could be passed
+as a parameter to avoid the second I/O. Low impact since result
+files are small, but creates an unnecessary race window.
+
+### S3 — Watch event filename collision (LOW)
+
+`watch_tasks()` creates per-task signal files. If two tasks have
+IDs that differ only in case, the files could collide on
+case-insensitive filesystems (macOS default). Not a practical
+concern since task IDs are validated, but documented for awareness.
+
+### S4 — Inconsistent event/transition ordering (LOW)
+
+Some failure paths call `append_event` before `transition()`,
+others after. This creates inconsistent journal ordering. Not a
+correctness issue but makes journal replay analysis harder.
+
+### S5 — Env model value length unbounded (LOW)
+
+`_get_copilot_model()` validates character set but not length.
+A very long `DUO_COPILOT_MODEL` value would be accepted and
+passed to the shell command. Impractical attack vector.
+
+### MED — Pane leaks on start_session post-split failures
+
+If `name_pane()` raises after `split-window` succeeds (before
+the main try/except), the pane is orphaned. Edge case requiring
+tmux API failure.
+
+### MED — watch_tasks daemon threads outlive function
+
+`watch_tasks()` spawns daemon threads that can continue running
+after the function returns if the stop event is not set properly.
+Not observed in practice.
+
+### HIGH (deferred) — No per-task cross-process lock
+
+Multiple `duo monitor` processes can race on the same task's
+poll/verify/send cycle. Fixing requires file-based locking, which
+is too invasive for overnight work. Mitigated by single-monitor
+usage pattern.
+
+### HIGH (deferred) — No poll failure counter
+
+Repeated poll errors (e.g., pane read failures) can keep a task
+in RUNNING state indefinitely without escalation. Needs a failure
+counter that transitions to FAILED after N consecutive errors.
+
+**Priority:** Medium overall. The two HIGH items should be
+addressed in a future focused session.
