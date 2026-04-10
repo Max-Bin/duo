@@ -47,6 +47,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `events list` no longer prints each event twice in non-JSON mode
 - `config reset` now rejects unknown keys with helpful error message
 - **All FSM `transition()` call sites now check return values** — critical paths abort/rollback on failure, CORRECTING rolls back attempt counter, scheduler slot accounting protected
+- `wait_for_dialog()` accepts optional `stop_event` parameter — watch threads now wake within one interval of stop being set instead of blocking for full 300s timeout
+- `send_text_dialog_message()` now fail-closed — aborts Enter when typed text not confirmed visible after 3 retries
+- `send_shell_command`, `send_bootstrap`, `send_message` now wrapped with `pane_lock` for atomic multi-step operations
+- Cross-process monitor race: `task_lock(task_id)` context manager using `fcntl.flock(LOCK_EX | LOCK_NB)` — second monitor skips locked tasks; fresh task reload under lock prevents stale state
 
 ### Security
 - `_get_copilot_model()` validates env var characters — rejects shell metacharacters
