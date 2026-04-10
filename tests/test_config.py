@@ -543,3 +543,25 @@ class TestConfigRubberDuckHardening:
         monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
         with pytest.raises(ValueError, match="finite"):
             config_mod.set_config("poll_base_interval", "-inf")
+
+
+class TestConfigDocAccuracy:
+    """Guard that docs mention all config keys and no phantom ones."""
+
+    def test_getting_started_lists_all_config_keys(self) -> None:
+        """docs/getting-started.md should reference every config key."""
+        docs_path = (
+            Path(__file__).resolve().parent.parent / "docs" / "getting-started.md"
+        )
+        text = docs_path.read_text(encoding="utf-8")
+        for key in config_mod.DEFAULTS:
+            assert key in text, (
+                f"Config key '{key}' not mentioned in getting-started.md"
+            )
+
+    def test_architecture_lists_all_config_keys(self) -> None:
+        """docs/architecture.md should reference every config key."""
+        docs_path = Path(__file__).resolve().parent.parent / "docs" / "architecture.md"
+        text = docs_path.read_text(encoding="utf-8")
+        for key in config_mod.DEFAULTS:
+            assert key in text, f"Config key '{key}' not mentioned in architecture.md"
