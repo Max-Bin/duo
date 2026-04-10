@@ -1402,6 +1402,18 @@ class TestGetCopilotModel:
         monkeypatch.setattr("duo.commander.get_config", lambda k: "safe-model")
         assert _get_copilot_model() == "safe-model"
 
+    def test_env_var_too_long_rejected(self, monkeypatch: pytest.MonkeyPatch):
+        """Env var exceeding 64 chars is rejected, falls back to config."""
+        monkeypatch.setenv("DUO_COPILOT_MODEL", "a" * 65)
+        monkeypatch.setattr("duo.commander.get_config", lambda k: "safe-model")
+        assert _get_copilot_model() == "safe-model"
+
+    def test_env_var_exactly_64_chars_accepted(self, monkeypatch: pytest.MonkeyPatch):
+        """Env var at exactly 64 chars is accepted."""
+        model = "a" * 64
+        monkeypatch.setenv("DUO_COPILOT_MODEL", model)
+        assert _get_copilot_model() == model
+
 
 # ---------------------------------------------------------------------------
 # start_session — error paths

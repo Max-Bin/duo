@@ -91,9 +91,9 @@ def _get_copilot_model() -> str:
     """Get copilot model from config, env var override, or default."""
     env_model = os.environ.get("DUO_COPILOT_MODEL")
     if env_model:
-        if not re.match(r"^[a-zA-Z0-9._-]+$", env_model):
+        if not re.match(r"^[a-zA-Z0-9._-]+$", env_model) or len(env_model) > 64:
             logger.warning(
-                "DUO_COPILOT_MODEL contains invalid chars, using config default"
+                "DUO_COPILOT_MODEL contains invalid chars or exceeds 64 chars, using config default"
             )
             return get_config("copilot_model") or "claude-opus-4.6"
         return env_model
