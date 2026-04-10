@@ -41,6 +41,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
 - Resolved fnmatch case sensitivity known-issue (implementation uses PurePosixPath.match, always case-sensitive)
 - `_THREAD_LOCKS` auto-eviction: max 256 cached locks with idle eviction to prevent unbounded growth
+- `events list` no longer prints each event twice in non-JSON mode
+- `config reset` now rejects unknown keys with helpful error message
+
+### Security
+- `_get_copilot_model()` validates env var characters — rejects shell metacharacters
+- `copilot --model` argument now uses `shlex.quote()` to prevent command injection
+- `verify_and_advance` rolls back step/attempt on prompt-send failure (prevents zombie state)
+- `poll_task` adopts fresh task state after disk reload (prevents stale incarnation race)
+- `restart_session` terminates old crashed pane before creating new one (prevents orphan accumulation)
 
 ### Changed
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
