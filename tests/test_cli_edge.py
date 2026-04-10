@@ -562,3 +562,37 @@ class TestDocCrossReferences:
                 if not target.exists():
                     broken.append(f"{md_file.name} -> {link}")
         assert broken == [], f"Broken doc cross-references: {broken}"
+
+
+class TestFSMDocAccuracy:
+    """Guard: architecture.md FSM transition table must match protocol.py."""
+
+    def test_fsm_transitions_match_docs(self) -> None:
+        """Every transition in architecture.md must match TRANSITIONS dict."""
+        import re
+
+        from duo.protocol import TRANSITIONS, TaskStatus
+
+        docs_dir = Path(duo.cli.__file__).resolve().parent.parent.parent / "docs"
+        doc = (docs_dir / "architecture.md").read_text(encoding="utf-8")
+
+        doc_transitions: dict[str, set[str]] = {}
+        for line in doc.splitlines():
+            m = re.match(r"^(\w+)\s+.+\{(.+)\}", line.strip())
+            if m:
+                src = m.group(1)
+                raw = {t.strip() for t in m.group(2).split(",")}
+                doc_transitions[src] = raw - {""}  # filter empty string
+
+        mismatches: list[str] = []
+        for src_str, doc_targets in doc_transitions.items():
+            src = TaskStatus(src_str.lower())
+            code_targets = {t.value.upper() for t in TRANSITIONS.get(src, frozenset())}
+            if doc_targets != code_targets:
+                mismatches.append(
+                    f"{src_str}: doc={sorted(doc_targets)}, code={sorted(code_targets)}"
+                )
+
+        assert mismatches == [], (
+            f"FSM transition mismatches between docs and code: {mismatches}"
+        )
