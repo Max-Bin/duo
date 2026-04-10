@@ -926,13 +926,20 @@ def stop(name: str, *, as_json: bool = False) -> None:
     cleanup_pane_state(task.pane_label)
 
     previous = task.status.value
-    if transition(task, TaskStatus.BLOCKED):
+    stopped = transition(task, TaskStatus.BLOCKED)
+    if stopped:
         append_event(task, "task_stopped", {"previous_status": previous})
+    else:
+        if not as_json:
+            click.echo(
+                f"Warning: pane killed but could not transition from {previous} to BLOCKED",
+                err=True,
+            )
     if as_json:
         click.echo(
             json.dumps(
                 {
-                    "stopped": True,
+                    "stopped": stopped,
                     "previous_status": previous,
                     "worktree": task.worktree,
                     "pane_killed": pane_killed,
@@ -940,8 +947,9 @@ def stop(name: str, *, as_json: bool = False) -> None:
             )
         )
     else:
-        click.echo(f"Stopped '{name}'. Worktree preserved at {task.worktree}")
-        click.echo(f"  Resume with: duo resume {name}")
+        if stopped:
+            click.echo(f"Stopped '{name}'. Worktree preserved at {task.worktree}")
+            click.echo(f"  Resume with: duo resume {name}")
 
 
 @main.command()
@@ -2531,7 +2539,7 @@ def doctor(json_output: bool, strict: bool, fix: bool) -> None:
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def resume(name: str | None, *, as_json: bool = False) -> None:
     """Resume interrupted task sessions."""
-    from duo.commander import restart_session, start_session
+    from duo.commander import normalize_for_restart, restart_session, start_session
     from duo.transport import cleanup_pane_state, is_process_alive, kill_pane
 
     TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
@@ -2587,6 +2595,15 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
                 click.echo(f"Resumed task '{task.id}' — restarted session")
             results.append({"task": task.id, "resumed": True, "method": "restart"})
         else:
+            if not normalize_for_restart(task):
+                msg = (
+                    f"Cannot normalize '{task.id}' from {task.status.value} for restart"
+                )
+                if as_json:
+                    results.append({"task": task.id, "resumed": False, "error": msg})
+                else:
+                    click.echo(f"  {msg}", err=True)
+                continue
             try:
                 start_session(task)
             except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:

@@ -87,10 +87,14 @@ from types import MappingProxyType
 
 TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
     {
-        TaskStatus.CREATED: frozenset({TaskStatus.SESSION_STARTING, TaskStatus.QUEUED}),
-        TaskStatus.QUEUED: frozenset({TaskStatus.SESSION_STARTING, TaskStatus.FAILED}),
+        TaskStatus.CREATED: frozenset(
+            {TaskStatus.SESSION_STARTING, TaskStatus.QUEUED, TaskStatus.BLOCKED}
+        ),
+        TaskStatus.QUEUED: frozenset(
+            {TaskStatus.SESSION_STARTING, TaskStatus.FAILED, TaskStatus.BLOCKED}
+        ),
         TaskStatus.SESSION_STARTING: frozenset(
-            {TaskStatus.PROMPT_SENT, TaskStatus.FAILED}
+            {TaskStatus.PROMPT_SENT, TaskStatus.FAILED, TaskStatus.BLOCKED}
         ),
         TaskStatus.PROMPT_SENT: frozenset(
             {
@@ -107,6 +111,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
                 TaskStatus.RUNNING,
                 TaskStatus.RESULT_REPORTED,
                 TaskStatus.FAILED,
+                TaskStatus.BLOCKED,
             }
         ),
         TaskStatus.RUNNING: frozenset(
@@ -117,7 +122,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
             }
         ),
         TaskStatus.RESULT_REPORTED: frozenset(
-            {TaskStatus.VERIFYING, TaskStatus.FAILED}
+            {TaskStatus.VERIFYING, TaskStatus.FAILED, TaskStatus.BLOCKED}
         ),
         TaskStatus.VERIFYING: frozenset(
             {
@@ -135,6 +140,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
                 TaskStatus.ESCALATED,
                 TaskStatus.PROMPT_SENT,
                 TaskStatus.FAILED,
+                TaskStatus.BLOCKED,
             }
         ),
         TaskStatus.BLOCKED: frozenset(
@@ -145,7 +151,9 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
                 TaskStatus.FAILED,
             }
         ),
-        TaskStatus.ESCALATED: frozenset({TaskStatus.PROMPT_SENT, TaskStatus.FAILED}),
+        TaskStatus.ESCALATED: frozenset(
+            {TaskStatus.PROMPT_SENT, TaskStatus.FAILED, TaskStatus.BLOCKED}
+        ),
         TaskStatus.FAILED: frozenset({TaskStatus.SESSION_STARTING}),
         TaskStatus.COMPLETED: frozenset(),
     }
@@ -156,6 +164,7 @@ TRANSITIONS: Mapping[TaskStatus, frozenset[TaskStatus]] = MappingProxyType(
 #               → RESULT_REPORTED → VERIFYING → COMPLETED
 #   Correction: VERIFYING → CORRECTING → PROMPT_SENT (loop)
 #   Recovery:   FAILED → SESSION_STARTING (restart)
+#   Stop:       Any non-terminal → BLOCKED (user stop / graceful halt)
 #   Terminal:   COMPLETED (no outgoing transitions)
 
 

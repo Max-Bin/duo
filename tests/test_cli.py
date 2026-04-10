@@ -2001,6 +2001,34 @@ class TestStop:
         assert data["stopped"] is False
         assert data["reason"] == "already_stopped"
 
+    def test_stop_transition_failure_warns(self, runner: CliRunner):
+        """stop warns when BLOCKED transition fails (text mode)."""
+        task = _make_task("stop-trans-fail")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.cli.subprocess.run"),
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            result = runner.invoke(main, ["stop", "stop-trans-fail"])
+            assert "Warning" in result.output
+            assert "could not transition" in result.output
+
+    def test_stop_transition_failure_json(self, runner: CliRunner):
+        """stop --json-output reports stopped=False when transition fails."""
+        task = _make_task("stop-trans-fail-j")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.cli.subprocess.run"),
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            result = runner.invoke(main, ["stop", "stop-trans-fail-j", "--json-output"])
+            data = json.loads(result.output)
+            assert data["stopped"] is False
+
 
 # ---------------------------------------------------------------------------
 
@@ -4608,6 +4636,35 @@ class TestResume:
         data = json.loads(result.output)
         assert data["resumed"][0]["resumed"] is False
         assert "start failed" in data["resumed"][0]["error"]
+
+    def test_resume_dead_pane_normalize_failure_text(self, runner: CliRunner):
+        """resume reports error when normalize_for_restart fails (text mode)."""
+        task = _make_task("resume-norm-fail")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.transport.is_process_alive", return_value=False),
+            patch("duo.commander.normalize_for_restart", return_value=False),
+        ):
+            result = runner.invoke(main, ["resume", "resume-norm-fail"])
+            assert result.exit_code == 0
+            assert "Cannot normalize" in result.output
+
+    def test_resume_dead_pane_normalize_failure_json(self, runner: CliRunner):
+        """resume --json-output reports normalize failure."""
+        task = _make_task("resume-norm-j")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with (
+            patch("duo.transport.is_process_alive", return_value=False),
+            patch("duo.commander.normalize_for_restart", return_value=False),
+        ):
+            result = runner.invoke(main, ["resume", "resume-norm-j", "--json-output"])
+            data = json.loads(result.output)
+            assert data["resumed"][0]["resumed"] is False
+            assert "Cannot normalize" in data["resumed"][0]["error"]
 
 
 class TestHelpTexts:

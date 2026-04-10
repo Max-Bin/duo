@@ -3703,3 +3703,74 @@ class TestTransitionReturnValueGuards:
             mock_run.side_effect = [split_result, layout_result]
 
             start_session(task)
+
+
+class TestNormalizeForRestart:
+    """normalize_for_restart() transitions active states to FAILED for restart."""
+
+    def test_directly_restartable_states_return_true(self):
+        """States already legal for SESSION_STARTING need no normalization."""
+        from duo.commander import normalize_for_restart
+
+        for status_name in (
+            "created",
+            "queued",
+            "blocked",
+            "failed",
+            "session_starting",
+        ):
+            task = _make_task(f"norm-{status_name}")
+            task.status = TaskStatus(status_name)
+            save_task(task)
+            assert normalize_for_restart(task) is True
+            assert task.status == TaskStatus(status_name)
+
+    def test_active_state_normalized_to_failed(self):
+        """Active states like RUNNING are moved to FAILED."""
+        from duo.commander import normalize_for_restart
+
+        task = _make_task("norm-running")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        assert normalize_for_restart(task) is True
+        assert task.status == TaskStatus.FAILED
+
+    def test_normalize_failure_returns_false(self):
+        """If transition to FAILED is rejected, returns False."""
+        from duo.commander import normalize_for_restart
+
+        task = _make_task("norm-fail")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        with patch("duo.commander.transition", return_value=False):
+            assert normalize_for_restart(task) is False
+
+    def test_restart_session_with_active_state_normalizes(self):
+        """restart_session normalizes active state to FAILED before side effects."""
+        task = _make_task("restart-norm")
+        task.status = TaskStatus.ACKED
+        save_task(task)
+        with (
+            patch("duo.commander.start_session"),
+            patch("duo.commander.kill_pane"),
+            patch("duo.commander.clear_bootstrap_done"),
+        ):
+            restart_session(task)
+        assert task.status != TaskStatus.ACKED
+
+    def test_restart_session_normalize_failure_returns_early(self):
+        """restart_session returns early if normalize fails — no side effects."""
+        task = _make_task("restart-bail")
+        task.status = TaskStatus.RUNNING
+        old_inc = task.incarnation_id
+        save_task(task)
+        with (
+            patch("duo.commander.transition", return_value=False),
+            patch("duo.commander.kill_pane") as mock_kill,
+            patch("duo.commander.start_session") as mock_start,
+        ):
+            restart_session(task)
+        # No side effects should have occurred
+        mock_kill.assert_not_called()
+        mock_start.assert_not_called()
+        assert task.incarnation_id == old_inc

@@ -481,6 +481,38 @@ def _check_pr_budget(task: Task) -> bool:
 
 # === Session Management ===
 
+# States that can directly transition to SESSION_STARTING for restart.
+_DIRECTLY_RESTARTABLE = frozenset(
+    {
+        TaskStatus.CREATED,
+        TaskStatus.QUEUED,
+        TaskStatus.BLOCKED,
+        TaskStatus.FAILED,
+        TaskStatus.SESSION_STARTING,
+    }
+)
+
+
+def normalize_for_restart(task: Task) -> bool:
+    """Transition a crashed/stuck task to FAILED so it can be restarted.
+
+    Active states (PROMPT_SENT, ACKED, RUNNING, etc.) cannot directly
+    transition to SESSION_STARTING.  This helper first moves them to
+    FAILED — representing a crash — making the restart path legal.
+
+    Returns True if the task is now in a state that allows SESSION_STARTING.
+    """
+    if task.status in _DIRECTLY_RESTARTABLE:
+        return True
+    if not transition(task, TaskStatus.FAILED):
+        logger.error(
+            "Cannot normalize task '%s' from %s to FAILED for restart",
+            task.id,
+            task.status.value,
+        )
+        return False
+    return True
+
 
 def start_session(task: Task) -> None:
     """Start a Copilot session in tmux for this task."""
@@ -660,7 +692,14 @@ def restart_session(task: Task) -> None:
     """Restart a crashed session with new incarnation.
 
     Preserves current_attempt to maintain correction context.
+    Normalizes active states to FAILED before any side effects so the
+    subsequent SESSION_STARTING transition is always legal.
     """
+    # Normalize BEFORE side effects — if the task is in an active state
+    # (e.g. RUNNING after a crash), move to FAILED first.
+    if not normalize_for_restart(task):
+        return
+
     old_inc = task.incarnation_id
     task.incarnation_id = new_incarnation()
     save_task(task)
