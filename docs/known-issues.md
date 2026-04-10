@@ -564,11 +564,12 @@ correctness issue but makes journal replay analysis harder.
 A very long `DUO_COPILOT_MODEL` value would be accepted and
 passed to the shell command. Impractical attack vector.
 
-### MED — Pane leaks on start_session post-split failures
+### MED — Pane leaks on start_session post-split failures — RESOLVED
 
-If `name_pane()` raises after `split-window` succeeds (before
-the main try/except), the pane is orphaned. Edge case requiring
-tmux API failure.
+**Status: Fixed** in commit `5128548` (Round ES).
+
+`name_pane()` failure after `split-window` now kills the orphaned
+pane and transitions the task to FAILED.
 
 ### MED — watch_tasks daemon threads outlive function
 
@@ -583,11 +584,13 @@ poll/verify/send cycle. Fixing requires file-based locking, which
 is too invasive for overnight work. Mitigated by single-monitor
 usage pattern.
 
-### HIGH (deferred) — No poll failure counter
+### HIGH (deferred) — No poll failure counter — RESOLVED
 
-Repeated poll errors (e.g., pane read failures) can keep a task
-in RUNNING state indefinitely without escalation. Needs a failure
-counter that transitions to FAILED after N consecutive errors.
+**Status: Fixed** in commit `904e2e1` (Round ER).
+
+Monitor now tracks consecutive poll errors per task. After 10
+consecutive failures, the task transitions to FAILED with a
+`poll_errors_exhausted` event. Counter resets on successful poll.
 
 **Priority:** Medium overall. The two HIGH items should be
 addressed in a future focused session.
