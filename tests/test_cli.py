@@ -1888,6 +1888,44 @@ class TestStop:
         assert len(stopped_events) == 1
         assert stopped_events[0]["data"]["previous_status"] == "running"
 
+    def test_stop_json_output(self, runner: CliRunner):
+        """stop --json-output returns structured JSON."""
+        task = _make_task("stop-json")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["stop", "stop-json", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["stopped"] is True
+            assert data["previous_status"] == "running"
+            assert "worktree" in data
+
+    def test_stop_json_already_terminal(self, runner: CliRunner):
+        """stop --json-output on terminal task returns reason."""
+        task = _make_task("stop-json-term")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["stop", "stop-json-term", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["stopped"] is False
+        assert data["reason"] == "already_terminal"
+
+    def test_stop_json_already_blocked(self, runner: CliRunner):
+        """stop --json-output on blocked task returns reason."""
+        task = _make_task("stop-json-blk")
+        task.status = TaskStatus.BLOCKED
+        save_task(task)
+
+        result = runner.invoke(main, ["stop", "stop-json-blk", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["stopped"] is False
+        assert data["reason"] == "already_stopped"
+
 
 # ---------------------------------------------------------------------------
 
@@ -5506,6 +5544,33 @@ class TestRetry:
         assert result.exit_code != 0
         out = result.output + (result.stderr or "")
         assert "not found" in out.lower()
+
+    def test_retry_json_output(self, runner: CliRunner):
+        """retry --json-output returns structured JSON."""
+        task = _make_task("retry-json")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+
+        result = runner.invoke(main, ["retry", "retry-json", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["retried"] is True
+        assert data["previous_status"] == "failed"
+        assert data["new_status"] == "session_starting"
+        assert "step" in data
+
+    def test_retry_escalated_json_output(self, runner: CliRunner):
+        """retry --json-output on escalated task shows prompt_sent target."""
+        task = _make_task("retry-esc-json")
+        task.status = TaskStatus.ESCALATED
+        save_task(task)
+
+        result = runner.invoke(main, ["retry", "retry-esc-json", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["retried"] is True
+        assert data["previous_status"] == "escalated"
+        assert data["new_status"] == "prompt_sent"
 
     def test_retry_invalid_name(self, runner: CliRunner):
         """retry with a path-traversal name is rejected."""

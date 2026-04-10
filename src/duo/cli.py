@@ -761,7 +761,8 @@ def merge(name: str, dry_run: bool) -> None:
 
 @main.command()
 @click.argument("name")
-def stop(name: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def stop(name: str, *, as_json: bool = False) -> None:
     """Stop a task gracefully (preserves worktree for resume)."""
     from duo.protocol import append_event, transition
 
@@ -769,26 +770,58 @@ def stop(name: str) -> None:
 
     terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     if task.status in terminal_states:
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "stopped": False,
+                        "reason": "already_terminal",
+                        "status": task.status.value,
+                    }
+                )
+            )
+            return
         click.echo(f"Task '{name}' is already in terminal state '{task.status.value}'.")
         return
 
     if task.status == TaskStatus.BLOCKED:
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {"stopped": False, "reason": "already_stopped", "status": "BLOCKED"}
+                )
+            )
+            return
         click.echo(f"Task '{name}' is already stopped.")
         return
 
     # Kill the pane but preserve worktree and branch
     from duo.transport import cleanup_pane_state, kill_pane
 
-    if not kill_pane(task.pane_label):
-        click.echo("Warning: failed to kill pane", err=True)
+    pane_killed = kill_pane(task.pane_label)
+    if not pane_killed:
+        if not as_json:
+            click.echo("Warning: failed to kill pane", err=True)
 
     cleanup_pane_state(task.pane_label)
 
     previous = task.status.value
     transition(task, TaskStatus.BLOCKED)
     append_event(task, "task_stopped", {"previous_status": previous})
-    click.echo(f"Stopped '{name}'. Worktree preserved at {task.worktree}")
-    click.echo(f"  Resume with: duo resume {name}")
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "stopped": True,
+                    "previous_status": previous,
+                    "worktree": task.worktree,
+                    "pane_killed": pane_killed,
+                }
+            )
+        )
+    else:
+        click.echo(f"Stopped '{name}'. Worktree preserved at {task.worktree}")
+        click.echo(f"  Resume with: duo resume {name}")
 
 
 @main.command()
@@ -2258,7 +2291,8 @@ def resume(name: str | None) -> None:
 
 @main.command()
 @click.argument("name")
-def retry(name: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def retry(name: str, *, as_json: bool = False) -> None:
     """Retry a failed, blocked, or escalated task from its current step."""
     from duo.protocol import transition
 
@@ -2275,10 +2309,24 @@ def retry(name: str) -> None:
     # ESCALATED → PROMPT_SENT (re-send current step prompt)
     # FAILED/BLOCKED → SESSION_STARTING (restart session)
     if task.status == TaskStatus.ESCALATED:
-        transition(task, TaskStatus.PROMPT_SENT)
+        target = TaskStatus.PROMPT_SENT
     else:
-        transition(task, TaskStatus.SESSION_STARTING)
-    click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
+        target = TaskStatus.SESSION_STARTING
+    previous = task.status.value
+    transition(task, target)
+    if as_json:
+        click.echo(
+            json.dumps(
+                {
+                    "retried": True,
+                    "previous_status": previous,
+                    "new_status": target.value,
+                    "step": task.current_step,
+                }
+            )
+        )
+    else:
+        click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
 
 
 @main.group()
