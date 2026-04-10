@@ -15,8 +15,10 @@ from duo.transport import (
     MINIMUM_PANE_ROWS,
     DialogKind,
     PaneInfo,
+    TmuxServerDownError,
     _find_bridge,
     _retry,
+    _tmux_send_hex,
     approve_permission,
     bridge,
     cancel_current,
@@ -209,6 +211,38 @@ class TestSendKeys:
         send_keys("editor", "Enter")
         # resolve_label + select-pane(fails) + hex send
         assert call_count["n"] == 3
+
+
+class TestTmuxSendHexErrors:
+    """_tmux_send_hex normalizes subprocess errors like bridge()."""
+
+    @patch("subprocess.run")
+    def test_timeout_raises_runtime_error(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd=["tmux"], timeout=10)
+        with pytest.raises(RuntimeError, match="timed out"):
+            _tmux_send_hex("%1", "0d")
+
+    @patch("subprocess.run")
+    def test_file_not_found_raises_tmux_down(self, mock_run):
+        mock_run.side_effect = FileNotFoundError("tmux not found")
+        with pytest.raises(TmuxServerDownError, match="tmux binary not found"):
+            _tmux_send_hex("%1", "0d")
+
+    @patch("subprocess.run")
+    def test_server_down_raises_tmux_down(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "tmux", stderr="error connecting to /tmp/tmux-501/default (no such file)"
+        )
+        with pytest.raises(TmuxServerDownError, match="tmux server is down"):
+            _tmux_send_hex("%1", "0d")
+
+    @patch("subprocess.run")
+    def test_generic_failure_raises_runtime_error(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "tmux", stderr="pane %99 not found"
+        )
+        with pytest.raises(RuntimeError, match="pane %99 not found"):
+            _tmux_send_hex("%1", "0d")
 
 
 class TestNamePane:

@@ -615,6 +615,7 @@ validation.
 | `poll_max_interval` | `120.0` | 0–3 600 s | Maximum polling interval |
 | `auto_allow_all` | `true` | bool | Auto-approve permission dialogs |
 | `auto_claude_commander` | `true` | bool | Open Claude Code pane alongside |
+| `bypass_permissions` | `true` | bool | Add `--yolo` (Copilot) / `--dangerously-skip-permissions` (Claude) |
 | `max_parallel` | `3` | 1–100 | Maximum concurrent tasks |
 | `pr_budget` | `0` | int | PR cap per task (0 = unlimited) |
 | `task_timeout` | `0` | int | Max seconds per task (0 = disabled) |

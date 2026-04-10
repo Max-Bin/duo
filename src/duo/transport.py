@@ -297,13 +297,32 @@ _KEY_TO_HEX = {
 
 def _tmux_send_hex(target: str, hex_code: str) -> None:
     """Send raw hex bytes to a pane, bypassing tmux key-name translation."""
-    subprocess.run(
-        ["tmux", "send-keys", "-t", target, "-H", *hex_code.split()],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        subprocess.run(
+            ["tmux", "send-keys", "-t", target, "-H", *hex_code.split()],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"tmux send-keys -H timed out after 10s for {target}"
+        ) from exc
+    except FileNotFoundError as exc:
+        raise TmuxServerDownError(
+            "tmux binary not found. Is tmux installed and on PATH?"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        if any(ind in stderr.lower() for ind in _TMUX_DOWN_INDICATORS):
+            raise TmuxServerDownError(
+                f"tmux server is down. Start a new session: tmux new -s duo\n"
+                f"  Detail: {stderr}"
+            ) from exc
+        raise RuntimeError(
+            f"tmux send-keys -H failed for {target}: {stderr}"
+        ) from exc
 
 
 def send_keys(label: str, *keys: str) -> None:

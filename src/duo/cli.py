@@ -224,9 +224,9 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
             f"repo path '{repo}' does not exist or is not a directory",
             fix="Use --repo /path/to/git/repo or run from inside a git repo.",
         )
-    if not os.path.isdir(os.path.join(repo, ".git")):
+    if not os.path.exists(os.path.join(repo, ".git")):
         raise DuoUserError(
-            f"'{repo}' is not a git repository (no .git directory)",
+            f"'{repo}' is not a git repository (no .git found)",
             fix="Run 'git init' first, or use --repo to point to an existing repo.",
         )
 
@@ -391,12 +391,13 @@ def start(
         lock_fd.close()
         lock_path.unlink(missing_ok=True)
 
-    click.echo(f"Created task: {name}")
-    click.echo(f"  Worktree: {worktree}")
-    click.echo(f"  Branch: {branch}")
-    click.echo(f"  Incarnation: {task.incarnation_id}")
-    if from_thinking:
-        click.echo("  Plan: loaded from thinking session")
+    if not as_json:
+        click.echo(f"Created task: {name}")
+        click.echo(f"  Worktree: {worktree}")
+        click.echo(f"  Branch: {branch}")
+        click.echo(f"  Incarnation: {task.incarnation_id}")
+        if from_thinking:
+            click.echo("  Plan: loaded from thinking session")
 
     if start_queued:
         from duo.protocol import transition

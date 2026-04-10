@@ -466,6 +466,15 @@ class TestStart:
         assert result.exit_code != 0
         assert "not a git repo" in result.output
 
+    def test_git_worktree_dot_git_file_accepted(self, runner: CliRunner, tmp_path: Path):
+        """Repos where .git is a file (git worktrees) should pass the .git check."""
+        repo = tmp_path / "worktree-repo"
+        repo.mkdir()
+        (repo / ".git").write_text("gitdir: /somewhere/.git/worktrees/x\n")
+        result = runner.invoke(main, ["start", "wt-task", "--repo", str(repo)])
+        # Should pass the .git existence check — not get "no .git found"
+        assert "no .git found" not in result.output
+
     def test_repo_path_does_not_exist(self, runner: CliRunner, tmp_path: Path):
         result = runner.invoke(
             main, ["start", "t", "--repo", str(tmp_path / "nonexistent")]
@@ -1952,6 +1961,24 @@ class TestSendSuccess:
             data = json.loads(result.output)
             assert data["sent"] is True
             assert data["first_prompt"] is True
+
+    def test_send_deferred_persists_prompt_file(self, runner: CliRunner):
+        """Deferred send persists prompt file for resume/replay safety."""
+        task = _make_task("defer-persist")
+        task.status = TaskStatus.SESSION_STARTING
+        task.pane_label = "defer-persist"
+        save_task(task)
+        with (
+            patch("duo.transport.send_bootstrap"),
+            patch("duo.commander.build_bootstrap_prompt", return_value="bootstrap"),
+        ):
+            result = runner.invoke(
+                main, ["send", "defer-persist", "my important instruction"]
+            )
+            assert result.exit_code == 0
+            prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+            assert prompt_path.exists()
+            assert prompt_path.read_text() == "my important instruction"
 
 
 # ---------------------------------------------------------------------------
@@ -5483,7 +5510,7 @@ class TestStartFlags:
             assert "worktree" in data
 
     def test_start_json_output(self, runner: CliRunner, tmp_path: Path):
-        """start --json-output returns structured JSON with deferred status."""
+        """start --json-output returns structured JSON without human-readable preamble."""
         with (
             patch("duo.cli._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
@@ -5494,11 +5521,14 @@ class TestStartFlags:
                 ["start", "s-json", "--json-output", "--repo", str(tmp_path)],
             )
             assert result.exit_code == 0
-            data = json.loads(result.output.strip().split("\n")[-1])
+            # Output should be pure JSON — no human text before it
+            data = json.loads(result.output.strip())
             assert data["created"] is True
             assert data["task"] == "s-json"
             assert data["status"] == "deferred"
             assert "pane_label" in data
+            # Verify no human-readable preamble leaked
+            assert "Created task:" not in result.output
 
     def test_start_auto_queued_json_output(self, runner: CliRunner, tmp_path: Path):
         """start --json-output when auto-queued (slots full) returns queued status."""

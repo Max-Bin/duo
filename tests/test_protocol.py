@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from datetime import UTC, datetime
@@ -1576,6 +1577,20 @@ class TestAtomicWriteText:
         atomic_write_text(path, "first")
         atomic_write_text(path, "second")
         assert path.read_text() == "second"
+
+    def test_dir_fsync_failure_does_not_raise(self, tmp_path: Path) -> None:
+        """Dir fsync failure after rename is non-fatal — file is still written."""
+        path = tmp_path / "fsync_fail.txt"
+        original_os_open = os.open
+
+        def mock_os_open(p: str, flags: int) -> int:
+            if flags == os.O_RDONLY and str(tmp_path) in str(p):
+                raise OSError("dir open failed")
+            return original_os_open(p, flags)
+
+        with patch("duo.protocol.os.open", side_effect=mock_os_open):
+            atomic_write_text(path, "survived")
+        assert path.read_text() == "survived"
 
 
 # ---------------------------------------------------------------------------

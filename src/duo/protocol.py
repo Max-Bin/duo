@@ -368,14 +368,21 @@ def atomic_write_text(path: Path, content: str) -> None:
             f.flush()
             os.fsync(f.fileno())
         tmp.rename(path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+    # Best-effort dir fsync — rename already succeeded, so the write is
+    # durable on most filesystems even without this.  If the dir open
+    # fails we log and continue rather than telling callers the write
+    # failed when data is already on disk.
+    try:
         dir_fd = os.open(str(path.parent), os.O_RDONLY)
         try:
             os.fsync(dir_fd)
         finally:
             os.close(dir_fd)
     except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
+        logger.debug("dir fsync failed for %s (non-critical)", path.parent)
 
 
 def read_jsonl(path: Path, *, tail: int | None = None) -> list[dict[str, Any]]:
