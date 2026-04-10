@@ -145,7 +145,7 @@ This command:
 1. Creates a git worktree at `/tmp/duo-worktrees/fix-auth` (configurable via `worktree_base_path`)
 2. Creates a new branch `duo/fix-auth` from your current HEAD
 3. Opens a tmux pane with Copilot CLI
-4. Sends the initial prompt with your description and project instructions
+4. **Waits for your first `duo send`** before consuming a Premium Request (defer mode)
 5. Auto-sends `/allow-all` if `auto_allow_all` is enabled (default: true)
 
 Additional options:
@@ -154,6 +154,15 @@ Additional options:
 |---|---|
 | `--model MODEL` | Override the copilot model for this task |
 | `--queue` | Create in queued state instead of starting immediately |
+| `--immediate` | Send bootstrap prompt immediately (skip defer mode) |
+
+### Send the first prompt
+
+```bash
+duo send fix-auth "Fix the authentication bug in the login handler"
+```
+
+In defer mode (default), this sends the initial bootstrap prompt to Copilot, consuming a Premium Request. You can send follow-up prompts the same way.
 
 ### Check status
 
@@ -321,6 +330,7 @@ Configuration is stored at `~/.duo/config.json`.
 | `max_corrections` | 3 | 1–100 | Auto-retries before escalation |
 | `pr_budget` | 0 | 0–100000 | Max premium requests per task (0 = unlimited) |
 | `auto_allow_all` | true | — | Auto-allow all operations |
+| `bypass_permissions` | true | — | Add --yolo (Copilot) / --dangerously-skip-permissions (Claude) |
 | `heartbeat_timeout` | 90 | 1–3600 | Seconds to wait for task heartbeat |
 | `task_timeout` | 0 | 0–604800 | Max seconds per task (0 = disabled) |
 | `poll_base_interval` | 5.0 | >0–300 | Initial polling interval in seconds |

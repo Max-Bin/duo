@@ -507,8 +507,10 @@ presence alone is insufficient.
 
 ### Session Lifecycle
 
-1. **`start_session(task)`** — Create tmux pane, send bootstrap prompt (1 PR),
-   optionally open Claude Commander pane, send initial task prompt (1 PR).
+1. **`start_session(task, defer=True)`** — Create tmux pane. In defer mode
+   (default), Copilot launches but waits for `duo send` before consuming a PR.
+   With `defer=False` (or `--immediate`), sends bootstrap prompt immediately (1 PR).
+   Optionally opens Claude Commander pane.
 2. **`restart_session(task)`** — Kill pane, clear bootstrap lock, re-create,
    re-bootstrap, optionally reopen Claude Commander.
 

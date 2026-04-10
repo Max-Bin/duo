@@ -49,6 +49,7 @@ duo doctor               # 检查 tmux、git、Copilot CLI 是否就绪
 cd your-project
 duo init --repo .
 duo start fix-auth --repo . --desc "修复登录处理器的 bug"
+duo send fix-auth "修复登录处理器的 bug"  # 发送第一条 prompt（延迟模式）
 duo watch                # 阻塞等待弹窗 → 打印内容 → 退出
 duo ceo-approve fix-auth # 批准权限弹窗
 duo merge fix-auth       # 完成后 fast-forward 合并

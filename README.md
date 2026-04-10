@@ -49,6 +49,7 @@ duo doctor               # verify tmux, git, Copilot CLI are available
 cd your-project
 duo init --repo .
 duo start fix-auth --repo . --desc "Fix the login handler bug"
+duo send fix-auth "Fix the login handler bug"  # sends first prompt (defer mode)
 duo watch                # blocks until dialog → prints it → exits
 duo ceo-approve fix-auth # approve the permission dialog
 duo merge fix-auth       # fast-forward merge when done
