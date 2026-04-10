@@ -693,8 +693,6 @@ class TestFmtTsProperty:
     @given(text=st.text(min_size=0, max_size=100))
     def test_never_raises(self, text: str) -> None:
         """_fmt_ts handles any string without raising."""
-        from duo.cli import _fmt_ts
-
         result = _fmt_ts(text)
         assert isinstance(result, str)
         assert len(result) <= max(len(text), 8)
@@ -706,12 +704,22 @@ class TestFmtTsProperty:
         )
     )
     def test_valid_iso_extracts_time(self, dt: datetime) -> None:
-        """Valid ISO timestamps produce HH:MM:SS output."""
+        """Valid ISO timestamps produce exact HH:MM:SS output."""
         iso = dt.isoformat()
-        from duo.cli import _fmt_ts
-
         result = _fmt_ts(iso)
-        assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", result)
+        assert result == dt.strftime("%H:%M:%S")
+
+    @given(text=st.text(max_size=50).filter(lambda s: "T" not in s and len(s) >= 8))
+    def test_no_T_returns_first_8_chars(self, text: str) -> None:
+        """Without 'T', returns first 8 chars."""
+        result = _fmt_ts(text)
+        assert result == text[:8]
+
+    @given(text=st.just(""))
+    def test_empty_string(self, text: str) -> None:
+        """Empty string returns truncated empty."""
+        result = _fmt_ts(text)
+        assert result == ""
 
 
 # === Verifier property tests ===
@@ -1115,34 +1123,3 @@ class TestValidateTaskNameProperties:
 
         with pytest.raises(click.BadParameter, match="letters, numbers"):
             _validate_task_name(name)
-
-
-# ── _fmt_ts property tests ──────────────────────────────────────────
-
-
-class TestFmtTsProperties:
-    """Property-based tests for _fmt_ts."""
-
-    @given(
-        dt=st.datetimes(
-            min_value=datetime(2020, 1, 1),
-            max_value=datetime(2030, 12, 31),
-        )
-    )
-    def test_iso_timestamp_extracts_time(self, dt: datetime) -> None:
-        """ISO timestamps yield HH:MM:SS."""
-        iso = dt.isoformat()
-        result = _fmt_ts(iso)
-        assert result == dt.strftime("%H:%M:%S")
-
-    @given(text=st.text(max_size=50).filter(lambda s: "T" not in s and len(s) >= 8))
-    def test_no_T_returns_first_8_chars(self, text: str) -> None:
-        """Without 'T', returns first 8 chars."""
-        result = _fmt_ts(text)
-        assert result == text[:8]
-
-    @given(text=st.just(""))
-    def test_empty_string(self, text: str) -> None:
-        """Empty string returns truncated empty."""
-        result = _fmt_ts(text)
-        assert result == ""
