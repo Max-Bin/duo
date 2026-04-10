@@ -484,3 +484,30 @@ class TestModuleAllExports:
             if not getattr(mod, "__all__", []):
                 empty.append(mod_name)
         assert empty == [], f"Modules with empty __all__: {empty}"
+
+
+class TestSecurityGuards:
+    """Guard: security-critical patterns must not appear in production code."""
+
+    def test_no_shell_true(self) -> None:
+        """No subprocess call should use shell=True."""
+        src_dir = Path(duo.cli.__file__).resolve().parent
+        violations: list[str] = []
+        for f in sorted(src_dir.glob("*.py")):
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                if "shell=True" in line and not line.strip().startswith("#"):
+                    violations.append(f"{f.name}:{i}")
+        assert violations == [], f"shell=True found in production code: {violations}"
+
+    def test_no_eval_exec(self) -> None:
+        """No production code should use eval() or exec()."""
+        src_dir = Path(duo.cli.__file__).resolve().parent
+        violations: list[str] = []
+        for f in sorted(src_dir.glob("*.py")):
+            for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if "eval(" in stripped or "exec(" in stripped:
+                    violations.append(f"{f.name}:{i}: {stripped[:60]}")
+        assert violations == [], f"eval/exec found in production code: {violations}"
