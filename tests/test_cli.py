@@ -364,6 +364,29 @@ class TestRecover:
         assert result.exit_code == 0
         assert "All tasks consistent." in result.output
 
+    def test_recover_json_output(self, runner: CliRunner):
+        """recover --json-output returns structured JSON."""
+        task = _make_task("json-recover")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        result = runner.invoke(main, ["recover", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["recovered"] == 1
+        assert len(data["changes"]) == 1
+        assert data["changes"][0]["task"] == "json-recover"
+        assert data["changes"][0]["from"] == "running"
+        assert data["changes"][0]["to"] == "created"
+
+    def test_recover_json_output_consistent(self, runner: CliRunner):
+        """recover --json-output with no changes returns empty list."""
+        _make_task("ok-task")
+        result = runner.invoke(main, ["recover", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["recovered"] == 0
+        assert data["changes"] == []
+
 
 # ---------------------------------------------------------------------------
 # send command (error case)

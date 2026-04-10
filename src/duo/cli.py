@@ -636,10 +636,12 @@ def watch(
 
 
 @main.command()
-def recover() -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def recover(as_json: bool) -> None:
     """Recover all interrupted tasks from journals."""
     tasks = list_tasks()
     recovered = 0
+    changes: list[dict[str, str]] = []
     for task in tasks:
         if task.status in (
             TaskStatus.COMPLETED,
@@ -649,15 +651,23 @@ def recover() -> None:
             continue
         actual = replay_state(task)
         if actual != task.status:
-            click.echo(f"  {task.id}: {task.status.value} → {actual.value}")
+            changes.append(
+                {"task": task.id, "from": task.status.value, "to": actual.value}
+            )
+            if not as_json:
+                click.echo(f"  {task.id}: {task.status.value} → {actual.value}")
             task.status = actual
             from duo.protocol import save_task
 
             save_task(task)
             recovered += 1
-    click.echo(
-        f"Recovered {recovered} tasks." if recovered else "All tasks consistent."
-    )
+
+    if as_json:
+        click.echo(json.dumps({"recovered": recovered, "changes": changes}, indent=2))
+    else:
+        click.echo(
+            f"Recovered {recovered} tasks." if recovered else "All tasks consistent."
+        )
 
 
 @main.command()
