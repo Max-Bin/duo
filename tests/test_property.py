@@ -1203,3 +1203,44 @@ class TestDuoDataErrorProperty:
         err = DuoDataError(message, path=path)
         assert err.path == path
         assert str(err) == message
+
+
+class TestFSMReachabilityProperty:
+    """Property: all FSM states are reachable from CREATED via BFS."""
+
+    def test_all_states_reachable_from_created(self) -> None:
+        """Every TaskStatus must be reachable from CREATED through valid transitions."""
+        reachable: set[TaskStatus] = set()
+        queue = [TaskStatus.CREATED]
+        while queue:
+            state = queue.pop(0)
+            if state in reachable:
+                continue
+            reachable.add(state)
+            queue.extend(
+                t for t in TRANSITIONS.get(state, frozenset()) if t not in reachable
+            )
+
+        all_states = set(TaskStatus)
+        unreachable = all_states - reachable
+        assert unreachable == set(), (
+            f"States unreachable from CREATED: {[s.value for s in unreachable]}"
+        )
+
+    def test_terminal_states_have_no_outgoing(self) -> None:
+        """Terminal states (COMPLETED) should have no outgoing transitions."""
+        terminal = {TaskStatus.COMPLETED}
+        for state in terminal:
+            targets = TRANSITIONS.get(state, frozenset())
+            assert targets == frozenset(), (
+                f"Terminal state {state.value} has outgoing transitions: "
+                f"{[t.value for t in targets]}"
+            )
+
+    def test_self_transitions_documented(self) -> None:
+        """Only PROMPT_SENT may self-transition (re-send prompt)."""
+        allowed_self = {TaskStatus.PROMPT_SENT}
+        for state, targets in TRANSITIONS.items():
+            if state in targets and state not in allowed_self:
+                msg = f"Unexpected self-transition: {state.value} → {state.value}"
+                raise AssertionError(msg)
