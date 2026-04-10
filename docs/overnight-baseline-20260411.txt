@@ -1,18 +1,25 @@
-=== Duo Overnight Baseline ===
-2026-04-10T19:53:03Z
+=== Duo Overnight Baseline — 2026-04-11 05:58 ===
 
---- Git ---
-258c9f6 docs: known-issues.md review — add summary index, verify all statuses
-032390f docs: ceo-workflow.md accuracy fixes — flag names match CLI
-3f3e339 docs: architecture.md accuracy audit — FSM transitions, secrets, commands
-d7ec6e9 docs: CHANGELOG update for Rounds DU-DX + error message audit
-0e5fdbb docs: complete getting-started with go/bench/export/events/completion sections
+## Git Status
+Commits: 495
+HEAD: 791b810 test: 5 property tests for config type coercion (int/float/bool round-trips)
+Branch: main
 
-479
-main
-258c9f6
+## Test Suite
+Total tests: 2320
+All passed: yes
+Duration: ~24s
 
---- make check ---
+## Coverage
+Name                   Stmts   Miss Branch BrPart  Cover   Missing
+------------------------------------------------------------------
+src/duo/__init__.py        7      0      0      0   100%
+src/duo/__main__.py        3      0      0      0   100%
+src/duo/ceo_log.py        57      0      8      0   100%
+src/duo/ceo_state.py      18      0      4      0   100%
+src/duo/cli.py          3073      0   1218      0   100%
+src/duo/commander.py     685      0    222      0   100%
+src/duo/config.py        119      0     66      0   100%
 src/duo/dashboard.py      96      0     24      0   100%
 src/duo/errors.py         19      0      2      0   100%
 src/duo/poller.py         63      0     14      0   100%
@@ -22,60 +29,24 @@ src/duo/thinking.py      174      0     44      0   100%
 src/duo/transport.py     723      0    270      0   100%
 src/duo/verifier.py      185      0     60      0   100%
 ------------------------------------------------------------------
-TOTAL                   5662      0   2028      0   100%
+TOTAL                   5663      0   2028      0   100%
 
---- Test Count ---
-2295 tests collected in 0.19s
-
---- Smoke Tests ---
+## Smoke Tests
 ========================
-Results: 83 passed, 0 failed
+Results: 111 passed, 0 failed
 ✅ All smoke tests passed!
 
---- Module Lines ---
-      39 src/duo/__init__.py
-       7 src/duo/__main__.py
-     150 src/duo/ceo_log.py
-      44 src/duo/ceo_state.py
-    5986 src/duo/cli.py
-    1795 src/duo/commander.py
-     235 src/duo/config.py
-     186 src/duo/dashboard.py
-      48 src/duo/errors.py
-     147 src/duo/poller.py
-     992 src/duo/protocol.py
-     146 src/duo/scheduler.py
-     426 src/duo/thinking.py
-    1661 src/duo/transport.py
-     444 src/duo/verifier.py
-   12306 total
+## Lint + Typecheck
+ruff check: clean
+ruff format: clean
+mypy: clean
 
---- Test Files ---
-      22
+## Property Tests
+Classes: 24
+Tests: 76
 
---- Property Tests ---
-16
-51
-
---- CLI Commands ---
-      52
-
---- DuoUserError ---
-src/duo/__init__.py:0
-src/duo/__main__.py:0
-src/duo/ceo_log.py:0
-src/duo/ceo_state.py:0
-src/duo/cli.py:59
-src/duo/commander.py:0
-src/duo/config.py:0
-src/duo/dashboard.py:0
-src/duo/errors.py:1
-src/duo/poller.py:0
-src/duo/protocol.py:0
-src/duo/scheduler.py:0
-src/duo/thinking.py:0
-src/duo/transport.py:0
-src/duo/verifier.py:0
-
---- Ruff Rules ---
-select = ["F", "E", "W", "I", "UP", "B", "RET", "SIM", "PIE", "PERF", "FURB"]
+## Source Stats
+Modules: 15
+Statements: 5663
+Branches: 2028
+Coverage: 100% statement + 100% branch
