@@ -889,3 +889,21 @@ class TestFStringLoggingGuard:
         assert bad == [], "f-string logging (use lazy %s instead):\n" + "\n".join(
             f"  {b}" for b in bad
         )
+
+
+class TestFutureAnnotationsGuard:
+    """Guard: all production modules use 'from __future__ import annotations'."""
+
+    SKIP = {"__main__.py"}  # trivial entry point
+
+    def test_future_annotations_present(self) -> None:
+        missing = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            if f.name in self.SKIP:
+                continue
+            if "from __future__ import annotations" not in f.read_text():
+                missing.append(f.name)
+        assert missing == [], (
+            "Missing 'from __future__ import annotations':\n"
+            + "\n".join(f"  {m}" for m in missing)
+        )
