@@ -11,6 +11,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Dependabot for automated dependency updates (GitHub Actions + pip)
 - CODEOWNERS for PR review gating
 - CI badge in README and README.zh-CN
+- 20+ guard tests: public API stability, dead code (vulture), import cycles, docstrings, type annotations, test naming, CHANGELOG format, exception handling, dataclass conventions, logger naming, f-string logging, future annotations
+- 3 prompt builder property tests (hypothesis): bootstrap/override/correction content verification
+- 2 integration tests: restart normalization, escalation journal trail
+- `make guard` target — runs all guard/meta tests in ~5s
 - 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
 - 11 new property tests: label path safety, glob matching, config defaults consistency, _fmt_ts fuzz
 - 12 new property tests: secret detection false positives, known format detection, writable pattern validation, poller backoff invariants
