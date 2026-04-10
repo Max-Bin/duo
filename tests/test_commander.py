@@ -3785,7 +3785,7 @@ class TestBranchCoverageCommander:
     """Targeted tests to close partial branch gaps."""
 
     def test_bootstrap_prompt_empty_readme(self, tmp_path: Path):
-        """278->282: README exists but is empty — no excerpt in prompt."""
+        """278->282: README exists but is empty — no excerpt in CLAUDE.md."""
         task = _make_task("empty-readme")
         worktree = tmp_path / "worktree"
         worktree.mkdir()
@@ -3793,19 +3793,21 @@ class TestBranchCoverageCommander:
         save_task(task)
         (worktree / "README.md").write_text("", encoding="utf-8")
 
-        prompt = build_bootstrap_prompt(task)
-        assert "README (excerpt)" not in prompt
+        write_commander_claude_md(task)
+        content = (worktree / "CLAUDE.md").read_text()
+        assert "README (excerpt)" not in content
 
-    def test_resend_last_prompt_oserror(self):
-        """814->exit: OSError reading prompt file — returns without crash."""
-        task = _make_task("resend-oserr")
+    def test_resend_last_prompt_empty_file(self):
+        """814->exit: Empty prompt file — returns without doing anything."""
+        task = _make_task("resend-empty")
         _advance_to_prompt_sent(task)
-        # Don't write a prompt file — reading it should fail
+        # Write an empty prompt file
         prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-        if prompt_path.exists():
-            prompt_path.unlink()
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_text("", encoding="utf-8")
 
         resend_last_prompt(task)
+        # No crash, no side effects
         # No crash — function returned early
 
     def test_verify_and_advance_no_result_returns_early(self):
@@ -3820,13 +3822,41 @@ class TestBranchCoverageCommander:
         # Status should still be RESULT_REPORTED (no crash, no transition)
         assert task.status == TaskStatus.RESULT_REPORTED
 
+    def test_verify_and_advance_explicit_result(self):
+        """853->856: Passing result explicitly skips disk read."""
+        from duo.protocol import StepResult
+
+        task = _make_task("explicit-result")
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        result = StepResult(
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="done",
+            files_changed=[],
+            summary="ok",
+        )
+        with patch("duo.commander.verify_step", return_value=Pass()):
+            verify_and_advance(task, result=result)
+        assert task.status == TaskStatus.COMPLETED
+
     def test_count_corrections_hits_task_created_break(self):
         """1006->1013: task_created event stops backward scan."""
         task = _make_task("corr-break")
-        # Write events: correction, task_created, then correction again
-        # The older correction (before task_created) shouldn't be counted
         append_event(task, "correction_sent", {"step": 1, "attempt": 2})
         append_event(task, "task_created", {"id": task.id})
         append_event(task, "correction_sent", {"step": 1, "attempt": 3})
-        # Only the one after task_created should count (reversed scan)
         assert _count_corrections(task, 1) == 1
+
+    def test_count_corrections_no_task_created_scans_all(self):
+        """1006->1013: Without task_created, scans all events."""
+        task = _make_task("corr-all")
+        # Clear journal and write only correction events (no task_created)
+        task.journal_path.write_text("", encoding="utf-8")
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        append_event(task, "correction_sent", {"step": 1, "attempt": 3})
+        assert _count_corrections(task, 1) == 2
