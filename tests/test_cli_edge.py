@@ -543,3 +543,22 @@ class TestConfigKeysDocumented:
         doc = (docs_dir / "getting-started.md").read_text(encoding="utf-8")
         missing = [k for k in sorted(DEFAULTS) if k not in doc]
         assert missing == [], f"Config keys missing from getting-started.md: {missing}"
+
+
+class TestDocCrossReferences:
+    """Guard: all markdown cross-references must resolve to existing files."""
+
+    def test_docs_links_valid(self) -> None:
+        """Every [text](file.md) link in docs/ must point to a real file."""
+        import re
+
+        docs_dir = Path(duo.cli.__file__).resolve().parent.parent.parent / "docs"
+        broken: list[str] = []
+        for md_file in sorted(docs_dir.glob("*.md")):
+            content = md_file.read_text(encoding="utf-8")
+            links = re.findall(r"\[.*?\]\((\./[^)]+|[a-zA-Z0-9_-]+\.md)", content)
+            for link in links:
+                target = docs_dir / link.lstrip("./")
+                if not target.exists():
+                    broken.append(f"{md_file.name} -> {link}")
+        assert broken == [], f"Broken doc cross-references: {broken}"
