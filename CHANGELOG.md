@@ -85,6 +85,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 22 Hypothesis property-based tests for validators, hash, age, path matching
 - All subprocess.run calls now have explicit timeout parameters
 - `git init` in `duo go` has 30s timeout
+- All 8 dataclasses use `slots=True` for lower memory footprint (Python 3.10+)
+- 6 AI platform secret detection patterns added (Anthropic, OpenAI, HF, Replicate)
 
 ## [1.0.0] — 2026-04-09
 
