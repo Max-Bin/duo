@@ -10195,18 +10195,32 @@ class TestBenchCommand:
         assert data[0]["suite"] == "dialog-detection"
 
     def test_baseline_no_regression(self, runner: CliRunner, tmp_path: Path) -> None:
-        result = runner.invoke(
-            main, ["bench", "dialog-detection", "-n", "10", "--json-output"]
-        )
+        # Use deterministic timing to avoid flaky jitter-based false regressions.
+        # A monotonically increasing counter gives stable ops/sec across runs.
+        counter = iter(range(0, 10_000_000_000, 1000))
+
+        with patch("time.perf_counter_ns", side_effect=lambda: next(counter)):
+            result = runner.invoke(
+                main, ["bench", "dialog-detection", "-n", "10", "--json-output"]
+            )
         assert result.exit_code == 0
         baseline_data = json.loads(result.output)
         baseline_path = tmp_path / "baseline.json"
         baseline_path.write_text(json.dumps(baseline_data))
 
-        result = runner.invoke(
-            main,
-            ["bench", "dialog-detection", "-n", "10", "--baseline", str(baseline_path)],
-        )
+        counter2 = iter(range(0, 10_000_000_000, 1000))
+        with patch("time.perf_counter_ns", side_effect=lambda: next(counter2)):
+            result = runner.invoke(
+                main,
+                [
+                    "bench",
+                    "dialog-detection",
+                    "-n",
+                    "10",
+                    "--baseline",
+                    str(baseline_path),
+                ],
+            )
         assert result.exit_code == 0
 
     def test_baseline_with_regression(self, runner: CliRunner, tmp_path: Path) -> None:
