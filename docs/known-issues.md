@@ -475,7 +475,7 @@ by skipping restart instead of proceeding blindly.
 
 ## Copilot CAPIError 400 Bad Request on long sessions
 
-**Status: Open, upstream bug in Copilot CLI. Mitigation: session restart.**
+**Status: Partially mitigated (commit `bde3c97`). Upstream bug remains.**
 
 **Observation:**
 After many hours of continuous use (~270+ commits, thousands of tool
@@ -503,25 +503,29 @@ limit — the backend simply rejects the request with 400.
   failure is silent from `duo watch` / `ceo-status` perspective
   (the pane drops to main ❯ prompt which may look like an idle state)
 
-**Duo-side mitigation (to implement):**
+**Implemented mitigations (Round CX, commit `bde3c97`):**
 
-1. **Predictive backoff**: Track the session's tool-call count and
-   elapsed time.  When either exceeds a threshold (e.g., 200 tool
-   calls OR 4 hours), `duo ceo-now` should PROMINENT warn and suggest
-   a voluntary `duo ceo-restart` before hitting the cliff.
-2. **Post-failure detection**: `duo watch` should detect the
-   "Execution failed: CAPIError" string in the pane output and
-   immediately emit a restart-recommended signal rather than
-   reporting the subsequent idle state as normal.
-3. **`duo doctor` heuristic**: Add a check for CAPIError pattern in
-   recent Copilot output and flag it as critical.
-4. **Graceful restart on detection**: `duo ceo-restart` should be
-   invoked automatically when CAPIError is detected, to save the
-   remaining session budget.
+1. ✅ **Post-failure detection**: `detect_copilot_api_error()` in
+   transport.py uses narrow pattern matching for `CAPIError` (not
+   generic "error"). `poll_task()` now logs `capi_error` journal event
+   and writes `restart-recommended` signal when CAPIError detected.
+2. ✅ **`duo doctor` check**: `_doctor_check_capi_error()` reads
+   journal for `capi_error` events (race-free, no pane reads).
+3. ✅ **`duo ceo-now` risk display**: Session risk line shows
+   low/medium/high based on session age + PR count + CAPIError history.
+4. ✅ **Narrower error detection**: Replaced broad `"error" in
+   terminal.lower()` check with specific `CAPIError` and `rate limit`
+   patterns, reducing false positives from user code output.
 
-**Priority:** High.  Second observed root cause of forced session
-restart (first was kqueue leak, see entry above).  Long-running
-automated CEO loops must budget for this failure mode.
+**Remaining (not yet implemented):**
+
+- **Predictive backoff**: Track tool-call count and warn proactively
+  before hitting the cliff (requires token counting, not just PR count).
+- **Graceful auto-restart**: `duo ceo-restart` invoked automatically
+  on CAPIError detection.
+
+**Priority:** Medium (detection and early warning now implemented;
+remaining items are about prevention and auto-recovery).
 
 **First observed:** During the overnight autonomous loop after
 Round CV, at approximately 270 commits / 1796 tests.
