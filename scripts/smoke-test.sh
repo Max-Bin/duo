@@ -74,9 +74,9 @@ DUO_DIR="${TMPDIR_BASE}/duo-home"
 export DUO_DIR
 
 run_test "config list" duo config list
-run_test "config set" duo config set poll_interval 3
-run_test "config get" duo config get poll_interval
-run_test "config reset key" duo config reset poll_interval
+run_test "config set" duo config set poll_base_interval 3
+run_test "config get" duo config get poll_base_interval
+run_test "config reset key" duo config reset poll_base_interval
 run_test "config reset all" duo config reset
 
 # === Init ===

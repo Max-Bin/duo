@@ -789,7 +789,7 @@ ordering. True queue-entry-time ordering would require persisting
 
 - **Boolean coercion too permissive** (LOW → RESOLVED): Invalid boolean
   strings now raise `ValueError` with accepted-values hint. Fixed in
-  Round BM (commit TBD).
+  Round BM (commit `cc38bd4`).
 
 ---
 

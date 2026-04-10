@@ -92,6 +92,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Test fixtures properly type-annotated — 10 `type: ignore` comments removed
 - `SECURITY.md` expanded with 9 specific security safeguards, version updated to 1.0.x
 - `ROADMAP.md` v1.x items all marked as complete with ✅
+- `__main__.py` added — Duo now runnable as `python -m duo`
+- `pyproject.toml` Development Status promoted from Beta to Production/Stable
+- Removed redundant `[project.optional-dependencies]` yaml section (already in main deps)
+- `make build` target added for sdist + wheel packaging via `uv build`
 
 ## [1.0.0] — 2026-04-09
 
