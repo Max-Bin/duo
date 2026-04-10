@@ -312,3 +312,30 @@ class TestModuleExports:
                 f"duo.{name}.{attr}" for attr in all_names if not hasattr(mod, attr)
             )
         assert bad == [], f"__all__ references missing attributes: {bad}"
+
+
+class TestNoDuplicateTestClasses:
+    """Guard against duplicate class names within the same test file."""
+
+    def test_no_shadowed_classes(self) -> None:
+        """No test file should have two classes with the same name.
+
+        Python silently redefines the class, causing all tests from the
+        first class to be lost. This bit us with TestCeoMetrics (20 tests
+        were silently never running).
+        """
+        import re
+
+        tests_dir = Path(__file__).resolve().parent
+        dupes: list[str] = []
+        for f in sorted(tests_dir.glob("test_*.py")):
+            content = f.read_text(encoding="utf-8")
+            classes = re.findall(r"^class (Test\w+)", content, re.MULTILINE)
+            seen: set[str] = set()
+            for c in classes:
+                if c in seen:
+                    dupes.append(f"{f.name}::{c}")
+                seen.add(c)
+        assert dupes == [], (
+            f"Duplicate test classes (shadowed, tests silently lost): {dupes}"
+        )
