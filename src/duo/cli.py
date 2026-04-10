@@ -395,7 +395,24 @@ def start(
     if start_queued:
         from duo.protocol import transition
 
-        transition(task, TaskStatus.QUEUED)
+        if not transition(task, TaskStatus.QUEUED):
+            if as_json:
+                click.echo(
+                    json.dumps(
+                        {
+                            "created": True,
+                            "task": name,
+                            "status": "error",
+                            "error": "transition to QUEUED failed",
+                        }
+                    )
+                )
+            else:
+                click.echo(
+                    f"Warning: task '{name}' created but could not transition to QUEUED.",
+                    err=True,
+                )
+            return
         if as_json:
             click.echo(
                 json.dumps(
@@ -909,8 +926,8 @@ def stop(name: str, *, as_json: bool = False) -> None:
     cleanup_pane_state(task.pane_label)
 
     previous = task.status.value
-    transition(task, TaskStatus.BLOCKED)
-    append_event(task, "task_stopped", {"previous_status": previous})
+    if transition(task, TaskStatus.BLOCKED):
+        append_event(task, "task_stopped", {"previous_status": previous})
     if as_json:
         click.echo(
             json.dumps(
@@ -1131,8 +1148,10 @@ def _create_single_task(
     if queue_only:
         from duo.protocol import transition
 
-        transition(task, TaskStatus.QUEUED)
-        click.echo(f"  ◷ {name}: queued")
+        if not transition(task, TaskStatus.QUEUED):
+            click.echo(f"  ⚠ {name}: could not transition to QUEUED", err=True)
+        else:
+            click.echo(f"  ◷ {name}: queued")
     else:
         from duo.commander import start_session
         from duo.scheduler import enqueue_or_start
@@ -2625,7 +2644,22 @@ def retry(name: str, *, as_json: bool = False) -> None:
     else:
         target = TaskStatus.SESSION_STARTING
     previous = task.status.value
-    transition(task, target)
+    if not transition(task, target):
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "retried": False,
+                        "error": f"Cannot transition from {previous} to {target.value}",
+                    }
+                )
+            )
+        else:
+            click.echo(
+                f"Error: cannot retry task '{name}' — illegal transition {previous} → {target.value}.",
+                err=True,
+            )
+        raise SystemExit(1)
     if as_json:
         click.echo(
             json.dumps(

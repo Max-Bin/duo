@@ -5147,6 +5147,44 @@ class TestStartFlags:
         assert task is not None
         assert task.status == TaskStatus.QUEUED
 
+    def test_start_queue_transition_failure(self, runner: CliRunner, tmp_path: Path):
+        """start --queue with failed transition warns the user."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "qtf"), "abc123")
+            result = runner.invoke(
+                main, ["start", "qtf", "--queue", "--repo", str(tmp_path)]
+            )
+            assert result.exit_code == 0
+            out = result.output + (result.stderr or "")
+            assert "could not transition" in out.lower() or "warning" in out.lower()
+
+    def test_start_queue_transition_failure_json(
+        self, runner: CliRunner, tmp_path: Path
+    ):
+        """start --queue --json-output with failed transition returns error."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "qtfj"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "qtfj", "--queue", "--json-output", "--repo", str(tmp_path)],
+            )
+            assert result.exit_code == 0
+            # Find the JSON line in output
+            for line in result.output.splitlines():
+                line = line.strip()
+                if line.startswith("{"):
+                    data = json.loads(line)
+                    assert data["status"] == "error"
+                    break
+            else:
+                pytest.fail("No JSON output found")
+
     def test_start_with_model(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
@@ -5365,6 +5403,23 @@ class TestCreateTaskQueued:
         task = load_task("cq-defaults")
         assert task.description == "Task cq-defaults"
         assert task.subtasks[0].writable_paths == ["*"]
+
+    def test_queue_transition_failure_warns(self, tmp_path: Path):
+        """_create_single_task(queue_only=True) warns when transition fails."""
+        from duo.cli import _create_single_task
+
+        defn = {"name": "cq-trans-fail", "description": "Fail trans"}
+        with (
+            patch("duo.cli.subprocess.run") as mock_run,
+            patch("duo.cli.get_config", return_value=str(tmp_path / "wt")),
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="abc123\n", stderr=""),
+                MagicMock(returncode=0, stdout="", stderr=""),
+            ]
+            result = _create_single_task(defn, str(tmp_path), queue_only=True)
+            assert result == "cq-trans-fail"
 
 
 # ---------------------------------------------------------------------------
@@ -6046,6 +6101,27 @@ class TestRetry:
         """retry with a path-traversal name is rejected."""
         result = runner.invoke(main, ["retry", "../bad"])
         assert result.exit_code != 0
+
+    def test_retry_illegal_transition_fails(self, runner: CliRunner):
+        """retry where transition unexpectedly fails — exit code != 0."""
+        task = _make_task("retry-trans-fail")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+        with patch("duo.protocol.transition", return_value=False):
+            result = runner.invoke(main, ["retry", "retry-trans-fail"])
+        assert result.exit_code != 0
+
+    def test_retry_illegal_transition_json(self, runner: CliRunner):
+        """retry --json-output where transition fails returns retried=False."""
+        task = _make_task("retry-tj-fail")
+        task.status = TaskStatus.BLOCKED
+        save_task(task)
+        with patch("duo.protocol.transition", return_value=False):
+            result = runner.invoke(main, ["retry", "retry-tj-fail", "--json-output"])
+        assert result.exit_code != 0
+        data = json.loads(result.output)
+        assert data["retried"] is False
+        assert "error" in data
 
 
 class TestNotFoundParametrized:

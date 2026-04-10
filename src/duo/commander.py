@@ -486,7 +486,13 @@ def start_session(task: Task) -> None:
     """Start a Copilot session in tmux for this task."""
     logger.debug("Starting session for task %r", task.id)
     if task.status != TaskStatus.SESSION_STARTING:
-        transition(task, TaskStatus.SESSION_STARTING)
+        if not transition(task, TaskStatus.SESSION_STARTING):
+            logger.error(
+                "Cannot start session: illegal transition %s → SESSION_STARTING for %s",
+                task.status.value,
+                task.id,
+            )
+            return
 
     # Target the caller's session to prevent cross-session pollution
     session_target = get_tmux_session_target()
@@ -622,7 +628,12 @@ def start_session(task: Task) -> None:
             },
         )
 
-        transition(task, TaskStatus.PROMPT_SENT)
+        if not transition(task, TaskStatus.PROMPT_SENT):
+            logger.warning(
+                "Prompt sent but transition to PROMPT_SENT failed for %s (status=%s)",
+                task.id,
+                task.status.value,
+            )
     except (
         RuntimeError,
         subprocess.CalledProcessError,
@@ -689,8 +700,8 @@ def restart_session(task: Task) -> None:
 
 def _escalate_pr_budget(task: Task, step: int, attempt: int) -> None:
     """Escalate task when PR budget is exceeded."""
-    transition(task, TaskStatus.ESCALATED)
-    append_event(task, "pr_budget_exceeded", {"step": step, "attempt": attempt})
+    if transition(task, TaskStatus.ESCALATED):
+        append_event(task, "pr_budget_exceeded", {"step": step, "attempt": attempt})
     click.echo(f"⚠ PR budget exceeded for task '{task.id}' — escalating to human.")
 
 
@@ -744,7 +755,12 @@ def send_task_prompt(task: Task, prompt: str) -> None:
         },
     )
 
-    transition(task, TaskStatus.PROMPT_SENT)
+    if not transition(task, TaskStatus.PROMPT_SENT):
+        logger.warning(
+            "Prompt sent but transition to PROMPT_SENT failed for %s (status=%s)",
+            task.id,
+            task.status.value,
+        )
 
 
 def resend_last_prompt(task: Task) -> None:
@@ -801,7 +817,13 @@ def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
         return
 
     logger.info("Verification result: %s", type(result).__name__)
-    transition(task, TaskStatus.VERIFYING)
+    if not transition(task, TaskStatus.VERIFYING):
+        logger.warning(
+            "Cannot verify: transition to VERIFYING failed for %s (status=%s)",
+            task.id,
+            task.status.value,
+        )
+        return
 
     # Handle blocked/error results
     if result.status in ("blocked", "error"):
@@ -833,8 +855,8 @@ def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
         # Advance to next step
         if step >= len(task.subtasks):
             # All done!
-            transition(task, TaskStatus.COMPLETED)
-            append_event(task, "task_completed", {"id": task.id})
+            if transition(task, TaskStatus.COMPLETED):
+                append_event(task, "task_completed", {"id": task.id})
         else:
             # Next step — create dir before save so it exists when task.json references it
             next_step_dir = task.step_dir(step + 1)
@@ -873,15 +895,15 @@ def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
         correction_count = _count_corrections(task, step)
         max_corrections = int(get_config("max_corrections") or 3)
         if correction_count >= max_corrections:
-            transition(task, TaskStatus.ESCALATED)
-            append_event(
-                task,
-                "escalated_to_human",
-                {
-                    "step": step,
-                    "reason": f"{max_corrections} corrections exhausted: {verdict.reason}",
-                },
-            )
+            if transition(task, TaskStatus.ESCALATED):
+                append_event(
+                    task,
+                    "escalated_to_human",
+                    {
+                        "step": step,
+                        "reason": f"{max_corrections} corrections exhausted: {verdict.reason}",
+                    },
+                )
             return
 
         # Send correction — rollback on failure
@@ -889,7 +911,14 @@ def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
         save_task(task)
         task.step_dir(step).mkdir(parents=True, exist_ok=True)
 
-        transition(task, TaskStatus.CORRECTING)
+        if not transition(task, TaskStatus.CORRECTING):
+            logger.warning(
+                "Transition to CORRECTING failed for %s — rolling back attempt bump",
+                task.id,
+            )
+            task.current_attempt = attempt
+            save_task(task)
+            return
         try:
             prompt = build_correction_prompt(task, verdict.reason)
             send_task_prompt(task, prompt)

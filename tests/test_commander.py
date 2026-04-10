@@ -3516,3 +3516,190 @@ class TestVerifyAndAdvanceRollback:
         # Attempt should be rolled back to original
         assert task.current_attempt == 1
         assert task.status == TaskStatus.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Transition return-value guard tests (Round FD)
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionReturnValueGuards:
+    """Tests for transition() return-value checks in critical paths."""
+
+    @patch("duo.commander.get_tmux_session_target", return_value="main")
+    def test_start_session_illegal_transition_returns_early(self, mock_target):
+        """start_session returns immediately if transition to SESSION_STARTING fails."""
+        task = _make_task("tg-start")
+        # Force to COMPLETED — can't transition to SESSION_STARTING from there
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+        transition(task, TaskStatus.COMPLETED)
+
+        start_session(task)
+
+        # Should not have called subprocess — returned early
+        mock_target.assert_not_called()
+        assert task.status == TaskStatus.COMPLETED
+
+    def test_verify_and_advance_illegal_verifying_returns_early(self):
+        """verify_and_advance returns if transition to VERIFYING fails."""
+        task = _make_task("tg-verify")
+        # Stay at CREATED — CREATED → VERIFYING is illegal
+        step = task.current_step
+        attempt = task.current_attempt
+        result_path = task.result_path(step, attempt)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(
+                {
+                    "step": step,
+                    "attempt": attempt,
+                    "incarnation": task.incarnation_id,
+                    "status": "done",
+                    "files_changed": [],
+                    "summary": "ok",
+                }
+            )
+        )
+
+        verify_and_advance(task)
+
+        # Should still be CREATED — transition was rejected
+        assert task.status == TaskStatus.CREATED
+
+    @patch("duo.commander.verify_step")
+    def test_completed_transition_guarded(self, mock_verify):
+        """task_completed event is only emitted when COMPLETED transition succeeds."""
+        from duo.verifier import Pass
+
+        mock_verify.return_value = Pass()
+        task = _make_task("tg-complete", subtasks=[_make_subtask()])
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        step = task.current_step
+        attempt = task.current_attempt
+        result_path = task.result_path(step, attempt)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(
+                {
+                    "step": step,
+                    "attempt": attempt,
+                    "incarnation": task.incarnation_id,
+                    "status": "done",
+                    "files_changed": [],
+                    "summary": "ok",
+                }
+            )
+        )
+
+        verify_and_advance(task)
+
+        # Should successfully complete
+        assert task.status == TaskStatus.COMPLETED
+
+    @patch("duo.commander.verify_step")
+    def test_correcting_transition_failure_rolls_back_attempt(self, mock_verify):
+        """If CORRECTING transition fails, attempt is rolled back."""
+        from duo.verifier import Correction
+
+        mock_verify.return_value = Correction("needs fix")
+        task = _make_task("tg-correct", subtasks=[_make_subtask()])
+        _advance_to_prompt_sent(task)
+        # Force to CREATED to make VERIFYING→CORRECTING work but then block
+        # Actually, let's make transition to CORRECTING fail by putting task
+        # in a state that can't transition to CORRECTING
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        original_attempt = task.current_attempt
+        step = task.current_step
+        result_path = task.result_path(step, original_attempt)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(
+            json.dumps(
+                {
+                    "step": step,
+                    "attempt": original_attempt,
+                    "incarnation": task.incarnation_id,
+                    "status": "done",
+                    "files_changed": [],
+                    "summary": "ok",
+                }
+            )
+        )
+
+        # Monkeypatch transition to succeed for VERIFYING but fail for CORRECTING
+        real_transition = transition
+
+        def conditional_transition(t, status):
+            if status == TaskStatus.CORRECTING:
+                return False
+            return real_transition(t, status)
+
+        with patch("duo.commander.transition", side_effect=conditional_transition):
+            verify_and_advance(task)
+
+        # Attempt should be rolled back
+        assert task.current_attempt == original_attempt
+
+    @patch("duo.commander.select_dialog_option")
+    @patch("duo.commander.wait_for_dialog", return_value=True)
+    @patch("duo.commander._check_pr_budget", return_value=True)
+    def test_prompt_sent_transition_failure_logs_warning(
+        self, mock_budget, mock_wait, mock_select
+    ):
+        """If PROMPT_SENT transition fails, a warning is logged but no crash."""
+        task = _make_task("tg-prompt")
+        _advance_to_prompt_sent(task)
+
+        real_transition = transition
+
+        def fail_prompt_sent(t, status):
+            if status == TaskStatus.PROMPT_SENT:
+                return False
+            return real_transition(t, status)
+
+        with patch("duo.commander.transition", side_effect=fail_prompt_sent):
+            with patch("duo.commander.append_event"):
+                with patch("duo.commander.save_task"):
+                    send_task_prompt(task, "test prompt")
+
+    def test_start_session_prompt_sent_transition_failure(self):
+        """start_session logs warning when PROMPT_SENT transition fails."""
+        from unittest.mock import MagicMock
+
+        task = _make_task("tg-start-ps")
+
+        real_transition = transition
+
+        def fail_prompt_sent(t, status):
+            if status == TaskStatus.PROMPT_SENT:
+                return False
+            return real_transition(t, status)
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
+            patch("duo.commander.transition", side_effect=fail_prompt_sent),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)

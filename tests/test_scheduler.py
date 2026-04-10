@@ -435,3 +435,46 @@ class TestSortedQueuedWithPreFetchedTasks:
 
         result = _sorted_queued(None)
         assert any(t.id == "fb1" for t in result)
+
+
+class TestTransitionGuards:
+    """Tests for transition return-value checks in scheduler."""
+
+    def test_promote_skips_illegal_transition(self) -> None:
+        """promote_queued skips a task whose transition to SESSION_STARTING fails."""
+        t1 = _make_task("stuck")
+        # Force to COMPLETED — can't go to SESSION_STARTING from there
+        _force_status(t1, TaskStatus.COMPLETED)
+        # But also give it QUEUED status to appear in the queue
+        # We need to mock _sorted_queued to return it as queued
+        # Actually, promote_queued filters from list_tasks by QUEUED status
+        # So force to QUEUED, but monkeypatch transition to fail
+        _force_status(t1, TaskStatus.QUEUED)
+
+        from unittest.mock import patch
+
+        def always_fail(t, s):
+            return False
+
+        with patch("duo.scheduler.transition", side_effect=always_fail):
+            promoted = promote_queued()
+
+        assert promoted == []
+
+    def test_enqueue_returns_started_on_failed_queued_transition(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """enqueue_or_start returns 'started' if QUEUED transition fails."""
+        # Fill all slots so enqueue path is taken
+        for i in range(3):
+            t = _make_task(f"fill-{i}")
+            _force_status(t, TaskStatus.RUNNING)
+
+        new_task = _make_task("should-queue")
+
+        from unittest.mock import patch
+
+        with patch("duo.scheduler.transition", return_value=False):
+            result = enqueue_or_start(new_task)
+
+        assert result == "started"

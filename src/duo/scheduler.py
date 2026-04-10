@@ -54,7 +54,8 @@ def enqueue_or_start(task: Task) -> str:
     """
     if has_slot():
         return "started"
-    transition(task, TaskStatus.QUEUED)
+    if not transition(task, TaskStatus.QUEUED):
+        return "started"
     append_event(
         task,
         "task_queued",
@@ -82,7 +83,8 @@ def promote_queued() -> list[Task]:
     for next_task in queued:
         if n_active >= mp:
             break
-        transition(next_task, TaskStatus.SESSION_STARTING)
+        if not transition(next_task, TaskStatus.SESSION_STARTING):
+            continue
         n_active += 1
         promoted.append(next_task)
         append_event(
