@@ -102,6 +102,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 4 Hypothesis property-based tests for config coercion (int, float, bool round-trips)
 - Enabled SIM/PIE/PERF ruff rule categories; fixed all violations (startswith/endswith tuple, redundant pass, simplified returns)
 - 6 new Hypothesis property tests: atomic_write roundtrip, JSONL append+tail, prompt_hash stability
+- `.editorconfig` for consistent contributor formatting across editors
+- GitHub templates improved: streamlined PR checklist, `duo doctor` in bug reports
+- 5 new cross-module integration tests: config round-trip, journal audit trail, event ordering
 
 ## [1.0.0] — 2026-04-09
 
