@@ -2934,7 +2934,6 @@ def retry(name: str, *, as_json: bool = False) -> None:
 @main.group()
 def config() -> None:
     """Manage Duo configuration."""
-    pass
 
 
 @config.command("get")
@@ -3115,7 +3114,6 @@ _WATCH_EVENTS_DIR = Path(os.path.expanduser("~/.duo/watch-events"))
 @main.group()
 def events() -> None:
     """Manage watch-event signal files."""
-    pass
 
 
 @events.command("list")
@@ -3590,7 +3588,7 @@ def _is_auto_selectable(
     first_option = ""
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("1.") or stripped.startswith("❯"):
+        if stripped.startswith(("1.", "❯")):
             first_option = stripped
             break
 
@@ -3928,9 +3926,7 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
     # Session risk: high if CAPIError seen or age > 4h with many PRs
     age_hours = age_seconds / 3600
     risk = "low"
-    if has_capi_error:
-        risk = "high"
-    elif age_hours > 4 and pr_count > 50:
+    if has_capi_error or (age_hours > 4 and pr_count > 50):
         risk = "high"
     elif age_hours > 2 or pr_count > 30:
         risk = "medium"
@@ -4732,11 +4728,7 @@ def ceo_restart(task: str, timeout: float) -> None:
             last_line = (
                 content.strip().splitlines()[-1].strip() if content.strip() else ""
             )
-            if (
-                last_line.endswith("$")
-                or last_line.endswith("%")
-                or last_line.endswith("#")
-            ):
+            if last_line.endswith(("$", "%", "#")):
                 shell_ready = True
                 break
         except (RuntimeError, OSError):

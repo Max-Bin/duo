@@ -10119,7 +10119,7 @@ class TestBenchJournalAppend:
 
         original = duo.protocol.TASKS_DIR
         _bench_journal_append(5)
-        assert duo.protocol.TASKS_DIR == original
+        assert original == duo.protocol.TASKS_DIR
 
 
 class TestCompareResults:
@@ -14291,9 +14291,7 @@ class TestDuoGo:
                 return True
             if key == "copilot_model":
                 return "claude-sonnet-4-5"
-            if key == "auto_allow_all":
-                return True
-            return False
+            return key == "auto_allow_all"
 
         with (
             patch("subprocess.run") as mock_run,

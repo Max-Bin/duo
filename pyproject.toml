@@ -80,8 +80,8 @@ exclude_lines = [
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I", "UP", "B", "RET"]
-ignore = ["E501", "E741", "E402", "RET504"]  # line length (formatter), ambiguous vars, conditional imports, unnecessary assign
+select = ["F", "E", "W", "I", "UP", "B", "RET", "SIM", "PIE", "PERF"]
+ignore = ["E501", "E741", "E402", "RET504", "SIM102"]  # line length (formatter), ambiguous vars, conditional imports, unnecessary assign, nested ifs (often more readable)
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["F811"]  # same-named methods in different test classes are fine
+"tests/*.py" = ["F811", "SIM117", "PIE807"]  # same-named methods in different test classes, nested with, lambda default

@@ -553,9 +553,7 @@ def kill_pane(target: str) -> bool:
         )
         # Known "pane already gone" patterns — treat as success
         gone_patterns = ("can't find", "not found", "no pane")
-        if any(p in msg_lower for p in gone_patterns):
-            return True
-        return False
+        return any(p in msg_lower for p in gone_patterns)
     return True
 
 

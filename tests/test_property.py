@@ -267,7 +267,11 @@ class TestConfigCoercionProperty:
         assert result == val
         assert isinstance(result, int)
 
-    @given(val=st.floats(min_value=0.01, max_value=300.0, allow_nan=False, allow_infinity=False))
+    @given(
+        val=st.floats(
+            min_value=0.01, max_value=300.0, allow_nan=False, allow_infinity=False
+        )
+    )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_float_config_roundtrip(self, val: float, tmp_path, monkeypatch) -> None:
         """Float values round-trip correctly."""
@@ -278,9 +282,15 @@ class TestConfigCoercionProperty:
         assert abs(result - val) < 1e-6
         assert isinstance(result, float)
 
-    @given(val=st.sampled_from(["true", "false", "1", "0", "yes", "no", "True", "False", "YES", "NO"]))
+    @given(
+        val=st.sampled_from(
+            ["true", "false", "1", "0", "yes", "no", "True", "False", "YES", "NO"]
+        )
+    )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_bool_config_accepts_all_variants(self, val: str, tmp_path, monkeypatch) -> None:
+    def test_bool_config_accepts_all_variants(
+        self, val: str, tmp_path, monkeypatch
+    ) -> None:
         """All boolean string variants are accepted."""
         import duo.config as cfg
 
@@ -288,9 +298,11 @@ class TestConfigCoercionProperty:
         result = set_config("auto_allow_all", val)
         assert isinstance(result, bool)
 
-    @given(val=st.text(min_size=1, max_size=10).filter(
-        lambda s: s.lower() not in ("true", "false", "1", "0", "yes", "no")
-    ))
+    @given(
+        val=st.text(min_size=1, max_size=10).filter(
+            lambda s: s.lower() not in ("true", "false", "1", "0", "yes", "no")
+        )
+    )
     @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
     def test_invalid_bool_rejected(self, val: str, tmp_path, monkeypatch) -> None:
         """Non-boolean strings raise ValueError for bool keys."""
