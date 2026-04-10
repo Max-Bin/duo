@@ -297,6 +297,12 @@ def completion(shell: str) -> None:
     is_flag=True,
     help="Send bootstrap prompt immediately (default: defer until 'duo send')",
 )
+@click.option(
+    "--reuse-pane",
+    "reuse_pane",
+    default="",
+    help="Reuse existing tmux pane ID instead of creating new one",
+)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def start(
     name: str,
@@ -306,6 +312,7 @@ def start(
     start_queued: bool,
     from_thinking: bool,
     immediate: bool,
+    reuse_pane: str,
     *,
     as_json: bool = False,
 ) -> None:
@@ -470,7 +477,7 @@ def start(
     defer = not immediate
     if not as_json:
         click.echo("Starting Copilot session...")
-    start_session(task, defer=defer)
+    start_session(task, defer=defer, reuse_pane=reuse_pane)
     if as_json:
         click.echo(
             json.dumps(

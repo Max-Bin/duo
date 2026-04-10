@@ -755,13 +755,16 @@ def normalize_for_restart(task: Task) -> bool:
     return True
 
 
-def start_session(task: Task, *, defer: bool = False) -> None:
+def start_session(task: Task, *, defer: bool = False, reuse_pane: str = "") -> None:
     """Start a Copilot session in tmux for this task.
 
     When *defer* is True, the session is launched and made ready (idle +
     /allow-all) but **no bootstrap prompt is sent** — the first user-facing
     ``duo send`` will deliver the initial instruction without burning a PR
     up-front.
+
+    When *reuse_pane* is a non-empty pane ID, skip split-window creation
+    and reuse the existing pane (rename + cd + start copilot).
     """
     logger.debug("Starting session for task %r", task.id)
     if task.status != TaskStatus.SESSION_STARTING:
@@ -773,62 +776,76 @@ def start_session(task: Task, *, defer: bool = False) -> None:
             )
             return
 
-    # Target the caller's session to prevent cross-session pollution
-    session_target = get_tmux_session_target()
+    if reuse_pane:
+        # Reuse an existing pane (e.g. from duo go standby)
+        pane_id = reuse_pane
+        try:
+            name_pane(pane_id, task.pane_label)
+        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            transition(task, TaskStatus.FAILED)
+            append_event(
+                task,
+                "session_start_failed",
+                {"error": f"reuse_pane name: {exc}"},
+            )
+            return
+    else:
+        # Target the caller's session to prevent cross-session pollution
+        session_target = get_tmux_session_target()
 
-    # Create tmux pane and start copilot
-    # Note: tmux must already be running (user starts duo inside tmux)
-    try:
-        result = subprocess.run(
-            [
-                "tmux",
-                "split-window",
-                "-h",
-                "-P",
-                "-F",
-                "#{pane_id}",
-                "-t",
-                session_target,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except subprocess.TimeoutExpired:
-        transition(task, TaskStatus.FAILED)
-        append_event(
-            task, "session_start_failed", {"error": "tmux split-window timeout"}
-        )
-        return
-    if result.returncode != 0:
-        transition(task, TaskStatus.FAILED)
-        append_event(task, "session_start_failed", {"error": result.stderr})
-        return
+        # Create tmux pane and start copilot
+        # Note: tmux must already be running (user starts duo inside tmux)
+        try:
+            result = subprocess.run(
+                [
+                    "tmux",
+                    "split-window",
+                    "-h",
+                    "-P",
+                    "-F",
+                    "#{pane_id}",
+                    "-t",
+                    session_target,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            transition(task, TaskStatus.FAILED)
+            append_event(
+                task, "session_start_failed", {"error": "tmux split-window timeout"}
+            )
+            return
+        if result.returncode != 0:
+            transition(task, TaskStatus.FAILED)
+            append_event(task, "session_start_failed", {"error": result.stderr})
+            return
 
-    pane_id = result.stdout.strip()
+        pane_id = result.stdout.strip()
 
-    # Label and tile the pane.  If either fails, kill the orphaned pane
-    # to avoid leaks.
-    try:
-        name_pane(pane_id, task.pane_label)
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-        kill_pane(pane_id)
-        transition(task, TaskStatus.FAILED)
-        append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
-        return
+        # Label and tile the pane.  If either fails, kill the orphaned pane
+        # to avoid leaks.
+        try:
+            name_pane(pane_id, task.pane_label)
+        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            kill_pane(pane_id)
+            transition(task, TaskStatus.FAILED)
+            append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
+            return
 
-    # Tile layout — target the new pane to resolve correct window
-    try:
-        _layout = subprocess.run(
-            ["tmux", "select-layout", "-t", pane_id, "tiled"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if _layout.returncode != 0:
-            logger.warning("select-layout failed: %s", _layout.stderr.strip())
-    except subprocess.TimeoutExpired:
-        logger.warning("select-layout timed out for %s", task.id)
+        # Tile layout — target the new pane to resolve correct window
+        try:
+            _layout = subprocess.run(
+                ["tmux", "select-layout", "-t", pane_id, "tiled"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if _layout.returncode != 0:
+                logger.warning("select-layout failed: %s", _layout.stderr.strip())
+        except subprocess.TimeoutExpired:
+            logger.warning("select-layout timed out for %s", task.id)
 
     # cd to worktree, start copilot, wait for readiness, and send bootstrap.
     # All post-pane-creation steps share a single try/except so any failure

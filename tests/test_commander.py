@@ -972,6 +972,79 @@ class TestStartSession:
             assert task.status == TaskStatus.SESSION_STARTING
 
 
+class TestStartSessionReusePane:
+    """Test start_session with reuse_pane parameter."""
+
+    def test_reuse_pane_skips_split_window(self):
+        """reuse_pane skips tmux split-window and reuses given pane."""
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane") as mock_name,
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
+        ):
+            start_session(task, reuse_pane="%99")
+
+            # Should NOT have called tmux split-window
+            for call in mock_run.call_args_list:
+                args = call[0][0] if call[0] else call[1].get("args", [])
+                assert "split-window" not in args
+            # Should have renamed the pane
+            mock_name.assert_called_once_with("%99", task.pane_label)
+            assert task.status == TaskStatus.PROMPT_SENT
+
+    def test_reuse_pane_name_failure(self):
+        """reuse_pane fails if name_pane raises."""
+        task = _make_task()
+
+        with (
+            patch(
+                "duo.commander.name_pane",
+                side_effect=RuntimeError("no such pane"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            start_session(task, reuse_pane="%99")
+            assert task.status == TaskStatus.FAILED
+
+    def test_reuse_pane_empty_string_creates_new(self):
+        """Empty reuse_pane string creates a new pane (default behavior)."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle"),
+            patch("duo.commander.read_pane", return_value="❯"),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
+            patch("duo.commander.send_bootstrap"),
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task, reuse_pane="")
+
+            # Should have called split-window
+            first_call_args = mock_run.call_args_list[0][0][0]
+            assert "split-window" in first_call_args
+
+
 class TestBypassPermissions:
     """Verify bypass_permissions config controls --yolo and --dangerously-skip-permissions."""
 

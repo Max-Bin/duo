@@ -5611,6 +5611,30 @@ class TestStartFlags:
             assert data["status"] == "queued"
             assert "queue_position" in data
 
+    def test_start_reuse_pane(self, runner: CliRunner, tmp_path: Path):
+        """start --reuse-pane passes pane ID to start_session."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session") as mock_start,
+            patch("duo.scheduler.enqueue_or_start", return_value="start"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "rp-task"), "abc123")
+            result = runner.invoke(
+                main,
+                [
+                    "start",
+                    "rp-task",
+                    "--reuse-pane",
+                    "%55",
+                    "--repo",
+                    str(tmp_path),
+                ],
+            )
+            assert result.exit_code == 0
+            mock_start.assert_called_once()
+            _, kwargs = mock_start.call_args
+            assert kwargs["reuse_pane"] == "%55"
+
 
 # ---------------------------------------------------------------------------
 # _create_single_task queue_only=True path
