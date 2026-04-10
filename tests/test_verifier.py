@@ -938,3 +938,25 @@ class TestJwtAndAwsSecretDetection:
 
         result = _check_secret_leak(task, diff, DEFAULT_SECRET_PATTERNS)
         assert isinstance(result, Correction)
+
+
+class TestAiPlatformSecretDetection:
+    """AI platform API key patterns are detected in diffs."""
+
+    @pytest.mark.parametrize(
+        "pattern,diff_line",
+        [
+            ("ANTHROPIC_API_KEY", "+ANTHROPIC_API_KEY=sk-ant-api03-xxxx"),
+            ("OPENAI_API_KEY", "+OPENAI_API_KEY=sk-proj-xxxx"),
+            ("OPENAI_ORG_ID", "+OPENAI_ORG_ID=org-abc123"),
+            ("HF_TOKEN", "+HF_TOKEN=hf_xxxxxxxxxxxx"),
+            ("HUGGING_FACE_HUB_TOKEN", "+HUGGING_FACE_HUB_TOKEN=hf_yy"),
+            ("REPLICATE_API_TOKEN", "+REPLICATE_API_TOKEN=r8_zzzzz"),
+        ],
+    )
+    def test_ai_platform_key_detected(self, pattern: str, diff_line: str) -> None:
+        task = _make_task()
+        from duo.protocol import DEFAULT_SECRET_PATTERNS
+
+        result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
+        assert isinstance(result, Correction), f"{pattern} not detected"
