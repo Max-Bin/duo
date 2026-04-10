@@ -322,6 +322,28 @@ class TestRunDashboard:
         # Should not raise; only "keep-me" would be displayed
         run_dashboard(task_ids=["keep-me"])
 
+    @patch("duo.dashboard.Console")
+    @patch("duo.dashboard.Live")
+    def test_run_dashboard_loops_back_to_outer_while(self, mock_live, mock_console):
+        """179->149: inner sleep loop completes, outer while iterates again."""
+        from duo.dashboard import run_dashboard
+
+        mock_live.return_value.__enter__ = lambda s: s
+        mock_live.return_value.__exit__ = lambda s, *a: False
+        outer_iter = 0
+
+        def _counting_sleep(_duration):
+            nonlocal outer_iter
+            # Each outer iteration does ceil(0.1/0.25)=1 sleep call
+            outer_iter += 1
+            if outer_iter >= 2:
+                raise KeyboardInterrupt
+
+        with patch("duo.dashboard.time.sleep", side_effect=_counting_sleep):
+            run_dashboard(refresh_rate=0.1)
+        # Must have looped at least twice (first completes inner, second raises)
+        assert outer_iter >= 2
+
 
 class TestStatusColorsExhaustiveness:
     """Verify STATUS_COLORS covers every TaskStatus."""
