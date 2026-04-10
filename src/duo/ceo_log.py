@@ -7,25 +7,18 @@ import os
 import uuid
 from typing import Any
 
-from duo.protocol import DUO_DIR, read_jsonl
+from duo.protocol import DUO_DIR, now_iso, read_jsonl
 
 CEO_SESSIONS_DIR = DUO_DIR / "ceo-sessions"
 
 
-def _now_iso() -> str:
-    """Import now_iso lazily to avoid circular imports in tests."""
-    from duo.protocol import now_iso
-
-    return now_iso()
-
-
 def start_ceo_session() -> str:
     """Create a new CEO session, return session_id."""
-    ts = _now_iso()[:19].replace(":", "").replace("-", "").replace("T", "-")
+    ts = now_iso()[:19].replace(":", "").replace("-", "").replace("T", "-")
     session_id = ts + "-" + uuid.uuid4().hex[:6]
     session_dir = CEO_SESSIONS_DIR / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
-    _append_event(session_id, {"event": "session_started", "ts": _now_iso()})
+    _append_event(session_id, {"event": "session_started", "ts": now_iso()})
     return session_id
 
 
@@ -37,7 +30,7 @@ def log_dialog_detected(
         session_id,
         {
             "event": "dialog_detected",
-            "ts": _now_iso(),
+            "ts": now_iso(),
             "task": task,
             "dialog_kind": dialog_kind,
             "content": dialog_content[:500],
@@ -58,7 +51,7 @@ def log_decision(
         session_id,
         {
             "event": "decision",
-            "ts": _now_iso(),
+            "ts": now_iso(),
             "task": task,
             "decision_type": decision_type,
             "content": decision_content[:500],
@@ -73,7 +66,7 @@ def log_outcome(session_id: str, task: str, outcome: str) -> None:
         session_id,
         {
             "event": "outcome",
-            "ts": _now_iso(),
+            "ts": now_iso(),
             "task": task,
             "outcome": outcome,
         },
