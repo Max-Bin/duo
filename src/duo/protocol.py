@@ -244,6 +244,12 @@ DEFAULT_SECRET_PATTERNS: list[str] = [
     "aws_secret_access_key=",
     "GITHUB_TOKEN=",
     "GH_TOKEN=",
+    "ANTHROPIC_API_KEY=",
+    "OPENAI_API_KEY=",
+    "OPENAI_ORG_ID=",
+    "HUGGING_FACE_HUB_TOKEN=",
+    "HF_TOKEN=",
+    "REPLICATE_API_TOKEN=",
 ]
 
 
