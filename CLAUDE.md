@@ -28,7 +28,7 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — thin Click CLI entry point (52 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion/bench/think/cost/events/go + CEO workflow commands)
+└── cli.py         — thin Click CLI entry point (54 commands: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion/bench/think/cost/events/go + CEO workflow commands)
 ```
 
 ### transport.py — Protocol Classes
@@ -59,9 +59,9 @@ Commander sends prompt (via transport)
   → Correction: retry with feedback (max 3 attempts, then escalate)
 ```
 
-### FSM States (13)
+### FSM States (16)
 
-CREATED → SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING → COMPLETED
+CREATED → QUEUED → SESSION_STARTING → PROMPT_SENT → ACKED → RUNNING → RESULT_REPORTED → VERIFYING → COMPLETED
 
 Side paths: CORRECTING (retry), BLOCKED (executor stuck), ESCALATED (human needed), FAILED (crash → auto restart)
 
@@ -100,8 +100,8 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 2069+ tests, **100% test coverage required** (enforced via `make coverage`)
-- Tests organized by module in `tests/test_*.py` (10 test files)
+- 2251+ tests, **100% test coverage required** (enforced via `make coverage`)
+- Tests organized by module in `tests/test_*.py` (22 test files)
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
 - Fixture `_isolate_tasks_dir` monkeypatches `TASKS_DIR` to `tmp_path` for isolation

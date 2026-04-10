@@ -53,6 +53,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Cross-process monitor race: `task_lock(task_id)` context manager using `fcntl.flock(LOCK_EX | LOCK_NB)` — second monitor skips locked tasks; fresh task reload under lock prevents stale state
 
 ### Security
+- Regex validators (`_SAFE_LABEL`, `_SAFE_SESSION_ID`, `_validate_task_name`) now use `\Z` instead of `$` — prevents trailing newline bypass
 - `_get_copilot_model()` validates env var characters — rejects shell metacharacters
 - `copilot --model` argument now uses `shlex.quote()` to prevent command injection
 - `verify_and_advance` rolls back step/attempt on prompt-send failure (prevents zombie state)
@@ -80,6 +81,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
 - Removed last `@pytest.mark.xfail` — all tests now pass without expected failures
 - All modules now export `__all__` (added to `errors.py`)
+- Test suite 67% faster (82s → 24s) via sleep mocking in 6 transport test classes
+- 22 Hypothesis property-based tests for validators, hash, age, path matching
+- All subprocess.run calls now have explicit timeout parameters
+- `git init` in `duo go` has 30s timeout
 
 ## [1.0.0] — 2026-04-09
 
