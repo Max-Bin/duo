@@ -6329,7 +6329,7 @@ class TestBatchCorruptedJson:
         bad.write_text("{bad json")
         result = runner.invoke(main, ["batch", str(bad), "--repo", "."])
         assert result.exit_code != 0
-        out = result.output.lower() + (result.stderr if result.stderr else "").lower()
+        out = result.output.lower() + (result.stderr or "").lower()
         assert "invalid json" in out or "error" in out
 
 

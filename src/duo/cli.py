@@ -3862,7 +3862,7 @@ def _gather_budget_info(task: Task) -> dict[str, Any]:
         for e in pr_events:
             try:
                 ts_str = e.get("ts", "")
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                ts = datetime.fromisoformat(ts_str)
                 if ts >= one_hour_ago:
                     recent_prs += 1
             except (ValueError, TypeError):
@@ -3890,7 +3890,7 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
         from datetime import UTC, datetime
 
         ts = getattr(task, "session_started_at", None) or task.created_at
-        created = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        created = datetime.fromisoformat(ts)
         age_seconds = (datetime.now(UTC) - created).total_seconds()
     except (ValueError, TypeError, AttributeError):
         pass
@@ -4990,8 +4990,8 @@ def _metrics_load_events(
         timestamps = sorted(e.get("ts", "") for e in events if e.get("ts"))
         if len(timestamps) >= 2:
             try:
-                t0 = datetime.fromisoformat(timestamps[0].replace("Z", "+00:00"))
-                t1 = datetime.fromisoformat(timestamps[-1].replace("Z", "+00:00"))
+                t0 = datetime.fromisoformat(timestamps[0])
+                t1 = datetime.fromisoformat(timestamps[-1])
                 session_durations.append((t1 - t0).total_seconds())
             except (ValueError, TypeError):
                 pass

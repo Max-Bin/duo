@@ -84,7 +84,7 @@ exclude_lines = [
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["F", "E", "W", "I", "UP", "B", "RET", "SIM", "PIE", "PERF"]
+select = ["F", "E", "W", "I", "UP", "B", "RET", "SIM", "PIE", "PERF", "FURB"]
 ignore = ["E501", "E741", "E402", "RET504", "SIM102"]  # line length (formatter), ambiguous vars, conditional imports, unnecessary assign, nested ifs (often more readable)
 
 [tool.ruff.lint.per-file-ignores]
