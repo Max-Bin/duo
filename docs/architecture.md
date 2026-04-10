@@ -1,6 +1,6 @@
 # Duo — Architecture Specification
 
-> **Duo** is a lightweight agent-orchestration runtime (≈ 11 000 lines of Python)
+> **Duo** is a lightweight agent-orchestration runtime (≈ 12 000 lines of Python)
 > that coordinates coding tasks across isolated git worktrees.  A **Commander**
 > (Python CLI) directs an **Executor** (Copilot CLI / Claude Code) through a
 > durable, file-based protocol.
