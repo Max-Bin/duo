@@ -51,7 +51,7 @@ def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     return tasks_dir
 
 
-@pytest.fixture()
+@pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
 
@@ -75,7 +75,7 @@ def _make_task(task_id: str = "test-task", description: str = "Test task") -> Ta
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_task() -> Callable[..., Task]:
     """Fixture wrapper around _make_task for use in test classes."""
     return _make_task

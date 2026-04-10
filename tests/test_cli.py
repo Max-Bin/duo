@@ -93,7 +93,7 @@ def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return tasks_dir
 
 
-@pytest.fixture()
+@pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
 
@@ -117,7 +117,7 @@ def _make_task(task_id: str = "test-task", description: str = "Test task"):
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_task():
     """Fixture wrapper around _make_task for use in test classes."""
     return _make_task
@@ -7350,7 +7350,7 @@ class TestFindIdleChildren:
 class TestCeoCleanup:
     """Tests for duo ceo-cleanup command."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def _task_fixture(self) -> str:
         """Create a task using the project's create_task helper."""
         task = _make_task(task_id="my-task", description="cleanup test")
@@ -7471,7 +7471,7 @@ class TestCeoCleanup:
 class TestCeoRestart:
     """Tests for duo ceo-restart command."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def _task_fixture(self) -> str:
         task = _make_task(task_id="restart-test", description="restart test")
         task.pane_label = "test-pane"

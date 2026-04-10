@@ -12,12 +12,12 @@ from duo.cli import main
 from duo.protocol import load_task
 
 
-@pytest.fixture()
+@pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_thinking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect THINKING_DIR to a temp dir."""
     fake = tmp_path / "thinking"

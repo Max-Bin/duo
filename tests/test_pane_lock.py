@@ -25,7 +25,7 @@ def _clean_thread_locks():
     _FLOCK_OWNERS.clear()
 
 
-@pytest.fixture()
+@pytest.fixture
 def tmp_locks_dir(monkeypatch: pytest.MonkeyPatch, tmp_path):
     """Redirect _LOCKS_DIR to a temp directory."""
     lock_dir = tmp_path / "locks"
