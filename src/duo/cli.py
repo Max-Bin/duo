@@ -243,11 +243,15 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
 
 
 @main.command()
-def version() -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def version(*, as_json: bool = False) -> None:
     """Show Duo version."""
     from duo import __version__
 
-    click.echo(f"duo {__version__}")
+    if as_json:
+        click.echo(json.dumps({"version": __version__}))
+    else:
+        click.echo(f"duo {__version__}")
 
 
 @main.command()

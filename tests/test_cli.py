@@ -153,6 +153,12 @@ class TestVersion:
         assert result.exit_code == 0
         assert "duo" in result.output
 
+    def test_version_json(self, runner: CliRunner):
+        result = runner.invoke(main, ["version", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "version" in data
+
 
 # ---------------------------------------------------------------------------
 # completion command
