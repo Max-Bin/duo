@@ -15,7 +15,7 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from duo.ceo_log import _validate_session_id
-from duo.cli import _parse_age
+from duo.cli import _fmt_ts, _parse_age, _validate_task_name
 from duo.config import set_config
 from duo.poller import AdaptivePoller, age
 from duo.protocol import (
@@ -1075,3 +1075,74 @@ class TestParseAgeProperties:
 
         with pytest.raises(click.UsageError):
             _parse_age(text)
+
+
+# ── _validate_task_name property tests ──────────────────────────────
+
+
+class TestValidateTaskNameProperties:
+    """Property-based tests for _validate_task_name."""
+
+    @given(
+        name=st.from_regex(r"[a-zA-Z0-9_-]{1,63}", fullmatch=True),
+    )
+    def test_valid_names_accepted(self, name: str) -> None:
+        """Names matching [a-zA-Z0-9_-]{1,63} are accepted."""
+        _validate_task_name(name)
+
+    @given(
+        name=st.text(min_size=64, max_size=200).filter(
+            lambda s: bool(re.match(r"^[a-zA-Z0-9_-]+\Z", s))
+        )
+    )
+    def test_too_long_rejected(self, name: str) -> None:
+        """Names longer than 63 chars are rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="at most 63"):
+            _validate_task_name(name)
+
+    @given(
+        name=st.text(
+            alphabet=st.characters(categories=("L", "N", "P", "S", "Z")),
+            min_size=1,
+            max_size=63,
+        ).filter(lambda s: not re.match(r"^[a-zA-Z0-9_-]+\Z", s))
+    )
+    def test_unsafe_chars_rejected(self, name: str) -> None:
+        """Names with characters outside [a-zA-Z0-9_-] are rejected."""
+        import click
+
+        with pytest.raises(click.BadParameter, match="letters, numbers"):
+            _validate_task_name(name)
+
+
+# ── _fmt_ts property tests ──────────────────────────────────────────
+
+
+class TestFmtTsProperties:
+    """Property-based tests for _fmt_ts."""
+
+    @given(
+        dt=st.datetimes(
+            min_value=datetime(2020, 1, 1),
+            max_value=datetime(2030, 12, 31),
+        )
+    )
+    def test_iso_timestamp_extracts_time(self, dt: datetime) -> None:
+        """ISO timestamps yield HH:MM:SS."""
+        iso = dt.isoformat()
+        result = _fmt_ts(iso)
+        assert result == dt.strftime("%H:%M:%S")
+
+    @given(text=st.text(max_size=50).filter(lambda s: "T" not in s and len(s) >= 8))
+    def test_no_T_returns_first_8_chars(self, text: str) -> None:
+        """Without 'T', returns first 8 chars."""
+        result = _fmt_ts(text)
+        assert result == text[:8]
+
+    @given(text=st.just(""))
+    def test_empty_string(self, text: str) -> None:
+        """Empty string returns truncated empty."""
+        result = _fmt_ts(text)
+        assert result == ""
