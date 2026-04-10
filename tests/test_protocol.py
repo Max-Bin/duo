@@ -292,6 +292,48 @@ class TestTaskStatusTransitions:
                 transition(task, dst)
                 assert task.status == dst, f"{src} → {dst} should be valid"
 
+    def test_every_non_terminal_state_can_reach_failed(self):
+        """All non-terminal states must have a path to FAILED."""
+        terminal = {TaskStatus.COMPLETED}
+        for state in TaskStatus:
+            if state in terminal:
+                continue
+            # BFS to find FAILED from this state
+            visited: set[TaskStatus] = set()
+            queue = [state]
+            found = False
+            while queue:
+                current = queue.pop(0)
+                if current == TaskStatus.FAILED:
+                    found = True
+                    break
+                if current in visited:
+                    continue
+                visited.add(current)
+                queue.extend(TRANSITIONS.get(current, frozenset()))
+            assert found, f"{state.value} cannot reach FAILED"
+
+    def test_every_non_terminal_state_can_reach_blocked(self):
+        """All active (non-terminal, non-recovery) states allow → BLOCKED."""
+        # COMPLETED is terminal, FAILED is a recovery state (only → SESSION_STARTING),
+        # BLOCKED is already the target state.
+        skip = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.BLOCKED}
+        for state in TaskStatus:
+            if state in skip:
+                continue
+            assert TaskStatus.BLOCKED in TRANSITIONS[state], (
+                f"{state.value} should allow → BLOCKED"
+            )
+
+    def test_completed_has_no_outgoing_transitions(self):
+        """COMPLETED is truly terminal — no outgoing edges."""
+        assert len(TRANSITIONS[TaskStatus.COMPLETED]) == 0
+
+    def test_every_state_is_in_transitions_dict(self):
+        """Every TaskStatus value has an entry in TRANSITIONS."""
+        for state in TaskStatus:
+            assert state in TRANSITIONS, f"{state.value} missing from TRANSITIONS"
+
 
 # ---------------------------------------------------------------------------
 # create_task / save_task / load_task
