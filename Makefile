@@ -1,4 +1,4 @@
-.PHONY: install test lint format type-check check coverage clean help quickstart release-check bench-check smoke test-ceo-restart build
+.PHONY: install test lint format type-check check coverage clean help quickstart release-check bench-check smoke guard test-ceo-restart build
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -45,6 +45,9 @@ bench-check: ## Run benchmark regression check against saved baseline
 
 smoke: ## Run end-to-end CLI smoke tests (no tmux needed)
 	bash scripts/smoke-test.sh
+
+guard: ## Run guard / meta tests only (fast, ~0.5s)
+	uv run python -m pytest tests/test_cli_edge.py tests/test_property.py -q --no-header
 
 test-ceo-restart: ## Smoke test ceo-restart (requires running task)
 	@if [ -z "$(TASK)" ]; then echo "Usage: make test-ceo-restart TASK=<name>"; exit 1; fi
