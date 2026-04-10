@@ -4,7 +4,7 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.7.x   | :white_check_mark: |
+| 1.0.x   | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
@@ -21,8 +21,11 @@ We will acknowledge within 48 hours and provide a fix timeline within 7 days.
 Duo executes code via tmux-controlled Copilot CLI sessions. Key safeguards:
 
 - **File protocol**: All task communication via JSON files, no network exposure
-- **Scope verification**: Changed files validated against `writable_paths`
-- **Secret detection**: Diffs scanned for credential patterns before accepting
+- **Scope verification**: Changed files validated against `writable_paths` with root-anchored matching
+- **Secret detection**: Diffs scanned for 53 credential patterns (API keys, tokens, private keys)
+- **Path traversal defense**: Symlink/hardlink detection, Unicode NFC normalization
+- **Input validation**: Regex validators use `\Z` (not `$`) to prevent trailing-newline bypass
 - **PR budget**: Configurable limit on Premium Request consumption
-- **Shell safety**: All subprocess calls use `shell=False` with `shlex.split()`
-- **Atomic writes**: JSON operations use tmp+rename to prevent corruption
+- **Shell safety**: All subprocess calls use `shell=False` with explicit timeouts
+- **Atomic writes**: JSON operations use tmp+rename with symlink refusal
+- **Model injection defense**: `DUO_COPILOT_MODEL` env var validated for shell metacharacters
