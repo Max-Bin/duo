@@ -14490,3 +14490,14 @@ class TestDuoGo:
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code != 0
             assert "failed to name" in result.output.lower()
+
+
+class TestMainModule:
+    """Tests for ``python -m duo`` entry point."""
+
+    def test_main_module_calls_cli_main(self) -> None:
+        with patch("duo.cli.main") as mock_main:
+            import runpy
+
+            runpy.run_module("duo", run_name="__main__", alter_sys=False)
+            mock_main.assert_called_once()
