@@ -530,3 +530,16 @@ class TestVersionConsistency:
             f"Version mismatch: duo.__version__={duo.__version__!r}, "
             f"pyproject.toml={expected!r}"
         )
+
+
+class TestConfigKeysDocumented:
+    """Guard: all config keys must appear in getting-started.md."""
+
+    def test_all_config_keys_in_docs(self) -> None:
+        """Every key in DEFAULTS must be mentioned in getting-started.md."""
+        from duo.config import DEFAULTS
+
+        docs_dir = Path(duo.cli.__file__).resolve().parent.parent.parent / "docs"
+        doc = (docs_dir / "getting-started.md").read_text(encoding="utf-8")
+        missing = [k for k in sorted(DEFAULTS) if k not in doc]
+        assert missing == [], f"Config keys missing from getting-started.md: {missing}"
