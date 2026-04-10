@@ -684,3 +684,55 @@ class TestDocstringCoverageGuard:
         assert missing == [], "Public functions without docstrings:\n" + "\n".join(
             f"  {m}" for m in missing
         )
+
+
+class TestReturnTypeAnnotationGuard:
+    """Guard: all public functions must have return type annotations."""
+
+    def test_public_functions_have_return_types(self) -> None:
+        import ast
+
+        missing = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            tree = ast.parse(f.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("_") and node.returns is None:
+                        missing.append(f"{f.name}:{node.lineno} {node.name}")
+        assert missing == [], (
+            "Public functions without return type annotation:\n"
+            + "\n".join(f"  {m}" for m in missing)
+        )
+
+
+class TestParameterTypeAnnotationGuard:
+    """Guard: all public function parameters must have type annotations."""
+
+    # Click decorators inject params without annotations; inner functions too
+    ALLOWLIST = {
+        ("transport.py", "decorator"),
+        ("transport.py", "wrapper"),
+    }
+
+    def test_public_functions_have_param_types(self) -> None:
+        import ast
+
+        missing = []
+        for f in sorted(Path("src/duo").glob("*.py")):
+            tree = ast.parse(f.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if node.name.startswith("_"):
+                        continue
+                    if (f.name, node.name) in self.ALLOWLIST:
+                        continue
+                    for arg in node.args.args:
+                        if arg.arg == "self" or arg.arg == "cls":
+                            continue
+                        if arg.annotation is None:
+                            missing.append(
+                                f"{f.name}:{node.lineno} {node.name}(..{arg.arg}..)"
+                            )
+        assert missing == [], "Parameters without type annotation:\n" + "\n".join(
+            f"  {m}" for m in missing
+        )
