@@ -720,3 +720,57 @@ ordering. True queue-entry-time ordering would require persisting
 ### LOW — _next_queued dead code removed
 
 **Status: Resolved** in Round FK. Removed unused `_next_queued()` helper.
+
+---
+
+## Rubber-duck audit findings — Rounds FR–FW (thinking, dashboard, protocol)
+
+**Status: All CRITICAL/HIGH/MED findings resolved. Remaining items are LOW/deferred.**
+
+### thinking.py (Round FR, commit `1997f46`)
+
+- **Path traversal via session name** (BLOCKING → RESOLVED): Added
+  `_validate_name()` with `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` regex.
+  CLI already validated via `_validate_task_name()` but library-level
+  defence-in-depth was missing.
+
+- **Unquoted working_dir in shell command** (MED → RESOLVED): Now uses
+  `shlex.quote()` to prevent breakage on paths with spaces.
+
+- **Pane leaked if name_pane raises** (MED → RESOLVED): Extended try/except
+  to cover `name_pane()` — orphan panes now cleaned up.
+
+- **append_session_log FileNotFoundError** (LOW → RESOLVED): Now creates
+  directory if missing via `_ensure_thinking_dir()`.
+
+- **hash() for stability comparison** (LOW → RESOLVED): Replaced with
+  direct string comparison to eliminate theoretical hash collision risk.
+
+### dashboard.py (Round FS, commit `da53225`)
+
+- **Non-dict JSONL crash** (HIGH → RESOLVED): Events panel now skips
+  non-dict entries with `isinstance(ev, dict)` guard.
+
+- **Rich markup injection** (MED → RESOLVED): Task IDs and event names
+  escaped with `rich.markup.escape()`.
+
+- **Heartbeat read OSError** (MED → RESOLVED): Wrapped `read_heartbeat`
+  in try/except OSError — degrades to "—" not crash.
+
+- **Journal re-read per refresh** (MED → DEFERRED): Performance
+  optimization for large journals. Not a correctness issue.
+
+- **Single-frame state inconsistency** (MED → DEFERRED): Dashboard and
+  queue panel can use different task snapshots. Architectural change
+  needed (pass single snapshot to all panels).
+
+### ceo_log.py (Round FV, commit `c5d9f0c`)
+
+- **Session ID path traversal** (HIGH → RESOLVED): Added
+  `_validate_session_id()` to `replay_session()`, `session_stats()`,
+  and `_append_event()`.
+
+### protocol.py (Round FW, commit `b571d45`)
+
+- **read_json PermissionError crash** (MED → RESOLVED): Broadened
+  exception handler from `FileNotFoundError` to `OSError`.
