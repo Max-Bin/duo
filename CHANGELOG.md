@@ -70,6 +70,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - GitHub repo URL case: `maxbin` → `Max-Bin` in install.sh and getting-started.md
 - 3 commands (`go`, `ceo-cleanup`, `ceo-restart`) added to `_COMMAND_SECTIONS` — were showing under 'Other' in `--help`
 - **20 shadowed tests recovered**: duplicate `TestCeoMetrics` class in test_cli.py caused Python to silently discard the first class's tests
+- **4 shadowed methods recovered**: duplicate method names in `TestCeoSelect` for ceo-approve tests overwrote ceo-select tests
 - Consolidated duplicate `TestFmtTs` property test classes (removed redundant weaker assertion)
 - Extracted `kill_pane()` into transport layer — all 7 direct tmux subprocess calls now routed through validated transport function
 - Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
