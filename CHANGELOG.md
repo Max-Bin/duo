@@ -18,6 +18,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `duo merge --json-output` — structured merge results (dry-run and actual)
 - `duo kill --json-output` — structured cleanup results
 - `duo send --json-output` — structured prompt delivery results
+- `duo start --json-output` — task creation results for scripting
+- `duo resume --json-output` — session recovery results with per-task details
+- `__all__` exports on all modules (cli.py was the last)
 
 ### Fixed
 - Duplicate task ID detection in `create_task()` — raises ValueError instead of silently overwriting

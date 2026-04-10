@@ -362,6 +362,7 @@ duo recover                  # Replay journals, restore FSM state
 duo recover --json-output    # Machine-readable recovery report
 duo resume                   # Resume all interrupted sessions
 duo resume my-task           # Resume a specific task
+duo resume --json-output     # Structured resume results
 ```
 
 ### Cleaning up old tasks
