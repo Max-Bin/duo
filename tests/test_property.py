@@ -1244,3 +1244,106 @@ class TestFSMReachabilityProperty:
             if state in targets and state not in allowed_self:
                 msg = f"Unexpected self-transition: {state.value} → {state.value}"
                 raise AssertionError(msg)
+
+
+class TestPromptBuilderProperties:
+    """Property tests for commander prompt builder functions."""
+
+    @given(
+        desc=st.text(min_size=1, max_size=200),
+        incarnation=st.from_regex(r"[0-9a-f]{8}", fullmatch=True),
+    )
+    def test_bootstrap_contains_incarnation(self, desc: str, incarnation: str) -> None:
+        """build_bootstrap_prompt always includes incarnation id."""
+        from duo.commander import build_bootstrap_prompt
+        from duo.protocol import SecurityPolicy, Subtask, Task, TaskStatus
+
+        task = Task(
+            id="test-task",
+            description=desc,
+            worktree="/tmp/test-wt",
+            branch="main",
+            base_commit="abc123",
+            pane_label="test-pane",
+            status=TaskStatus.CREATED,
+            current_step=1,
+            current_attempt=1,
+            incarnation_id=incarnation,
+            created_at="2025-01-01T00:00:00Z",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="do stuff",
+                    target_files=["a.py"],
+                    writable_paths=["*.py"],
+                )
+            ],
+            security_policy=SecurityPolicy(),
+        )
+        result = build_bootstrap_prompt(task)
+        assert incarnation in result
+
+    @given(
+        desc=st.text(min_size=1, max_size=200),
+        override=st.text(min_size=1, max_size=100),
+    )
+    def test_bootstrap_override_appears(self, desc: str, override: str) -> None:
+        """build_bootstrap_prompt includes override prompt when given."""
+        from duo.commander import build_bootstrap_prompt
+        from duo.protocol import SecurityPolicy, Subtask, Task, TaskStatus
+
+        task = Task(
+            id="test-task",
+            description=desc,
+            worktree="/tmp/test-wt",
+            branch="main",
+            base_commit="abc123",
+            pane_label="test-pane",
+            status=TaskStatus.CREATED,
+            current_step=1,
+            current_attempt=1,
+            incarnation_id="abcd1234",
+            created_at="2025-01-01T00:00:00Z",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="do stuff",
+                    target_files=["a.py"],
+                    writable_paths=["*.py"],
+                )
+            ],
+            security_policy=SecurityPolicy(),
+        )
+        result = build_bootstrap_prompt(task, override_prompt=override)
+        assert override in result
+
+    @given(reason=st.text(min_size=1, max_size=200))
+    def test_correction_prompt_contains_reason(self, reason: str) -> None:
+        """build_correction_prompt always includes the correction reason."""
+        from duo.commander import build_correction_prompt
+        from duo.protocol import SecurityPolicy, Subtask, Task, TaskStatus
+
+        task = Task(
+            id="test-task",
+            description="fix it",
+            worktree="/tmp/test-wt",
+            branch="main",
+            base_commit="abc123",
+            pane_label="test-pane",
+            status=TaskStatus.CORRECTING,
+            current_step=1,
+            current_attempt=2,
+            incarnation_id="abcd1234",
+            created_at="2025-01-01T00:00:00Z",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="fix bug",
+                    target_files=["b.py"],
+                    writable_paths=["*.py"],
+                )
+            ],
+            security_policy=SecurityPolicy(),
+        )
+        result = build_correction_prompt(task, reason)
+        assert reason in result
