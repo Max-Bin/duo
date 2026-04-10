@@ -4461,6 +4461,38 @@ class TestDiffCommand:
             assert result.exit_code == 0
             assert "file.py" in result.output
 
+    def test_diff_name_only(self, runner: CliRunner, tmp_path: Path):
+        """diff --name-only lists changed file names."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
+        create_task(
+            task_id="diff-names",
+            description="desc",
+            worktree=str(wt),
+            branch="main",
+            base_commit="abc",
+            subtasks=[sub],
+        )
+
+        import subprocess
+
+        original_run = subprocess.run
+        name_text = "src/foo.py\nsrc/bar.py\n"
+
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "git" and "diff" in cmd:
+                assert "--name-only" in cmd
+                return subprocess.CompletedProcess(cmd, 0, stdout=name_text, stderr="")
+            return original_run(cmd, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["diff", "diff-names", "--name-only"])
+            assert result.exit_code == 0
+            assert "src/foo.py" in result.output
+            assert "src/bar.py" in result.output
+
 
 # ---------------------------------------------------------------------------
 # --json-output flag

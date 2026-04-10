@@ -319,11 +319,9 @@ to miss them and `ceo-loop` to spin without handling them.
 
 ### Verifier layer (Round BI, commit `2fe8653`)
 
-- **`fnmatch` case sensitivity** (MED): `fnmatch.fnmatch` is case-insensitive
-  on macOS (HFS+) but case-sensitive on Linux (ext4). `writable_paths`
-  patterns may behave differently across platforms. Fix: use
-  `fnmatch.fnmatchcase` for consistent behavior. Deferred because all
-  current users are on macOS.
+- **~~`fnmatch` case sensitivity~~** — **RESOLVED**: The implementation uses
+  `PurePosixPath.match()` (not `fnmatch`), which is case-sensitive on all
+  platforms. Cross-platform behavior is consistent. No action needed.
 
 - **Regex-based secret detection** (LOW): Pattern matching can't catch
   base64-encoded secrets or secrets split across lines. Would need a more

@@ -4582,7 +4582,10 @@ def cleanup(
 @main.command("diff")
 @click.argument("name")
 @click.option("--stat", "show_stat", is_flag=True, help="Show diffstat summary only")
-def diff_cmd(name: str, *, show_stat: bool) -> None:
+@click.option(
+    "--name-only", "name_only", is_flag=True, help="List changed file names only"
+)
+def diff_cmd(name: str, *, show_stat: bool, name_only: bool) -> None:
     """Show git diff for a task's worktree changes."""
     task = _load_task_or_fail(name)
 
@@ -4595,6 +4598,8 @@ def diff_cmd(name: str, *, show_stat: bool) -> None:
     git_args = ["diff", task.base_commit]
     if show_stat:
         git_args.append("--stat")
+    if name_only:
+        git_args.append("--name-only")
     result = _run_git(git_args, cwd=task.worktree, check=False)
     if result.stdout:
         click.echo(result.stdout)
