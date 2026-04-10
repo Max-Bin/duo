@@ -15,8 +15,9 @@ from hypothesis import strategies as st
 
 from duo.ceo_log import _validate_session_id
 from duo.config import set_config
-from duo.poller import age
+from duo.poller import AdaptivePoller, age
 from duo.protocol import (
+    DEFAULT_SECRET_PATTERNS,
     TRANSITIONS,
     TaskStatus,
     atomic_write_text,
@@ -25,7 +26,7 @@ from duo.protocol import (
     read_jsonl,
 )
 from duo.transport import _validate_label, strip_ansi
-from duo.verifier import _match_writable
+from duo.verifier import _match_writable, _validate_writable_patterns
 
 # ---------------------------------------------------------------------------
 # Strategies
@@ -669,3 +670,140 @@ class TestFmtTsProperty:
 
         result = _fmt_ts(iso)
         assert re.fullmatch(r"\d{2}:\d{2}:\d{2}", result)
+
+
+# === Verifier property tests ===
+
+
+class TestSecretPatternFalsePositives:
+    """Property tests: normal code should not trigger secret detection."""
+
+    @given(
+        identifier=st.from_regex(r"[a-z][a-z0-9_]{2,20}", fullmatch=True),
+        value=st.from_regex(r"[0-9]{1,10}", fullmatch=True),
+    )
+    def test_numeric_assignments_safe(self, identifier: str, value: str) -> None:
+        """Pure numeric assignments should never trigger secret patterns."""
+        line = f"+{identifier} = {value}"
+        for pattern in DEFAULT_SECRET_PATTERNS:
+            if pattern.endswith("="):
+                key = re.escape(pattern[:-1])
+                regex = key + r"\s*="
+            else:
+                regex = re.escape(pattern)
+            assert not re.search(regex, line, re.IGNORECASE), (
+                f"False positive: '{line}' matched pattern '{pattern}'"
+            )
+
+    @given(
+        func=st.from_regex(r"[a-z_]{3,15}", fullmatch=True),
+        arg=st.from_regex(r"[a-z_]{3,15}", fullmatch=True),
+    )
+    def test_function_calls_safe(self, func: str, arg: str) -> None:
+        """Function call lines should not trigger unless they contain secrets."""
+        line = f"+result = {func}({arg})"
+        assume("token" not in func.lower())
+        assume("secret" not in func.lower())
+        assume("password" not in func.lower())
+        assume("key" not in func.lower())
+        assume("private" not in func.lower())
+        assume("bearer" not in func.lower())
+        for pattern in DEFAULT_SECRET_PATTERNS:
+            if pattern.endswith("="):
+                key = re.escape(pattern[:-1])
+                regex = key + r"\s*="
+            else:
+                regex = re.escape(pattern)
+            assert not re.search(regex, line, re.IGNORECASE), (
+                f"False positive: '{line}' matched pattern '{pattern}'"
+            )
+
+
+class TestSecretPatternKnownFormats:
+    """Property tests: known secret formats must always be detected."""
+
+    @given(suffix=st.from_regex(r"[A-Za-z0-9]{20,40}", fullmatch=True))
+    def test_github_pat_detected(self, suffix: str) -> None:
+        """github_pat_ prefix must always be caught."""
+        line = f"+GITHUB_TOKEN=github_pat_{suffix}"
+        pat = "github_pat_"
+        assert re.search(re.escape(pat), line, re.IGNORECASE)
+
+    @given(suffix=st.from_regex(r"[A-Za-z0-9]{36}", fullmatch=True))
+    def test_ghp_prefix_detected(self, suffix: str) -> None:
+        """ghp_ prefix must always be caught."""
+        line = f'+token = "ghp_{suffix}"'
+        pat = "ghp_"
+        assert re.search(re.escape(pat), line, re.IGNORECASE)
+
+    @given(key_value=st.from_regex(r"[A-Za-z0-9+/]{20,60}", fullmatch=True))
+    def test_aws_key_detected(self, key_value: str) -> None:
+        """AKIA prefix must always be caught."""
+        line = f"+AWS_ACCESS_KEY_ID=AKIA{key_value}"
+        pat = "AKIA"
+        assert re.search(re.escape(pat), line, re.IGNORECASE)
+
+    @given(
+        ws=st.from_regex(r"\s{0,5}", fullmatch=True),
+        val=st.from_regex(r"[A-Za-z0-9]{5,30}", fullmatch=True),
+    )
+    def test_key_equals_whitespace_tolerance(self, ws: str, val: str) -> None:
+        """API_KEY= pattern must match with whitespace around '='."""
+        line = f"+API_KEY{ws}={ws}{val}"
+        pat = "API_KEY="
+        key = re.escape(pat[:-1])
+        regex = key + r"\s*="
+        assert re.search(regex, line, re.IGNORECASE)
+
+
+class TestValidateWritablePatternsProperty:
+    """Property tests for _validate_writable_patterns."""
+
+    @given(pat=st.from_regex(r"[a-z][a-z0-9_/.*]{1,30}", fullmatch=True))
+    def test_relative_patterns_pass(self, pat: str) -> None:
+        """Valid relative patterns are preserved."""
+        result = _validate_writable_patterns([pat])
+        assert result == [pat]
+
+    @given(pat=st.from_regex(r"/[a-z][a-z0-9_/]{1,30}", fullmatch=True))
+    def test_absolute_patterns_rejected(self, pat: str) -> None:
+        """Absolute paths are always filtered out."""
+        result = _validate_writable_patterns([pat])
+        assert result == []
+
+    @given(pat=st.from_regex(r"\s{0,5}", fullmatch=True))
+    def test_whitespace_patterns_rejected(self, pat: str) -> None:
+        """Empty or whitespace-only patterns are filtered out."""
+        result = _validate_writable_patterns([pat])
+        assert result == []
+
+
+class TestPollerBackoffProperty:
+    """Property tests for AdaptivePoller timing invariants."""
+
+    @given(n_ramps=st.integers(min_value=1, max_value=100))
+    def test_interval_monotonic_increase(self, n_ramps: int) -> None:
+        """Interval only increases (or stays at max) during successive ramps."""
+        poller = AdaptivePoller(base_interval=5.0, max_interval=60.0)
+        prev = poller.interval
+        for _ in range(n_ramps):
+            poller._ramp()
+            assert poller.interval >= prev
+            prev = poller.interval
+
+    @given(n_ramps=st.integers(min_value=1, max_value=200))
+    def test_interval_never_exceeds_max(self, n_ramps: int) -> None:
+        """Interval must never exceed max_interval no matter how many ramps."""
+        poller = AdaptivePoller(base_interval=5.0, max_interval=60.0)
+        for _ in range(n_ramps):
+            poller._ramp()
+        assert poller.interval <= 60.0
+
+    @given(n_ramps=st.integers(min_value=1, max_value=50))
+    def test_reset_returns_to_base(self, n_ramps: int) -> None:
+        """Reset always returns interval to base, regardless of ramp history."""
+        poller = AdaptivePoller(base_interval=5.0, max_interval=60.0)
+        for _ in range(n_ramps):
+            poller._ramp()
+        poller._reset()
+        assert poller.interval == 5.0
