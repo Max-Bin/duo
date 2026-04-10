@@ -2669,14 +2669,18 @@ def config_get(key: str, *, as_json: bool = False) -> None:
 @config.command("set")
 @click.argument("key")
 @click.argument("value")
-def config_set(key: str, value: str) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def config_set(key: str, value: str, *, as_json: bool = False) -> None:
     """Set a config value."""
     from duo.config import DEFAULTS, set_config
 
     if key not in DEFAULTS:
         click.echo(f"Warning: '{key}' is not a known config key", err=True)
     result = set_config(key, value)
-    click.echo(f"{key} = {result}")
+    if as_json:
+        click.echo(json.dumps({key: result}))
+    else:
+        click.echo(f"{key} = {result}")
 
 
 @config.command("list")
@@ -2702,7 +2706,8 @@ def config_list(*, as_json: bool = False) -> None:
 
 @config.command("reset")
 @click.argument("key", required=False)
-def config_reset(key: str | None = None) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def config_reset(key: str | None = None, *, as_json: bool = False) -> None:
     """Reset config to defaults (or reset a single key)."""
     from duo.config import DEFAULTS, reset_config
 
@@ -2712,7 +2717,9 @@ def config_reset(key: str | None = None) -> None:
             fix="Run 'duo config list' to see available keys.",
         )
     reset_config(key)
-    if key:
+    if as_json:
+        click.echo(json.dumps({"reset": key or "all"}))
+    elif key:
         click.echo(f"Reset {key} to default.")
     else:
         click.echo("All config reset to defaults.")

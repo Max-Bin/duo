@@ -3263,6 +3263,47 @@ class TestConfigSubcommands:
         assert result.exit_code != 0
         assert "Unknown config key" in result.output
 
+    def test_config_set_json(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """config set --json-output returns JSON."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(
+            main, ["config", "set", "max_corrections", "5", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["max_corrections"] == 5
+
+    def test_config_reset_json_single(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config reset KEY --json-output returns JSON."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(
+            main, ["config", "reset", "max_corrections", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["reset"] == "max_corrections"
+
+    def test_config_reset_json_all(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config reset --json-output returns JSON."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "reset", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["reset"] == "all"
+
 
 # ---------------------------------------------------------------------------
 # monitor command
