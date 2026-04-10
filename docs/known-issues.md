@@ -663,16 +663,13 @@ root-anchored path matching. Added Unicode NFC normalization.
 using `dict.fromkeys()` for dedup. Older tasks benefit from newly-added
 patterns when verified by newer code.
 
-### MED — load_task type confusion
+### MED — load_task type confusion — PARTIALLY RESOLVED
 
-`load_task()` trusts JSON structure matches dataclass fields.
-A corrupted or manually-edited `task.json` with wrong types
-(e.g., `"step": "one"` instead of `"step": 1`) would cause
-runtime errors in unpredictable places rather than at load time.
+**Status: Partially fixed** in commit `034896d` (Round FA).
 
-**Fix:** Add type validation in `load_task()` with early error
-reporting. Deferred as low-impact — task.json is written by
-atomic `save_task()`, not hand-edited.
+Added type validation for `current_attempt` (int) and `status` (str)
+in `load_task()`. Together with existing `subtasks` (list) and
+`current_step` (int) checks, the most critical fields are now validated.
 
 ### MED — FSM validation weaker than documented
 
