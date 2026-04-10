@@ -8,10 +8,11 @@ import unicodedata
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from duo.ceo_log import _validate_session_id
+from duo.config import set_config
 from duo.poller import age
 from duo.protocol import prompt_hash
 from duo.transport import _validate_label
@@ -245,6 +246,59 @@ class TestValidateSessionIdProperty:
         """Session IDs with path traversal characters should fail."""
         with pytest.raises(ValueError, match="Invalid CEO session ID"):
             _validate_session_id(session_id)
+
+
+# ---------------------------------------------------------------------------
+# Config coercion
+# ---------------------------------------------------------------------------
+
+
+class TestConfigCoercionProperty:
+    """Property-based tests for config value coercion and round-trip."""
+
+    @given(val=st.integers(min_value=1, max_value=100))
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_int_config_roundtrip(self, val: int, tmp_path, monkeypatch) -> None:
+        """Integer values in valid range round-trip through set_config."""
+        import duo.config as cfg
+
+        monkeypatch.setattr(cfg, "CONFIG_PATH", tmp_path / "config.json")
+        result = set_config("max_corrections", str(val))
+        assert result == val
+        assert isinstance(result, int)
+
+    @given(val=st.floats(min_value=0.01, max_value=300.0, allow_nan=False, allow_infinity=False))
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_float_config_roundtrip(self, val: float, tmp_path, monkeypatch) -> None:
+        """Float values round-trip correctly."""
+        import duo.config as cfg
+
+        monkeypatch.setattr(cfg, "CONFIG_PATH", tmp_path / "config.json")
+        result = set_config("poll_base_interval", str(val))
+        assert abs(result - val) < 1e-6
+        assert isinstance(result, float)
+
+    @given(val=st.sampled_from(["true", "false", "1", "0", "yes", "no", "True", "False", "YES", "NO"]))
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_bool_config_accepts_all_variants(self, val: str, tmp_path, monkeypatch) -> None:
+        """All boolean string variants are accepted."""
+        import duo.config as cfg
+
+        monkeypatch.setattr(cfg, "CONFIG_PATH", tmp_path / "config.json")
+        result = set_config("auto_allow_all", val)
+        assert isinstance(result, bool)
+
+    @given(val=st.text(min_size=1, max_size=10).filter(
+        lambda s: s.lower() not in ("true", "false", "1", "0", "yes", "no")
+    ))
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_invalid_bool_rejected(self, val: str, tmp_path, monkeypatch) -> None:
+        """Non-boolean strings raise ValueError for bool keys."""
+        import duo.config as cfg
+
+        monkeypatch.setattr(cfg, "CONFIG_PATH", tmp_path / "config.json")
+        with pytest.raises(ValueError, match="Cannot convert"):
+            set_config("auto_allow_all", val)
 
 
 # ---------------------------------------------------------------------------
