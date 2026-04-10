@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,13 @@ def load_config() -> dict[str, Any]:
     config = dict(DEFAULTS)
     if CONFIG_PATH.exists():
         try:
-            stored = json.loads(CONFIG_PATH.read_text())
+            stored = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+            if not isinstance(stored, dict):
+                logger.warning(
+                    "Config file is not a JSON object (got %s), using defaults",
+                    type(stored).__name__,
+                )
+                return config
             unknown = [k for k in stored if k not in DEFAULTS]
             if unknown:
                 logger.warning(
@@ -71,8 +78,22 @@ def load_config() -> dict[str, Any]:
                             type(value).__name__,
                         )
                         continue
+                    if isinstance(value, float) and not math.isfinite(value):
+                        logger.warning(
+                            "Config key '%s' has non-finite value %r — using default",
+                            key,
+                            value,
+                        )
+                        continue
                     if expected is int:
-                        value = int(value)
+                        try:
+                            value = int(value)
+                        except (ValueError, OverflowError):
+                            logger.warning(
+                                "Config key '%s' cannot be converted to int — using default",
+                                key,
+                            )
+                            continue
                 elif expected is str:
                     if not isinstance(value, str):
                         logger.warning(
@@ -91,8 +112,8 @@ def load_config() -> dict[str, Any]:
                     config["poll_base_interval"],
                 )
                 config["poll_max_interval"] = config["poll_base_interval"]
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning("Config file corrupted or empty, using defaults: %s", e)
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+            logger.warning("Config file corrupted or unreadable, using defaults: %s", e)
     return config
 
 
@@ -146,7 +167,7 @@ def set_config(key: str, value: str) -> bool | int | float | str:
         elif default_type is int:
             try:
                 coerced = int(value)
-            except ValueError as err:
+            except (ValueError, OverflowError) as err:
                 raise ValueError(
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
                 ) from err
@@ -157,6 +178,8 @@ def set_config(key: str, value: str) -> bool | int | float | str:
                 raise ValueError(
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
                 ) from err
+            if not math.isfinite(coerced):
+                raise ValueError(f"'{key}' must be a finite number, got {coerced!r}")
         # Validate numeric ranges
         if key in _INT_MINIMUMS:
             minimum = _INT_MINIMUMS[key]

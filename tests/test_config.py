@@ -431,3 +431,110 @@ class TestConfigBranchEdgeCases:
         cfg_path.write_text(json.dumps({"tags": ["a", "b"]}))
         cfg = config_mod.load_config()
         assert cfg["tags"] == ["a", "b"]
+
+
+class TestConfigRubberDuckHardening:
+    """Tests from rubber-duck audit: non-finite, non-dict, int overflow."""
+
+    def test_load_non_dict_json_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Non-dict JSON (array, string, null) falls back to defaults."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        for content in ["[]", '"hello"', "null", "42"]:
+            cfg_path.write_text(content, encoding="utf-8")
+            cfg = config_mod.load_config()
+            assert cfg == dict(config_mod.DEFAULTS)
+
+    def test_load_nan_in_numeric_field_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """NaN in a numeric field is rejected."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg_path.write_text('{"poll_base_interval": NaN}', encoding="utf-8")
+        cfg = config_mod.load_config()
+        assert cfg["poll_base_interval"] == config_mod.DEFAULTS["poll_base_interval"]
+
+    def test_load_infinity_in_numeric_field_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Infinity in a numeric field is rejected."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg_path.write_text('{"poll_base_interval": Infinity}', encoding="utf-8")
+        cfg = config_mod.load_config()
+        assert cfg["poll_base_interval"] == config_mod.DEFAULTS["poll_base_interval"]
+
+    def test_load_int_overflow_uses_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Float that overflows int conversion uses default."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg_path.write_text('{"max_corrections": 1e999}', encoding="utf-8")
+        cfg = config_mod.load_config()
+        assert cfg["max_corrections"] == config_mod.DEFAULTS["max_corrections"]
+
+    def test_load_int_conversion_value_error(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Numeric value that passes isfinite but fails int() uses default."""
+        from unittest.mock import patch
+
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg_path.write_text(json.dumps({"max_corrections": 3}), encoding="utf-8")
+
+        orig_json_loads = json.loads
+
+        def _inject_bad_value(s, **kw):
+            result = orig_json_loads(s, **kw)
+            if isinstance(result, dict) and "max_corrections" in result:
+                # Replace with a mock object that passes isinstance and isfinite
+                # but fails int()
+                result["max_corrections"] = float("inf")
+            return result
+
+        with patch("duo.config.json.loads", side_effect=_inject_bad_value):
+            with patch("duo.config.math.isfinite", return_value=True):
+                cfg = config_mod.load_config()
+        assert cfg["max_corrections"] == config_mod.DEFAULTS["max_corrections"]
+
+    def test_load_unicode_error_falls_back(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Non-UTF-8 file falls back to defaults."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        cfg_path.write_bytes(b"\xff\xfe invalid utf-8")
+        cfg = config_mod.load_config()
+        assert cfg == dict(config_mod.DEFAULTS)
+
+    def test_set_nan_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """set_config rejects NaN for float fields."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_base_interval", "nan")
+
+    def test_set_infinity_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """set_config rejects Infinity for float fields."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_base_interval", "inf")
+
+    def test_set_neg_infinity_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """set_config rejects -Infinity for float fields."""
+        cfg_path = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_base_interval", "-inf")
