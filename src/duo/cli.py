@@ -5106,6 +5106,7 @@ def ceo_metrics_cmd(
     since: str | None,
 ) -> None:
     """Aggregate analytics across CEO sessions."""
+    del all_sessions  # Click UX flag; session_id=None already implies all
     all_events, session_count, durations = _metrics_load_events(session_id, since)
 
     if session_count == 0:
