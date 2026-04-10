@@ -23,7 +23,7 @@ import click
 from duo.config import get_config
 from duo.errors import DuoUserError
 from duo.protocol import (
-    DUO_DIR,  # noqa: F401 — used by test monkeypatching
+    DUO_DIR,  # used by test monkeypatching
     TASKS_DIR,
     Heartbeat,
     Subtask,
@@ -356,7 +356,7 @@ def start(
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_fd: Any = None
     try:
-        lock_fd = open(lock_path, "w", encoding="utf-8")  # noqa: SIM115
+        lock_fd = open(lock_path, "w", encoding="utf-8")  # noqa: SIM115 — kept open for flock
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (OSError, BlockingIOError):
         if lock_fd is not None:

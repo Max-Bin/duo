@@ -675,7 +675,7 @@ incarnation: {task.incarnation_id}  step: {step}  attempt: {attempt}
 
 #hash:{prompt_hash(subtask.description)}"""
 
-    return prompt  # noqa: RET504
+    return prompt
 
 
 def build_continue_prompt(task: Task) -> str:

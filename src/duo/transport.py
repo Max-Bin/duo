@@ -41,10 +41,10 @@ class TmuxServerDownError(RuntimeError):
 
 
 __all__ = [
-    "DialogDetector",
-    "DialogKind",
     "MINIMUM_PANE_COLS",
     "MINIMUM_PANE_ROWS",
+    "DialogDetector",
+    "DialogKind",
     "PaneInfo",
     "PaneReader",
     "TmuxServerDownError",
@@ -943,7 +943,7 @@ def _record_pr(label: str, action: str, context: str = "") -> None:
     if callback is not None:
         try:
             callback(label, action, context)
-        except Exception:  # noqa: BLE001  # user-supplied callback can raise anything
+        except Exception:  # user-supplied callback can raise anything
             logger.warning("PR callback failed for %s/%s", label, action, exc_info=True)
 
 

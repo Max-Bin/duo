@@ -455,9 +455,9 @@ def append_event(task: Task, event: str, data: dict[str, Any] | None = None) -> 
 
     # Open r+ for read/write/truncate; fall back to w+ for new files
     try:
-        f = open(journal, "r+", encoding="utf-8")  # noqa: SIM115
+        f = open(journal, "r+", encoding="utf-8")  # noqa: SIM115 — opened before with-block for flock
     except FileNotFoundError:
-        f = open(journal, "w+", encoding="utf-8")  # noqa: SIM115
+        f = open(journal, "w+", encoding="utf-8")  # noqa: SIM115 — opened before with-block for flock
 
     with f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
