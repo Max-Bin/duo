@@ -365,3 +365,24 @@ class TestNoDuplicateTestClasses:
         assert dupes == [], (
             f"Duplicate test methods (shadowed, tests silently lost): {dupes}"
         )
+
+
+class TestConftestIsolation:
+    """Guard: conftest.py must isolate all test files from ~/.duo."""
+
+    def test_tasks_dir_is_tmp(self, tmp_path: Path) -> None:
+        """TASKS_DIR must point to a temp directory, not ~/.duo/tasks."""
+        assert "tmp" in str(duo.protocol.TASKS_DIR).lower() or str(tmp_path) in str(
+            duo.protocol.TASKS_DIR
+        )
+
+    def test_config_path_is_tmp(self, tmp_path: Path) -> None:
+        """CONFIG_PATH must point to a temp directory."""
+        from duo.config import CONFIG_PATH
+
+        assert "tmp" in str(CONFIG_PATH).lower() or str(tmp_path) in str(CONFIG_PATH)
+
+    def test_corrupted_dir_is_tmp(self, tmp_path: Path) -> None:
+        """_CORRUPTED_DIR must point to a temp directory."""
+        corrupted = duo.protocol._CORRUPTED_DIR
+        assert "tmp" in str(corrupted).lower() or str(tmp_path) in str(corrupted)
