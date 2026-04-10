@@ -26,6 +26,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 4 new JSON schema validation smoke tests: verify key presence in JSON output (114→118)
 - 5 new property tests: _parse_age multiplication correctness and unit relationships (76→81)
 - 6 new property tests: _validate_task_name and _fmt_ts edge cases (81→87, 27 classes)
+- 2 module export guards: verify all modules define __all__ with valid attributes
+- 1 FSM doc accuracy guard: architecture.md transition table must match protocol.TRANSITIONS
+- 2 config doc guards: getting-started.md and architecture.md must list all config keys
+- 1 no-duplicate-test-class guard: prevents Python class shadowing (found 20 lost tests!)
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
@@ -65,6 +69,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Hypothesis-discovered bug: property test `test_function_calls_safe` now filters all 63 secret patterns (not just 6 keywords) to prevent false positive matches like `gho_`
 - GitHub repo URL case: `maxbin` → `Max-Bin` in install.sh and getting-started.md
 - 3 commands (`go`, `ceo-cleanup`, `ceo-restart`) added to `_COMMAND_SECTIONS` — were showing under 'Other' in `--help`
+- **20 shadowed tests recovered**: duplicate `TestCeoMetrics` class in test_cli.py caused Python to silently discard the first class's tests
+- Consolidated duplicate `TestFmtTs` property test classes (removed redundant weaker assertion)
 - Extracted `kill_pane()` into transport layer — all 7 direct tmux subprocess calls now routed through validated transport function
 - Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
 - Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
