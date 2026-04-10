@@ -50,6 +50,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `verify_and_advance` rolls back step/attempt on prompt-send failure (prevents zombie state)
 - `poll_task` adopts fresh task state after disk reload (prevents stale incarnation race)
 - `restart_session` terminates old crashed pane before creating new one (prevents orphan accumulation)
+- `start_session` now transitions to FAILED on startup timeout instead of blindly sending commands
+- `start_session` extended try/except covers /allow-all and bootstrap phases (prevents orphaned panes)
+- Dead `resend_last_prompt` path now reachable via fallback to `session_started_at`/`created_at`
+- Bootstrap now sets `last_prompt_sent_at` for correct monitor/retry state tracking
+- `subprocess.TimeoutExpired` caught in all session lifecycle paths (prevents monitor crash)
+- `_count_corrections()` bounded journal read with tail=200 (performance)
 
 ### Changed
 - `session_started_at` field added to `duo status --json-output` and `duo list --json-output`
