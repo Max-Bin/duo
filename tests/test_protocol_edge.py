@@ -116,3 +116,38 @@ class TestProtocolEdgeCases:
         assert duo.protocol.TASKS_DIR.exists()
         assert task.dir.exists()
         assert (task.dir / "task.json").exists()
+
+
+class TestFSMDocAccuracy:
+    """Guard that docs/architecture.md FSM table matches TRANSITIONS."""
+
+    def test_architecture_transitions_match_code(self) -> None:
+        """Transition table in architecture.md must match protocol.TRANSITIONS."""
+        import re
+
+        from duo.protocol import TRANSITIONS
+
+        arch_path = Path(__file__).resolve().parent.parent / "docs" / "architecture.md"
+        text = arch_path.read_text(encoding="utf-8")
+
+        doc_transitions: dict[str, set[str]] = {}
+        pattern = re.compile(r"^(\w+)\s+→\s+\{\s*(.*?)\s*\}", re.MULTILINE)
+        for m in pattern.finditer(text):
+            state = m.group(1)
+            targets_str = m.group(2).strip()
+            targets = {t.strip() for t in targets_str.split(",") if t.strip()}
+            doc_transitions[state] = targets
+
+        code_transitions: dict[str, set[str]] = {}
+        for state, targets in TRANSITIONS.items():
+            code_transitions[state.name] = {t.name for t in targets}
+
+        assert set(doc_transitions.keys()) == set(code_transitions.keys()), (
+            f"States mismatch: doc has {set(doc_transitions.keys()) - set(code_transitions.keys())} extra, "
+            f"code has {set(code_transitions.keys()) - set(doc_transitions.keys())} extra"
+        )
+        for state in code_transitions:
+            assert doc_transitions[state] == code_transitions[state], (
+                f"Transition mismatch for {state}: "
+                f"doc={doc_transitions[state]}, code={code_transitions[state]}"
+            )
