@@ -2650,14 +2650,35 @@ def events() -> None:
 
 @events.command("list")
 @click.option("-n", "--limit", default=20, help="Max events to show")
-def events_list(limit: int) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def events_list(limit: int, *, as_json: bool = False) -> None:
     """List recent watch events (newest first)."""
     if not _WATCH_EVENTS_DIR.exists():
-        click.echo("No events.")
+        if as_json:
+            click.echo(json.dumps({"events": [], "total": 0}))
+        else:
+            click.echo("No events.")
         return
     files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
     if not files:
-        click.echo("No events.")
+        if as_json:
+            click.echo(json.dumps({"events": [], "total": 0}))
+        else:
+            click.echo("No events.")
+        return
+    items: list[dict[str, str]] = []
+    for f in files[:limit]:
+        data = read_json(f)
+        if data is None:
+            continue
+        if as_json:
+            items.append({"file": f.name, **data})
+        else:
+            ts = _fmt_ts(data.get("detected_at", "?"))
+            task = data.get("task_id", "?")
+            click.echo(f"  {ts}  {task}  {f.name}")
+    if as_json:
+        click.echo(json.dumps({"events": items, "total": len(files)}))
         return
     for f in files[:limit]:
         data = read_json(f)
@@ -2736,20 +2757,30 @@ def events_tail(limit: int) -> None:
 
 @events.command("clear")
 @click.option("--force", is_flag=True, help="Skip confirmation")
-def events_clear(force: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def events_clear(force: bool, *, as_json: bool = False) -> None:
     """Delete all watch-event signal files."""
     if not _WATCH_EVENTS_DIR.exists():
-        click.echo("No events to clear.")
+        if as_json:
+            click.echo(json.dumps({"cleared": 0}))
+        else:
+            click.echo("No events to clear.")
         return
     files = list(_WATCH_EVENTS_DIR.glob("*.json"))
     if not files:
-        click.echo("No events to clear.")
+        if as_json:
+            click.echo(json.dumps({"cleared": 0}))
+        else:
+            click.echo("No events to clear.")
         return
-    if not force:
+    if not force and not as_json:
         click.confirm(f"Delete {len(files)} event(s)?", abort=True)
     for f in files:
         f.unlink(missing_ok=True)
-    click.echo(f"Cleared {len(files)} event(s).")
+    if as_json:
+        click.echo(json.dumps({"cleared": len(files)}))
+    else:
+        click.echo(f"Cleared {len(files)} event(s).")
 
 
 # ---------------------------------------------------------------------------

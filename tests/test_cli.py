@@ -7289,6 +7289,85 @@ class TestEventsCommand:
         result = runner.invoke(main, ["events", "tail"])
         assert "new-task" in result.output
 
+    def test_events_list_json_empty(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """--json-output returns empty list when no events dir."""
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        result = runner.invoke(main, ["events", "list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["events"] == []
+        assert data["total"] == 0
+
+    def test_events_list_json_with_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """--json-output returns event data."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        from duo.protocol import write_json
+
+        write_json(
+            edir / "t1-2026.json",
+            {"task_id": "t1", "detected_at": "2026-04-08T10:00:00Z"},
+        )
+        result = runner.invoke(main, ["events", "list", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data["events"]) == 1
+        assert data["events"][0]["task_id"] == "t1"
+        assert data["total"] == 1
+
+    def test_events_list_json_dir_no_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """--json-output returns empty when dir exists but no .json files."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        result = runner.invoke(main, ["events", "list", "--json-output"])
+        data = json.loads(result.output)
+        assert data["events"] == []
+
+    def test_events_clear_json_empty(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """--json-output clear returns zero when no events."""
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        result = runner.invoke(main, ["events", "clear", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cleared"] == 0
+
+    def test_events_clear_json_with_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """--json-output clear returns count of cleared files."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        from duo.protocol import write_json
+
+        write_json(edir / "e1.json", {"task_id": "t1"})
+        write_json(edir / "e2.json", {"task_id": "t2"})
+        result = runner.invoke(main, ["events", "clear", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["cleared"] == 2
+
+    def test_events_clear_json_dir_no_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """--json-output clear when dir exists but empty."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        result = runner.invoke(main, ["events", "clear", "--json-output"])
+        data = json.loads(result.output)
+        assert data["cleared"] == 0
+
 
 # ---------------------------------------------------------------------------
 # CEO Workflow command tests
