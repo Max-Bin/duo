@@ -340,3 +340,102 @@ class TestFullLifecycle:
                 base_commit="abc",
                 subtasks=[],
             )
+
+
+class TestConfigIntegration:
+    """Test config ↔ protocol ↔ verifier interactions."""
+
+    def test_config_persists_across_load(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Config set → save → load round-trip."""
+        import duo.config as cfg
+
+        config_path = tmp_path / "config.json"
+        monkeypatch.setattr(cfg, "CONFIG_PATH", config_path)
+        cfg.set_config("max_corrections", "5")
+        val = cfg.get_config("max_corrections")
+        assert val == 5
+
+        # Reload from disk
+        loaded = cfg.load_config()
+        assert loaded["max_corrections"] == 5
+
+    def test_config_types_preserved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """All config types survive serialization round-trip."""
+        import duo.config as cfg
+
+        config_path = tmp_path / "config.json"
+        monkeypatch.setattr(cfg, "CONFIG_PATH", config_path)
+
+        cfg.set_config("max_corrections", "7")
+        cfg.set_config("poll_base_interval", "2.5")
+        cfg.set_config("auto_allow_all", "true")
+        cfg.set_config("copilot_model", "gpt-4")
+
+        loaded = cfg.load_config()
+        assert isinstance(loaded["max_corrections"], int)
+        assert isinstance(loaded["poll_base_interval"], float)
+        assert isinstance(loaded["auto_allow_all"], bool)
+        assert isinstance(loaded["copilot_model"], str)
+
+
+class TestJournalIntegration:
+    """Test journal append + read + transition audit trail."""
+
+    def test_journal_records_transitions(self):
+        """Every FSM transition is recorded in the journal."""
+        task = create_task(
+            task_id="journal-test",
+            description="Journal test",
+            worktree="/tmp/jt",
+            branch="duo/jt",
+            base_commit="abc",
+            subtasks=[_make_subtask(1)],
+        )
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+
+        events = read_jsonl(task.dir / "journal.jsonl")
+        transition_events = [e for e in events if e["event"] == "status_changed"]
+        assert len(transition_events) >= 2
+        states = [e["data"]["to"] for e in transition_events]
+        assert "session_starting" in states
+        assert "prompt_sent" in states
+
+    def test_journal_preserves_event_order(self):
+        """Events in journal are in chronological order."""
+        task = create_task(
+            task_id="order-test",
+            description="Order test",
+            worktree="/tmp/ot",
+            branch="duo/ot",
+            base_commit="abc",
+            subtasks=[_make_subtask(1)],
+        )
+        for i in range(5):
+            append_event(task, f"step_{i}", {"index": i})
+
+        events = read_jsonl(task.dir / "journal.jsonl")
+        step_events = [e for e in events if e["event"].startswith("step_")]
+        indices = [e["data"]["index"] for e in step_events]
+        assert indices == list(range(5))
+
+    def test_journal_tail_returns_latest(self):
+        """read_jsonl with tail returns the most recent events."""
+        task = create_task(
+            task_id="tail-test",
+            description="Tail test",
+            worktree="/tmp/tt",
+            branch="duo/tt",
+            base_commit="abc",
+            subtasks=[_make_subtask(1)],
+        )
+        for i in range(10):
+            append_event(task, "ping", {"n": i})
+
+        last_3 = read_jsonl(task.dir / "journal.jsonl", tail=3)
+        assert len(last_3) == 3
+        assert last_3[-1]["data"]["n"] == 9
