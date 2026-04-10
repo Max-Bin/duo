@@ -1080,6 +1080,8 @@ def monitor(task_ids: list[str] | None = None) -> None:
     from duo.scheduler import promote_queued, queue_status
 
     pollers: dict[str, AdaptivePoller] = {}
+    poll_errors: dict[str, int] = {}
+    _MAX_CONSECUTIVE_POLL_ERRORS = 10
     iteration = 0
 
     while True:
@@ -1178,10 +1180,35 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 OSError,
                 subprocess.CalledProcessError,
             ) as exc:
-                _log_monitor("✗", task.id, f"poll error: {exc}")
+                poll_errors[task.id] = poll_errors.get(task.id, 0) + 1
+                count = poll_errors[task.id]
+                _log_monitor(
+                    "✗",
+                    task.id,
+                    f"poll error ({count}/{_MAX_CONSECUTIVE_POLL_ERRORS}): {exc}",
+                )
                 logger.exception("poll_task failed for %s", task.id)
-                append_event(task, "poll_error", {"error": str(exc)})
+                append_event(
+                    task,
+                    "poll_error",
+                    {"error": str(exc), "consecutive": count},
+                )
+                if count >= _MAX_CONSECUTIVE_POLL_ERRORS:
+                    _log_monitor(
+                        "✗",
+                        task.id,
+                        f"FAILED after {count} consecutive poll errors",
+                    )
+                    transition(task, TaskStatus.FAILED)
+                    append_event(
+                        task,
+                        "poll_errors_exhausted",
+                        {"consecutive": count, "last_error": str(exc)},
+                    )
                 continue
+
+            # Reset consecutive error counter on success
+            poll_errors.pop(task.id, None)
 
             if result == PollResult.RESULT_READY:
                 _log_monitor("✓", task.id, f"result_ready (step={task.current_step})")
@@ -1196,6 +1223,8 @@ def monitor(task_ids: list[str] | None = None) -> None:
         stale = [k for k in pollers if k not in active_ids]
         for k in stale:
             del pollers[k]
+        for k in [k for k in poll_errors if k not in active_ids]:
+            del poll_errors[k]
         min_interval = min(
             (pollers[t.id].interval for t in active if t.id in pollers),
             default=5.0,

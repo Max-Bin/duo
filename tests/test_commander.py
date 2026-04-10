@@ -2677,6 +2677,54 @@ class TestMonitorPollersCleanup:
         # First iteration polls both, second iteration only task_a
         assert mock_poll.call_count == 3
 
+    @patch("duo.commander.time.sleep")
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_stale_poll_errors_removed(self, mock_list, mock_promote, mock_sleep):
+        """poll_errors entries for completed tasks are cleaned up."""
+        task_a = _make_task("err-active")
+        _advance_to_prompt_sent(task_a)
+        task_b = _make_task("err-gone")
+        _advance_to_prompt_sent(task_b)
+
+        call_count = 0
+
+        def list_side_effect():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return [task_a, task_b]
+            return [task_a]
+
+        mock_list.side_effect = list_side_effect
+
+        poll_call = 0
+
+        def poll_side_effect(_task, _poller):
+            nonlocal poll_call
+            poll_call += 1
+            if poll_call <= 2:
+                raise RuntimeError("transient")
+            return PollResult.WORKING
+
+        mock_sleep.side_effect = [None, StopIteration]
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 2,
+                    "queued_count": 0,
+                    "max_parallel": 3,
+                },
+            ),
+            patch("duo.commander.poll_task", side_effect=poll_side_effect),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # task_b had errors but disappeared — its counter should be cleaned
+
 
 class TestMonitorConfigWiring:
     """Monitor creates AdaptivePoller with config values."""
@@ -2777,6 +2825,81 @@ class TestMonitorPollErrorResilience:
         poll_errors = [e for e in events if e.get("event") == "poll_error"]
         assert len(poll_errors) == 1
         assert "bridge crash" in poll_errors[0]["data"]["error"]
+        assert poll_errors[0]["data"]["consecutive"] == 1
+
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_poll_errors_exhausted_fails_task(
+        self, mock_list, mock_promote, capsys
+    ):
+        """After 10 consecutive poll errors, task transitions to FAILED."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+
+        def list_tasks_side_effect():
+            return [task]
+
+        mock_list.side_effect = list_tasks_side_effect
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch(
+                "duo.commander.poll_task",
+                side_effect=RuntimeError("persistent failure"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            monitor()
+
+        assert task.status == TaskStatus.FAILED
+        events = read_jsonl(task.journal_path)
+        exhausted = [e for e in events if e.get("event") == "poll_errors_exhausted"]
+        assert len(exhausted) == 1
+        assert exhausted[0]["data"]["consecutive"] == 10
+
+    @patch("duo.scheduler.promote_queued", return_value=[])
+    @patch("duo.commander.list_tasks")
+    def test_monitor_poll_error_counter_resets_on_success(
+        self, mock_list, mock_promote, capsys
+    ):
+        """Successful poll resets the consecutive error counter."""
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        mock_list.return_value = [task]
+
+        call_count = 0
+
+        def poll_side_effect(_task, _poller):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                raise RuntimeError("transient")
+            return PollResult.WORKING
+
+        sleep_count = 0
+
+        def sleep_side_effect(_interval):
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count > 5:
+                raise StopIteration
+
+        with (
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"active_count": 1, "queued_count": 0, "max_parallel": 2},
+            ),
+            patch("duo.commander.poll_task", side_effect=poll_side_effect),
+            patch("duo.commander.time.sleep", side_effect=sleep_side_effect),
+            pytest.raises(StopIteration),
+        ):
+            monitor()
+
+        # Task should NOT be failed — errors were transient and reset
+        assert task.status != TaskStatus.FAILED
 
 
 # ---------------------------------------------------------------------------
