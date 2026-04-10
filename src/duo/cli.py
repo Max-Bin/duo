@@ -2255,6 +2255,20 @@ def _emit_restart_signal(task_id: str) -> None:
         )
 
 
+def _doctor_check_stale_locks() -> CheckResult:
+    """Check for stale .lock files from interrupted duo start commands."""
+    lock_files = list(TASKS_DIR.glob(".*.lock")) if TASKS_DIR.exists() else []
+    if not lock_files:
+        return CheckResult("stale locks", "pass", "none", "")
+    names = [f.name for f in lock_files]
+    return CheckResult(
+        "stale locks",
+        "warn",
+        f"{len(lock_files)} found: {', '.join(names)}",
+        "Remove manually or run: duo cleanup",
+    )
+
+
 _DOCTOR_CHECKS: list[Any] = [
     _doctor_check_python,
     _doctor_check_tmux,
@@ -2266,6 +2280,7 @@ _DOCTOR_CHECKS: list[Any] = [
     _doctor_check_tmux_session,
     _doctor_check_task_timeout,
     _doctor_check_corrupted,
+    _doctor_check_stale_locks,
     _doctor_check_git,
 ]
 

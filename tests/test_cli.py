@@ -3926,7 +3926,7 @@ class TestDoctor:
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
         assert "PASS" in result.output
-        assert "11/11 checks passed" in result.output
+        assert "12/12 checks passed" in result.output
 
     def test_doctor_missing_tmux(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3950,7 +3950,7 @@ class TestDoctor:
         """Doctor output ends with X/Y checks passed."""
         self._setup_all_pass(monkeypatch, tmp_path)
         result = runner.invoke(main, ["doctor"])
-        assert "/11 checks passed" in result.output
+        assert "/12 checks passed" in result.output
 
     def test_doctor_tmux_bridge_fallback_path(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3995,8 +3995,8 @@ class TestDoctor:
         data = json.loads(result.output)
         assert "checks" in data
         assert "summary" in data
-        assert len(data["checks"]) == 11
-        assert data["summary"]["total"] == 11
+        assert len(data["checks"]) == 12
+        assert data["summary"]["total"] == 12
         for check in data["checks"]:
             assert "name" in check
             assert "status" in check
@@ -5940,6 +5940,29 @@ class TestDoctorTaskTimeout:
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
         assert "invalid" in result.output.lower()
+
+
+class TestDoctorStaleLocks:
+    """Tests for _doctor_check_stale_locks()."""
+
+    def test_no_stale_locks(self):
+        """No lock files → pass."""
+        from duo.cli import _doctor_check_stale_locks
+
+        result = _doctor_check_stale_locks()
+        assert result.status == "pass"
+
+    def test_stale_locks_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Lock files present → warn."""
+        from duo.cli import _doctor_check_stale_locks
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        (tmp_path / ".my-task.lock").touch()
+        (tmp_path / ".other.lock").touch()
+
+        result = _doctor_check_stale_locks()
+        assert result.status == "warn"
+        assert "2 found" in result.message
 
 
 # ── Copilot health check (doctor) ────────────────────────────────────
