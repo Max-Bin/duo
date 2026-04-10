@@ -23,6 +23,7 @@ from duo.verifier import (
     _check_task_scope,
     _check_untracked,
     _match_writable,
+    _validate_writable_patterns,
     git_diff,
     git_diff_names,
     git_untracked,
@@ -726,3 +727,81 @@ class TestVerifyStepUntrackedGitFailure:
         )
         assert isinstance(result, Correction)
         assert "Git operation failed" in result.reason
+
+
+# ---------------------------------------------------------------------------
+# Writable patterns validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateWritablePatterns:
+    """_validate_writable_patterns filters invalid patterns."""
+
+    def test_empty_string_filtered(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="duo.verifier"):
+            result = _validate_writable_patterns(["src/*", "", "tests/*"])
+        assert result == ["src/*", "tests/*"]
+        assert "empty" in caplog.text.lower()
+
+    def test_whitespace_only_filtered(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="duo.verifier"):
+            result = _validate_writable_patterns(["src/*", "   ", "tests/*"])
+        assert result == ["src/*", "tests/*"]
+
+    def test_absolute_path_filtered(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="duo.verifier"):
+            result = _validate_writable_patterns(["/etc/passwd", "src/*"])
+        assert result == ["src/*"]
+        assert "absolute" in caplog.text.lower()
+
+    def test_valid_patterns_unchanged(self):
+        patterns = ["src/*", "tests/**/*.py", "*.md"]
+        assert _validate_writable_patterns(patterns) == patterns
+
+    def test_empty_list_returns_empty(self):
+        assert _validate_writable_patterns([]) == []
+
+
+class TestSecurityScopeWithInvalidPatterns:
+    """_check_security_scope filters invalid patterns before matching."""
+
+    def test_absolute_pattern_filtered_rejects_file(self, tmp_path):
+        """A file matched only by an absolute pattern should be rejected."""
+        task = _make_task()
+        result = _check_security_scope(task, {"src/a.py"}, ["/src/*"], str(tmp_path))
+        assert isinstance(result, Correction)
+        assert "outside writable paths" in result.reason
+
+
+# ---------------------------------------------------------------------------
+# JWT / AWS session token secret detection
+# ---------------------------------------------------------------------------
+
+
+class TestJwtAndAwsSecretDetection:
+    """New secret patterns catch JWT headers and AWS session tokens."""
+
+    def test_jwt_header_detected(self):
+        task = _make_task()
+        diff = "+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc\n"
+        from duo.protocol import DEFAULT_SECRET_PATTERNS
+
+        result = _check_secret_leak(task, diff, DEFAULT_SECRET_PATTERNS)
+        assert isinstance(result, Correction)
+        assert "eyJhbGci" in result.reason
+
+    def test_aws_session_token_detected(self):
+        task = _make_task()
+        diff = "+AWS_SESSION_TOKEN=FwoGZXIvYXdzEBYaDH/abc123\n"
+        from duo.protocol import DEFAULT_SECRET_PATTERNS
+
+        result = _check_secret_leak(task, diff, DEFAULT_SECRET_PATTERNS)
+        assert isinstance(result, Correction)
+
+    def test_aws_session_token_lowercase_detected(self):
+        task = _make_task()
+        diff = "+aws_session_token=FwoGZXIvYXdzEBYaDH/abc123\n"
+        from duo.protocol import DEFAULT_SECRET_PATTERNS
+
+        result = _check_secret_leak(task, diff, DEFAULT_SECRET_PATTERNS)
+        assert isinstance(result, Correction)

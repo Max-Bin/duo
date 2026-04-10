@@ -46,6 +46,27 @@ def _match_writable(rel_path: str, pattern: str) -> bool:
     return fnmatch.fnmatch(norm_path, norm_pat)
 
 
+def _validate_writable_patterns(patterns: list[str]) -> list[str]:
+    """Filter and warn about invalid writable_paths patterns.
+
+    Rejects empty strings, whitespace-only, and absolute paths which
+    would never match repo-relative paths.
+    """
+    valid: list[str] = []
+    for pat in patterns:
+        if not pat or not pat.strip():
+            logger.warning("Ignoring empty writable_paths pattern")
+            continue
+        if pat.startswith("/"):
+            logger.warning(
+                "Ignoring absolute writable_paths pattern %r — use repo-relative paths",
+                pat,
+            )
+            continue
+        valid.append(pat)
+    return valid
+
+
 # === Result types ===
 
 
@@ -178,11 +199,13 @@ def _check_security_scope(
     """HARD reject if any changed file falls outside writable_paths.
 
     Defense-in-depth:
-    1. Reject paths containing null bytes
-    2. Normalize paths and reject ``../`` traversals
-    3. Resolve symlinks and reject files that escape the worktree
-    4. Match the *resolved* relative path against writable_paths
+    1. Validate and filter writable_paths patterns
+    2. Reject paths containing null bytes
+    3. Normalize paths and reject ``../`` traversals
+    4. Resolve symlinks and reject files that escape the worktree
+    5. Match the *resolved* relative path against writable_paths
     """
+    valid_paths = _validate_writable_patterns(writable_paths)
     real_worktree = os.path.realpath(worktree)
     for path in sorted(changed):
         # Null byte injection defense
@@ -222,7 +245,7 @@ def _check_security_scope(
 
         # Match resolved relative path against writable_paths (root-anchored)
         rel_real = os.path.relpath(real_path, real_worktree)
-        if not any(_match_writable(rel_real, pat) for pat in writable_paths):
+        if not any(_match_writable(rel_real, pat) for pat in valid_paths):
             reason = f"Security violation: '{path}' is outside writable paths {writable_paths}"
             append_event(
                 task,

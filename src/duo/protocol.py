@@ -228,6 +228,9 @@ DEFAULT_SECRET_PATTERNS: list[str] = [
     "SG.",
     "sq0csp-",
     "sq0atp-",
+    "eyJhbGci",
+    "aws_session_token=",
+    "AWS_SESSION_TOKEN=",
 ]
 
 
