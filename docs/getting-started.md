@@ -67,7 +67,7 @@ duo version
 Expected output:
 
 ```
-duo 0.7.0
+duo 1.0.0
 ```
 
 ---
