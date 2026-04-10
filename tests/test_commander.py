@@ -3774,3 +3774,59 @@ class TestNormalizeForRestart:
         mock_kill.assert_not_called()
         mock_start.assert_not_called()
         assert task.incarnation_id == old_inc
+
+
+# ---------------------------------------------------------------------------
+# Branch coverage: commander.py partial branches
+# ---------------------------------------------------------------------------
+
+
+class TestBranchCoverageCommander:
+    """Targeted tests to close partial branch gaps."""
+
+    def test_bootstrap_prompt_empty_readme(self, tmp_path: Path):
+        """278->282: README exists but is empty — no excerpt in prompt."""
+        task = _make_task("empty-readme")
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        task.worktree = str(worktree)
+        save_task(task)
+        (worktree / "README.md").write_text("", encoding="utf-8")
+
+        prompt = build_bootstrap_prompt(task)
+        assert "README (excerpt)" not in prompt
+
+    def test_resend_last_prompt_oserror(self):
+        """814->exit: OSError reading prompt file — returns without crash."""
+        task = _make_task("resend-oserr")
+        _advance_to_prompt_sent(task)
+        # Don't write a prompt file — reading it should fail
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        if prompt_path.exists():
+            prompt_path.unlink()
+
+        resend_last_prompt(task)
+        # No crash — function returned early
+
+    def test_verify_and_advance_no_result_returns_early(self):
+        """853->856: No result file — returns without doing anything."""
+        task = _make_task("no-result")
+        _advance_to_prompt_sent(task)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        verify_and_advance(task)
+        # Status should still be RESULT_REPORTED (no crash, no transition)
+        assert task.status == TaskStatus.RESULT_REPORTED
+
+    def test_count_corrections_hits_task_created_break(self):
+        """1006->1013: task_created event stops backward scan."""
+        task = _make_task("corr-break")
+        # Write events: correction, task_created, then correction again
+        # The older correction (before task_created) shouldn't be counted
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        append_event(task, "task_created", {"id": task.id})
+        append_event(task, "correction_sent", {"step": 1, "attempt": 3})
+        # Only the one after task_created should count (reversed scan)
+        assert _count_corrections(task, 1) == 1
