@@ -96,6 +96,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `pyproject.toml` Development Status promoted from Beta to Production/Stable
 - Removed redundant `[project.optional-dependencies]` yaml section (already in main deps)
 - `make build` target added for sdist + wheel packaging via `uv build`
+- Smoke test fixed: uses `poll_base_interval` (not `poll_interval`) — 74/74 pass
+- Pre-release check validates SECURITY.md version alignment
+- Public API stability tests for `duo.__all__` exports
+- 4 Hypothesis property-based tests for config coercion (int, float, bool round-trips)
 
 ## [1.0.0] — 2026-04-09
 
