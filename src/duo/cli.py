@@ -2133,7 +2133,7 @@ def go(repo: str) -> None:
     os.execvp("claude", claude_args)
 
 
-@dataclass
+@dataclass(slots=True)
 class CheckResult:
     """Result of a single doctor diagnostic check."""
 

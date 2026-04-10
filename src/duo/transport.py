@@ -874,7 +874,7 @@ def ensure_minimum_pane_size(
     return resized
 
 
-@dataclass
+@dataclass(slots=True)
 class PaneInfo:
     """Parsed row from ``tmux-bridge list`` output."""
 
