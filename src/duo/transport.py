@@ -1112,17 +1112,32 @@ def wait_for_idle(
     return False
 
 
-def wait_for_dialog(label: str, timeout: float = 300, interval: float = 5) -> bool:
-    """Wait for STABLE dialog (double-checked)."""
+def wait_for_dialog(
+    label: str,
+    timeout: float = 300,
+    interval: float = 5,
+    stop_event: threading.Event | None = None,
+) -> bool:
+    """Wait for STABLE dialog (double-checked).
+
+    If *stop_event* is provided, the wait aborts early when the event is set,
+    returning False.  This allows callers (e.g. watch_tasks) to interrupt
+    long waits without waiting for the full timeout.
+    """
     if interval <= 0:
         raise ValueError(f"interval must be positive, got {interval}")
     if timeout <= 0:
         raise ValueError(f"timeout must be positive, got {timeout}")
     deadline = _time.monotonic() + timeout
     while _time.monotonic() < deadline:
+        if stop_event is not None and stop_event.is_set():
+            return False
         if is_in_dialog_stable(label):
             return True
-        _time.sleep(interval)
+        if stop_event is not None:
+            stop_event.wait(timeout=interval)
+        else:
+            _time.sleep(interval)
     return False
 
 

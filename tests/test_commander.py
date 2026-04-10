@@ -3495,7 +3495,9 @@ class TestWatchTasks:
             alive_calls += 1
             return alive_calls <= 3
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _fake_wait(
+            label: str, timeout: float = 300, interval: float = 5, **_kw: object
+        ) -> bool:
             nonlocal call_count
             call_count += 1
             return call_count == 1
@@ -3542,7 +3544,9 @@ class TestWatchTasks:
             alive_count += 1
             return alive_count <= 3
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _fake_wait(
+            label: str, timeout: float = 300, interval: float = 5, **_kw: object
+        ) -> bool:
             nonlocal call_count
             call_count += 1
             return call_count == 1
@@ -3587,7 +3591,9 @@ class TestWatchTasks:
             alive_count += 1
             return alive_count <= 3
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _fake_wait(
+            label: str, timeout: float = 300, interval: float = 5, **_kw: object
+        ) -> bool:
             nonlocal call_count
             call_count += 1
             return call_count == 1
@@ -3669,7 +3675,7 @@ class TestWatchTasks:
         call_count = 0
 
         def _wait_then_stop(
-            label: str, timeout: float = 300, interval: float = 5
+            label: str, timeout: float = 300, interval: float = 5, **_kw: object
         ) -> bool:
             nonlocal call_count
             call_count += 1
@@ -3698,7 +3704,9 @@ class TestWatchTasks:
 
         call_count = 0
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _fake_wait(
+            label: str, timeout: float = 300, interval: float = 5, **_kw: object
+        ) -> bool:
             nonlocal call_count
             call_count += 1
             if call_count >= 3:
@@ -3719,7 +3727,9 @@ class TestWatchTasks:
         task = self._active("stop-after")
         task2 = self._active("stop-after2")
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _fake_wait(
+            label: str, timeout: float = 300, interval: float = 5, **_kw: object
+        ) -> bool:
             return True
 
         with (
@@ -3741,7 +3751,12 @@ class TestWatchTasks:
         task = self._active("mid-stop")
         stop = _th.Event()
 
-        def _fake_wait(label: str, timeout: float = 300, interval: float = 5) -> bool:
+        def _fake_wait(
+            label: str,
+            timeout: float = 300,
+            interval: float = 5,
+            stop_event: _th.Event | None = None,
+        ) -> bool:
             stop.set()  # Simulate stop being set while waiting
             return False
 
@@ -3752,6 +3767,25 @@ class TestWatchTasks:
             _watch_loop(
                 task, stop, timeout=1, interval=0.01, once=False, auto_approve=False
             )
+
+    def test_watch_loop_passes_stop_event(self) -> None:
+        """_watch_loop passes stop event to wait_for_dialog."""
+        import threading as _th
+
+        task = self._active("stop-pass")
+        stop = _th.Event()
+        stop.set()  # Pre-set so loop exits immediately
+
+        with (
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", return_value=False) as mock_wfd,
+        ):
+            _watch_loop(
+                task, stop, timeout=1, interval=0.01, once=False, auto_approve=False
+            )
+            if mock_wfd.called:
+                _, kwargs = mock_wfd.call_args
+                assert kwargs.get("stop_event") is stop
 
 
 class TestWriteWatchEvent:

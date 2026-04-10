@@ -1641,7 +1641,12 @@ def _watch_loop(
             _log_monitor("·", task.id, "pane gone, stopping watch")
             break
         try:
-            found = wait_for_dialog(label, timeout=timeout, interval=interval)
+            found = wait_for_dialog(
+                label,
+                timeout=timeout,
+                interval=interval,
+                stop_event=stop,
+            )
         except (RuntimeError, OSError):
             _log_monitor("✗", task.id, "pane unavailable, stopping watch")
             break

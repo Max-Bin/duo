@@ -561,12 +561,13 @@ ensuring consistent journal ordering.
 `name_pane()` failure after `split-window` now kills the orphaned
 pane and transitions the task to FAILED.
 
-### MED — watch_tasks daemon threads outlive function — OPEN (PROMOTE)
+### MED — watch_tasks daemon threads outlive function — RESOLVED
 
-`watch_tasks()` spawns daemon threads that can continue running
-after the function returns if the stop event is not set properly.
-Threads inside `wait_for_dialog(timeout=300)` may sit for 5 min after stop.
-**Round BM verdict: PROMOTE — real bug, should add longer join or cancellation.**
+**Status: Fixed** in Round BT. `wait_for_dialog()` now accepts an optional
+`stop_event: threading.Event` parameter. `_watch_loop` passes its `stop` event
+through, so threads wake up within one `interval` of stop being set instead of
+blocking for the full 300s timeout. Uses `event.wait(interval)` instead of
+`time.sleep(interval)` when a stop_event is provided.
 
 ### HIGH (deferred) — No per-task cross-process lock — OPEN (PROMOTE)
 

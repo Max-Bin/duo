@@ -1006,6 +1006,45 @@ class TestWaitForDialog:
         with pytest.raises(ValueError, match="timeout must be positive"):
             wait_for_dialog("x", timeout=0, interval=1)
 
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_wait_for_dialog_stop_event_aborts(self, mock_stable, mock_time):
+        """stop_event already set → returns False immediately."""
+        import threading
+
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.1])
+        mock_stable.return_value = False
+        stop = threading.Event()
+        stop.set()
+        assert wait_for_dialog("x", timeout=10, interval=1, stop_event=stop) is False
+        mock_stable.assert_not_called()
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_wait_for_dialog_stop_event_uses_event_wait(self, mock_stable, mock_time):
+        """With stop_event, uses event.wait() instead of time.sleep()."""
+        import threading
+
+        mock_time.sleep = MagicMock()
+        # first call: deadline set; second: loop check; third: exceeds deadline
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.5, 20.0])
+        mock_stable.return_value = False
+        stop = threading.Event()
+        result = wait_for_dialog("x", timeout=10, interval=2, stop_event=stop)
+        assert result is False
+        mock_time.sleep.assert_not_called()
+
+    @patch("duo.transport._time")
+    @patch("duo.transport.is_in_dialog_stable")
+    def test_wait_for_dialog_no_stop_event_uses_sleep(self, mock_stable, mock_time):
+        """Without stop_event, still uses time.sleep()."""
+        mock_time.sleep = MagicMock()
+        mock_time.monotonic = MagicMock(side_effect=[0.0, 0.5, 20.0])
+        mock_stable.return_value = False
+        result = wait_for_dialog("x", timeout=10, interval=2)
+        assert result is False
+        mock_time.sleep.assert_called_once_with(2)
+
 
 # ── select_dialog_option ─────────────────────────────────────────────
 
