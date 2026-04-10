@@ -244,6 +244,24 @@ run_test_json_allow_fail() {
 }
 run_test_json_allow_fail "doctor --json-output" duo doctor --json-output
 
+# === Error message quality (Fix: suggestion present) ===
+echo ""
+echo "📋 Error message quality"
+run_test_fix_suggestion() {
+    local name="$1"
+    shift
+    local output
+    output=$("$@" 2>&1) || true
+    if echo "$output" | grep -qi "Fix:"; then
+        pass "$name (has Fix: suggestion)"
+    else
+        fail "$name" "missing Fix: in error output: ${output:0:100}"
+    fi
+}
+run_test_fix_suggestion "stop no-task" duo stop nonexistent-task
+run_test_fix_suggestion "send no-task" duo send nonexistent-task "hello"
+run_test_fix_suggestion "config reset bad-key" duo config reset totally_bogus_key
+
 # === Summary ===
 echo ""
 echo "========================"
