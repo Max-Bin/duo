@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -365,6 +366,48 @@ class TestCheckSecurityScope:
         result = _check_security_scope(task, {"src/alias.py"}, ["src/*"], str(worktree))
         assert result is None
 
+    def test_hardlink_rejected(self, tmp_path):
+        """Hardlinked files are rejected (could alias external files)."""
+        worktree = tmp_path / "worktree"
+        src = worktree / "src"
+        src.mkdir(parents=True)
+        target = src / "original.py"
+        target.write_text("code")
+        # Create a hardlink
+        hardlink = src / "linked.py"
+        os.link(target, hardlink)
+
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"src/linked.py"}, ["src/*"], str(worktree)
+        )
+        assert isinstance(result, Correction)
+        assert "hardlink" in result.reason.lower()
+
+    def test_hardlink_nlink_1_allowed(self, tmp_path):
+        """Regular files (nlink=1) pass hardlink check."""
+        worktree = tmp_path / "worktree"
+        src = worktree / "src"
+        src.mkdir(parents=True)
+        target = src / "normal.py"
+        target.write_text("code")
+
+        task = _make_task()
+        result = _check_security_scope(
+            task, {"src/normal.py"}, ["src/*"], str(worktree)
+        )
+        assert result is None
+
+    def test_hardlink_check_skipped_for_deleted_file(self, tmp_path):
+        """If file doesn't exist on disk (staged deletion), hardlink check is skipped."""
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+
+        task = _make_task()
+        # File doesn't exist — lstat will fail, should be skipped
+        result = _check_security_scope(task, {"nonexistent.py"}, ["*"], str(worktree))
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # _check_task_scope
@@ -500,6 +543,28 @@ class TestCheckSecretLeak:
         result = _check_secret_leak(task, diff, [pattern])
         assert isinstance(result, Correction)
         assert pattern in result.reason
+
+    def test_whitespace_around_equals_detected(self):
+        """Patterns ending with '=' also match 'KEY = value' with spaces."""
+        task = _make_task()
+        diff = '+API_KEY = "my-secret-value"\n'
+        result = _check_secret_leak(task, diff, ["API_KEY="])
+        assert isinstance(result, Correction)
+        assert "API_KEY=" in result.reason
+
+    def test_whitespace_tabs_around_equals_detected(self):
+        """Tabs around '=' are also caught."""
+        task = _make_task()
+        diff = "+PASSWORD\t=\thunter2\n"
+        result = _check_secret_leak(task, diff, ["PASSWORD="])
+        assert isinstance(result, Correction)
+
+    def test_non_equals_pattern_unchanged(self):
+        """Patterns not ending with '=' use exact literal matching."""
+        task = _make_task()
+        diff = "+token: ghp_xxxxxxxxxxxxxxxxxxxx\n"
+        result = _check_secret_leak(task, diff, ["ghp_"])
+        assert isinstance(result, Correction)
 
 
 # ---------------------------------------------------------------------------
@@ -727,6 +792,74 @@ class TestVerifyStepUntrackedGitFailure:
         )
         assert isinstance(result, Correction)
         assert "Git operation failed" in result.reason
+
+
+class TestVerifyStepPolicyIntersection:
+    """Task-level security_policy.writable_paths is enforced in addition to subtask."""
+
+    @patch("duo.verifier.git_untracked", return_value=[])
+    @patch("duo.verifier.git_diff", return_value="")
+    @patch("duo.verifier.git_diff_names", return_value={"src/a.py"})
+    def test_policy_allows_when_both_match(self, _names, _diff, _untracked):
+        """File allowed by both policy and subtask passes."""
+        subtask = _make_subtask(writable_paths=["src/*"])
+        task = _make_task(subtasks=[subtask])
+        task.security_policy.writable_paths = ["src/*"]
+        result = verify_step(
+            task,
+            StepResult(
+                step=1,
+                attempt=1,
+                incarnation="abc",
+                status="done",
+                files_changed=[],
+                summary="ok",
+            ),
+        )
+        assert isinstance(result, Pass)
+
+    @patch("duo.verifier.git_untracked", return_value=[])
+    @patch("duo.verifier.git_diff", return_value="")
+    @patch("duo.verifier.git_diff_names", return_value={"docs/readme.md"})
+    def test_policy_rejects_outside_policy_paths(self, _names, _diff, _untracked):
+        """File allowed by subtask but NOT by policy is rejected."""
+        subtask = _make_subtask(writable_paths=["*"])  # subtask allows everything
+        task = _make_task(subtasks=[subtask])
+        task.security_policy.writable_paths = ["src/*"]  # policy restricts to src/
+        result = verify_step(
+            task,
+            StepResult(
+                step=1,
+                attempt=1,
+                incarnation="abc",
+                status="done",
+                files_changed=[],
+                summary="ok",
+            ),
+        )
+        assert isinstance(result, Correction)
+        assert "Security violation" in result.reason
+
+    @patch("duo.verifier.git_untracked", return_value=[])
+    @patch("duo.verifier.git_diff", return_value="")
+    @patch("duo.verifier.git_diff_names", return_value={"src/a.py"})
+    def test_empty_policy_paths_skips_policy_check(self, _names, _diff, _untracked):
+        """Empty policy.writable_paths means no policy-level restriction."""
+        subtask = _make_subtask(writable_paths=["src/*"])
+        task = _make_task(subtasks=[subtask])
+        task.security_policy.writable_paths = []  # no policy restriction
+        result = verify_step(
+            task,
+            StepResult(
+                step=1,
+                attempt=1,
+                incarnation="abc",
+                status="done",
+                files_changed=[],
+                summary="ok",
+            ),
+        )
+        assert isinstance(result, Pass)
 
 
 # ---------------------------------------------------------------------------

@@ -899,3 +899,43 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
 - **`send_text_dialog_message` submits even without echo verification** (LOW):
   After 3 retries, submits Enter even if typed text was never confirmed
   visible. Could submit empty/wrong answer if input was dropped.
+
+## Round BI: Rubber-Duck Security Audit of verifier.py
+
+### Resolved (CRITICAL/HIGH)
+
+- **Hardlink bypass of worktree containment** (CRITICAL → RESOLVED): `realpath()`
+  resolves symlinks but hardlinks to external files still resolve inside the
+  worktree. A hardlinked file could alias `/etc/passwd` while appearing as
+  `src/config.py`. Fixed: `_check_security_scope()` now rejects files with
+  `st_nlink > 1` (multiple hard links).
+
+- **Task-level `security_policy.writable_paths` not enforced** (HIGH → RESOLVED):
+  `verify_step()` only checked `subtask.writable_paths`, ignoring the task-level
+  policy. A permissive subtask (`writable_paths: ["*"]`) could bypass the outer
+  security boundary. Fixed: both policy-level and subtask-level paths are now
+  checked in sequence (intersection semantics).
+
+- **Secret detection whitespace bypass** (HIGH → RESOLVED): Patterns ending
+  with `=` (like `API_KEY=`) failed to match `API_KEY = "value"` with spaces.
+  Fixed: `_check_secret_leak()` now generates `\s*=` regex for `=`-ending
+  patterns. Also added 8 new default patterns for Azure, database URLs,
+  AWS secret keys, and GitHub/GH tokens.
+
+### Deferred (MED/LOW)
+
+- **TOCTOU between verification and acceptance** (HIGH — architectural):
+  Executor can modify files after verifier reads the diff. Mitigation would
+  require `git write-tree` snapshot or worktree freeze during verification.
+  Accepted risk for now as executor is supervised.
+
+- **Large diff / file-count DoS** (MED — mitigation exists): `subprocess.run`
+  buffers full output before `_MAX_DIFF_BYTES` check. Streaming would require
+  `Popen` refactor. 10 MB limit provides reasonable protection.
+
+- **`verify_step()` ignores `StepResult` fields** (MED): `result.status` and
+  `result.files_changed` are not validated against actual git state. Low
+  practical risk since commander already validates result status.
+
+- **`fnmatch` `*` matches `/`** (MED — previously documented): Remains as
+  architectural decision. Segment-aware matching would be breaking change.

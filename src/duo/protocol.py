@@ -234,6 +234,16 @@ DEFAULT_SECRET_PATTERNS: list[str] = [
     "eyJhbGci",
     "aws_session_token=",
     "AWS_SESSION_TOKEN=",
+    "AZURE_CLIENT_SECRET=",
+    "azure_client_secret=",
+    "DATABASE_URL=",
+    "database_url=",
+    "REDIS_URL=",
+    "MONGODB_URI=",
+    "AWS_SECRET_ACCESS_KEY=",
+    "aws_secret_access_key=",
+    "GITHUB_TOKEN=",
+    "GH_TOKEN=",
 ]
 
 

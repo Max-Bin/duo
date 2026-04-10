@@ -203,7 +203,8 @@ def _check_security_scope(
     2. Reject paths containing null bytes
     3. Normalize paths and reject ``../`` traversals
     4. Resolve symlinks and reject files that escape the worktree
-    5. Match the *resolved* relative path against writable_paths
+    5. Reject hardlinked files (could alias files outside worktree)
+    6. Match the *resolved* relative path against writable_paths
     """
     valid_paths = _validate_writable_patterns(writable_paths)
     real_worktree = os.path.realpath(worktree)
@@ -242,6 +243,24 @@ def _check_security_scope(
                 {"file": path, "resolved": real_path, "reason": "symlink_escape"},
             )
             return Correction(reason)
+
+        # Hardlink detection: a file with nlink > 1 could alias a file
+        # outside the worktree on the same filesystem
+        try:
+            st = os.lstat(real_path)
+            if st.st_nlink > 1:
+                reason = (
+                    f"Security violation: '{path}' is a hardlink "
+                    f"(nlink={st.st_nlink}) — could alias external file"
+                )
+                append_event(
+                    task,
+                    "security_violation",
+                    {"file": path, "nlink": st.st_nlink, "reason": "hardlink"},
+                )
+                return Correction(reason)
+        except OSError:
+            pass  # File may not exist on disk (staged deletion)
 
         # Match resolved relative path against writable_paths (root-anchored)
         rel_real = os.path.relpath(real_path, real_worktree)
@@ -288,6 +307,9 @@ def _check_secret_leak(
 
     Patterns are treated as literal substrings (not regex).
     Matching is case-insensitive.
+
+    For patterns ending with ``=``, whitespace around the ``=`` is also
+    matched (e.g., ``API_KEY=`` also catches ``API_KEY = "value"``).
     """
     if not secret_patterns:
         logger.warning(
@@ -303,7 +325,13 @@ def _check_secret_leak(
     if not added_lines:
         return None
     for pattern in secret_patterns:
-        if re.search(re.escape(pattern), added_lines, re.IGNORECASE):
+        # For key=value patterns, tolerate whitespace around '='
+        if pattern.endswith("="):
+            key = re.escape(pattern[:-1])
+            regex = key + r"\s*="
+        else:
+            regex = re.escape(pattern)
+        if re.search(regex, added_lines, re.IGNORECASE):
             reason = f"Secret leak detected: pattern '{pattern}' found in added lines"
             append_event(task, "secret_leak", {"pattern": pattern})
             return Correction(reason)
@@ -366,7 +394,15 @@ def verify_step(task: Task, result: StepResult) -> VerifyResult:
         return Correction(f"Git operation failed: {exc}")
 
     # (a) Security scope — HARD
-    err = _check_security_scope(task, changed, subtask.writable_paths, worktree)
+    # Enforce BOTH task-level and subtask-level writable_paths (intersection)
+    policy_paths = task.security_policy.writable_paths
+    subtask_paths = subtask.writable_paths
+    if policy_paths:
+        # Task policy is the outer boundary; subtask narrows further
+        err = _check_security_scope(task, changed, policy_paths, worktree)
+        if err is not None:
+            return err
+    err = _check_security_scope(task, changed, subtask_paths, worktree)
     if err is not None:
         return err
 
