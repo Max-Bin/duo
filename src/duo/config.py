@@ -110,6 +110,30 @@ def get_config(key: str) -> Any:
     return config.get(key)
 
 
+_INT_MINIMUMS: dict[str, int] = {
+    "max_parallel": 1,
+    "max_corrections": 1,
+    "heartbeat_timeout": 1,
+    "pr_budget": 0,
+    "task_timeout": 0,
+}
+_FLOAT_MINIMUMS: dict[str, float] = {
+    "poll_base_interval": 0,
+    "poll_max_interval": 0,
+}
+_INT_MAXIMUMS: dict[str, int] = {
+    "max_parallel": 100,
+    "max_corrections": 100,
+    "heartbeat_timeout": 3600,
+    "pr_budget": 100000,
+    "task_timeout": 604800,  # 7 days
+}
+_FLOAT_MAXIMUMS: dict[str, float] = {
+    "poll_base_interval": 300.0,
+    "poll_max_interval": 3600.0,
+}
+
+
 def set_config(key: str, value: str) -> bool | int | float | str:
     """Set a config value with type coercion based on defaults."""
     config = load_config()
@@ -134,28 +158,6 @@ def set_config(key: str, value: str) -> bool | int | float | str:
                     f"Cannot convert '{value}' to {default_type.__name__} for key '{key}'"
                 ) from err
         # Validate numeric ranges
-        _INT_MINIMUMS: dict[str, int] = {
-            "max_parallel": 1,
-            "max_corrections": 1,
-            "heartbeat_timeout": 1,
-            "pr_budget": 0,
-            "task_timeout": 0,
-        }
-        _FLOAT_MINIMUMS: dict[str, float] = {
-            "poll_base_interval": 0,
-            "poll_max_interval": 0,
-        }
-        _INT_MAXIMUMS: dict[str, int] = {
-            "max_parallel": 100,
-            "max_corrections": 100,
-            "heartbeat_timeout": 3600,
-            "pr_budget": 100000,
-            "task_timeout": 604800,  # 7 days
-        }
-        _FLOAT_MAXIMUMS: dict[str, float] = {
-            "poll_base_interval": 300.0,
-            "poll_max_interval": 3600.0,
-        }
         if key in _INT_MINIMUMS:
             minimum = _INT_MINIMUMS[key]
             if not isinstance(coerced, int) or coerced < minimum:

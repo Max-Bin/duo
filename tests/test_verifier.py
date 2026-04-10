@@ -105,7 +105,7 @@ class TestGitDiffNames:
         proc.returncode = 128
         proc.stderr = "fatal: not a git repository"
         mock_run.return_value = proc
-        with pytest.raises(RuntimeError, match="git diff --name-only failed"):
+        with pytest.raises(RuntimeError, match="git diff --name-only HEAD failed"):
             git_diff_names("/w")
 
 
@@ -122,7 +122,7 @@ class TestGitDiff:
         proc.returncode = 1
         proc.stderr = "fatal: bad revision"
         mock_run.return_value = proc
-        with pytest.raises(RuntimeError, match="git diff failed"):
+        with pytest.raises(RuntimeError, match="git diff HEAD failed"):
             git_diff("/w")
 
     @patch("duo.verifier.subprocess.run")
@@ -154,7 +154,7 @@ class TestGitUntracked:
         proc.returncode = 1
         proc.stderr = "fatal: not a git repository"
         mock_run.return_value = proc
-        with pytest.raises(RuntimeError, match="git ls-files failed"):
+        with pytest.raises(RuntimeError, match="git ls-files .* failed"):
             git_untracked("/w")
 
 

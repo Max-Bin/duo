@@ -85,6 +85,7 @@ _DIALOG_TIMEOUT_RESEND = 30.0
 _DIALOG_TIMEOUT_MONITOR = 15.0
 _IDLE_TIMEOUT_START = 30.0
 _IDLE_TIMEOUT_ALLOW_ALL = 10  # seconds to wait for /allow-all
+_MAX_CONSECUTIVE_POLL_ERRORS = 10
 
 
 def _get_copilot_model() -> str:
@@ -1158,7 +1159,6 @@ def monitor(task_ids: list[str] | None = None) -> None:
 
     pollers: dict[str, AdaptivePoller] = {}
     poll_errors: dict[str, int] = {}
-    _MAX_CONSECUTIVE_POLL_ERRORS = 10
     iteration = 0
 
     while True:

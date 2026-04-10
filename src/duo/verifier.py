@@ -58,13 +58,15 @@ VerifyResult = Pass | Correction
 
 # === Git / subprocess helpers ===
 
+_MAX_ERROR_CHARS = 500
 
-def git_diff_names(worktree: str) -> set[str]:
-    """Return the set of file paths changed relative to HEAD."""
-    worktree = os.path.realpath(worktree)
+
+def _run_git(cmd: list[str], worktree: str) -> subprocess.CompletedProcess[str]:
+    """Run a git command in *worktree*, raising on non-zero exit."""
+    real = os.path.realpath(worktree)
     proc = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD"],
-        cwd=worktree,
+        cmd,
+        cwd=real,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -72,8 +74,14 @@ def git_diff_names(worktree: str) -> set[str]:
     )
     if proc.returncode != 0:
         raise RuntimeError(
-            f"git diff --name-only failed in {worktree}: {proc.stderr.strip()[:500]}"
+            f"{' '.join(cmd)} failed in {real}: {proc.stderr.strip()[:_MAX_ERROR_CHARS]}"
         )
+    return proc
+
+
+def git_diff_names(worktree: str) -> set[str]:
+    """Return the set of file paths changed relative to HEAD."""
+    proc = _run_git(["git", "diff", "--name-only", "HEAD"], worktree)
     return {line for line in proc.stdout.strip().splitlines() if line}
 
 
@@ -86,19 +94,7 @@ def git_diff(worktree: str) -> str:
     Limits output to ``_MAX_DIFF_BYTES`` to prevent OOM from large
     binary files checked into the worktree.
     """
-    worktree = os.path.realpath(worktree)
-    proc = subprocess.run(
-        ["git", "diff", "HEAD"],
-        cwd=worktree,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=_GIT_TIMEOUT,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"git diff failed in {worktree}: {proc.stderr.strip()[:500]}"
-        )
+    proc = _run_git(["git", "diff", "HEAD"], worktree)
     if len(proc.stdout) > _MAX_DIFF_BYTES:
         raise RuntimeError(
             f"Diff too large ({len(proc.stdout)} bytes > {_MAX_DIFF_BYTES} limit). "
@@ -109,19 +105,7 @@ def git_diff(worktree: str) -> str:
 
 def git_untracked(worktree: str) -> list[str]:
     """Return untracked files not covered by .gitignore."""
-    worktree = os.path.realpath(worktree)
-    proc = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=worktree,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=_GIT_TIMEOUT,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"git ls-files failed in {worktree}: {proc.stderr.strip()[:500]}"
-        )
+    proc = _run_git(["git", "ls-files", "--others", "--exclude-standard"], worktree)
     return [line for line in proc.stdout.strip().splitlines() if line]
 
 
