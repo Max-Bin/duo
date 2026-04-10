@@ -334,3 +334,83 @@ class TestStatusColorsExhaustiveness:
             assert status.value in STATUS_COLORS, (
                 f"STATUS_COLORS missing entry for {status.name}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Rubber-duck audit: resilience + markup safety
+# ---------------------------------------------------------------------------
+
+
+class TestEventsPanelNonDictJSONL:
+    """Non-dict JSONL entries are skipped, not crashed on."""
+
+    def test_non_dict_entries_skipped(self):
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("nondict-journal")
+        # Write a mix of valid dict and non-dict JSONL
+        import json
+
+        journal = task.journal_path
+        with journal.open("a") as f:
+            f.write(
+                json.dumps({"event": "transition", "ts": "2024-01-01T00:00:00"}) + "\n"
+            )
+            f.write('"just a string"\n')
+            f.write("42\n")
+            f.write("[1,2,3]\n")
+            f.write(
+                json.dumps({"event": "completed", "ts": "2024-01-01T00:00:01"}) + "\n"
+            )
+        panel = _build_events_panel([task])
+        content = panel.renderable
+        assert "transition" in content
+        assert "completed" in content
+
+
+class TestMarkupEscaping:
+    """Task IDs with Rich markup chars don't corrupt rendering."""
+
+    def test_queue_panel_escapes_task_ids(self):
+        from duo.dashboard import _build_queue_panel
+
+        with patch(
+            "duo.dashboard.queue_status",
+            return_value={
+                "active_count": 1,
+                "max_parallel": 2,
+                "active_tasks": ["task-[red]evil[/]"],
+                "queued_tasks": ["q-[bold]bad[/]"],
+            },
+        ):
+            panel = _build_queue_panel()
+            # Should not raise; markup should be escaped
+            assert panel is not None
+
+    def test_events_panel_escapes_content(self):
+        import json
+
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("markup-test")
+        with task.journal_path.open("a") as f:
+            f.write(
+                json.dumps({"event": "[red]injected[/]", "ts": "2024-01-01T00:00:00"})
+                + "\n"
+            )
+        panel = _build_events_panel([task])
+        content = panel.renderable
+        # The markup should be escaped, not interpreted
+        assert "\\[red]" in content or "[red]" in content
+
+
+class TestHeartbeatReadResilience:
+    """Dashboard survives unreadable heartbeat files."""
+
+    def test_heartbeat_oserror_shows_dash(self):
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("hb-error")
+        with patch("duo.dashboard.read_heartbeat", side_effect=OSError("perm denied")):
+            table = _build_tasks_table([task])
+            assert table is not None

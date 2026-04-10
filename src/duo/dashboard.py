@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -56,7 +57,10 @@ def _build_tasks_table(tasks: list[Task]) -> Table:
     table.add_column("Description", max_width=40)
 
     for task in tasks:
-        hb = read_heartbeat(task)
+        try:
+            hb = read_heartbeat(task)
+        except OSError:
+            hb = None
         if hb and hb.incarnation == task.incarnation_id:
             hb_age = age(hb.ts)
             if hb_age < 30:
@@ -92,8 +96,8 @@ def _build_queue_panel() -> Panel:
     qs = queue_status()
     lines = [
         f"[bold]Slots:[/] {qs['active_count']}/{qs['max_parallel']}",
-        f"[bold]Active:[/] {', '.join(qs['active_tasks']) or '—'}",
-        f"[bold]Queued:[/] {', '.join(qs['queued_tasks']) or '—'}",
+        f"[bold]Active:[/] {escape(', '.join(qs['active_tasks'])) or '—'}",
+        f"[bold]Queued:[/] {escape(', '.join(qs['queued_tasks'])) or '—'}",
     ]
     return Panel("\n".join(lines), title="Queue", border_style="dim")
 
@@ -107,6 +111,8 @@ def _build_events_panel(tasks: list[Task], max_events: int = 8) -> Panel:
         except (FileNotFoundError, OSError):
             continue
         for ev in events:
+            if not isinstance(ev, dict):
+                continue
             ts = ev.get("ts", "")
             event_type = ev.get("event", "")
             all_events.append((ts, task.id, event_type))
@@ -123,7 +129,10 @@ def _build_events_panel(tasks: list[Task], max_events: int = 8) -> Panel:
             color = "green"
         else:
             color = "white"
-        lines.append(f"[dim]{short_ts}[/] [{color}]{event_type}[/] [dim]{task_id}[/]")
+        lines.append(
+            f"[dim]{short_ts}[/] [{color}]{escape(event_type)}[/]"
+            f" [dim]{escape(task_id)}[/]"
+        )
 
     content = "\n".join(lines) if lines else "[dim]No events[/]"
     return Panel(content, title="Recent Events", border_style="dim")
