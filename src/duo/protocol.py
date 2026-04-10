@@ -577,6 +577,10 @@ def load_task(task_id: str) -> Task | None:
     if not isinstance(data.get("status"), str):
         logger.warning("Task '%s' has invalid status field", task_id)
         return None
+    for str_field in ("id", "description", "worktree", "branch"):
+        if not isinstance(data.get(str_field), str):
+            logger.warning("Task '%s' has invalid %s field", task_id, str_field)
+            return None
 
     n_subtasks = len(data["subtasks"])
     cs = data["current_step"]

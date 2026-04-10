@@ -661,13 +661,10 @@ Added type validation for `current_attempt` (int) and `status` (str)
 in `load_task()`. Together with existing `subtasks` (list) and
 `current_step` (int) checks, the most critical fields are now validated.
 
-### MED — FSM validation weaker than documented
+### MED — FSM validation weaker than documented — RESOLVED
 
-The `TRANSITIONS` dict defines allowed transitions, but some
-paths in `commander.py` call `transition()` without checking the
-return value. A False return (illegal transition) is logged but
-the caller continues anyway.
+**Status: Resolved** (Round FD, commit `22c6237`).
 
-**Fix:** Audit all `transition()` call sites and handle False
-returns appropriately. Some are already handled (Round EO fixes).
-Remaining sites need individual assessment.
+All `transition()` call sites now check return values. Critical paths
+abort/rollback on failure. Scheduler slot accounting protected. CLI
+commands exit with errors on failed transitions.

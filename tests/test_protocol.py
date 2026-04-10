@@ -506,6 +506,42 @@ class TestTaskCRUD:
         )
         assert load_task("bad-stat") is None
 
+    @pytest.mark.parametrize("field", ["id", "description", "worktree", "branch"])
+    def test_load_task_invalid_string_fields(self, field: str):
+        """Non-string value for required string fields is rejected."""
+        import duo.protocol
+
+        tid = f"bad-{field}"
+        task_dir = duo.protocol.TASKS_DIR / tid
+        task_dir.mkdir(parents=True, exist_ok=True)
+        base = {
+            "id": tid,
+            "description": "x",
+            "worktree": "/w",
+            "base_commit": "c",
+            "branch": "b",
+            "status": "created",
+            "current_step": 1,
+            "current_attempt": 1,
+            "subtasks": [
+                {
+                    "step_id": 1,
+                    "description": "s",
+                    "target_files": [],
+                    "writable_paths": [],
+                }
+            ],
+            "created_at": "2025-01-01T00:00:00",
+            "incarnation_id": "abc",
+            "pane_label": "p",
+            "security_policy": {},
+        }
+        base[field] = 999
+        import json
+
+        (task_dir / "task.json").write_text(json.dumps(base))
+        assert load_task(tid) is None
+
 
 class TestLoadTaskSecretPatternMerge:
     """load_task() merges saved secret patterns with current defaults."""
