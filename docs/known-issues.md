@@ -552,11 +552,12 @@ IDs that differ only in case, the files could collide on
 case-insensitive filesystems (macOS default). Not a practical
 concern since task IDs are validated, but documented for awareness.
 
-### S4 — Inconsistent event/transition ordering (LOW)
+### S4 — Inconsistent event/transition ordering (LOW) — RESOLVED
 
-Some failure paths call `append_event` before `transition()`,
-others after. This creates inconsistent journal ordering. Not a
-correctness issue but makes journal replay analysis harder.
+**Status: Fixed** in commit `43f6893` (Round EZ).
+
+All failure paths now call `transition()` before `append_event()`,
+ensuring consistent journal ordering.
 
 ### S5 — Env model value length unbounded (LOW) — RESOLVED
 
