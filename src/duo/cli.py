@@ -1843,9 +1843,11 @@ def stats(as_json: bool) -> None:
     for status_val in [
         "running",
         "queued",
+        "session_starting",
         "blocked",
         "prompt_sent",
         "acked",
+        "result_reported",
         "verifying",
         "correcting",
         "completed",

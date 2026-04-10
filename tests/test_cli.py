@@ -5461,6 +5461,19 @@ class TestStats:
         assert data["total"] == 1
         assert "by_status" in data
 
+    def test_stats_shows_all_active_statuses(self, runner: CliRunner):
+        """Verify session_starting and result_reported appear in text output."""
+        t1 = _make_task("stats-ss")
+        t1.status = TaskStatus.SESSION_STARTING
+        save_task(t1)
+        t2 = _make_task("stats-rr")
+        t2.status = TaskStatus.RESULT_REPORTED
+        save_task(t2)
+        result = runner.invoke(main, ["stats"])
+        assert result.exit_code == 0
+        assert "session_starting: 1" in result.output
+        assert "result_reported: 1" in result.output
+
 
 class TestStartFlags:
     def test_start_with_queue(self, runner: CliRunner, tmp_path: Path):
