@@ -158,6 +158,21 @@ run_test "audit empty" duo audit
 run_test "cost empty" duo cost
 run_test "recover empty" duo recover
 run_test "stats empty" duo stats
+run_test "cleanup empty" duo cleanup --force
+run_test "events list empty" duo events list
+run_test "queue empty" duo queue
+
+# === CEO commands on empty state ===
+echo ""
+echo "📊 CEO commands (empty/no-task)"
+run_test_allow_fail "ceo-now empty" duo ceo-now
+run_test_expect_fail "ceo-cleanup no-task" duo ceo-cleanup nonexistent-task
+run_test_expect_fail "ceo-restart no-task" duo ceo-restart nonexistent-task
+run_test_expect_fail "ceo-dispatch no-task" duo ceo-dispatch nonexistent-task
+run_test_expect_fail "ceo-wait no-task" duo ceo-wait nonexistent-task
+run_test_expect_fail "ceo-approve no-task" duo ceo-approve nonexistent-task
+run_test_expect_fail "ceo-select no-task" duo ceo-select nonexistent-task 1
+run_test_expect_fail "ceo-resume no-task" duo ceo-resume nonexistent-task "msg"
 
 # === Summary ===
 echo ""
