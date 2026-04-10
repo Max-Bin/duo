@@ -66,7 +66,7 @@ class TestTransportEdgeCasesNew:
         assert len(log) == initial_count + 1
         assert log[-1]["context"] == "99"
 
-    def testdetect_dialog_kind_with_ansi_256_color(self) -> None:
+    def test_detect_dialog_kind_with_ansi_256_color(self) -> None:
         """detect_dialog_kind strips ANSI 256-color codes inside dialog box."""
         from duo.transport import detect_dialog_kind
 

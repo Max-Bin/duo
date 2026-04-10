@@ -736,3 +736,27 @@ class TestParameterTypeAnnotationGuard:
         assert missing == [], "Parameters without type annotation:\n" + "\n".join(
             f"  {m}" for m in missing
         )
+
+
+class TestTestNamingConventionGuard:
+    """Guard: all methods in Test* classes must start with test_ or _."""
+
+    def test_test_methods_follow_convention(self) -> None:
+        import ast
+
+        bad = []
+        for f in sorted(Path("tests").glob("test_*.py")):
+            tree = ast.parse(f.read_text())
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            if not item.name.startswith(
+                                "test_"
+                            ) and not item.name.startswith("_"):
+                                bad.append(
+                                    f"{f.name}:{item.lineno} {node.name}.{item.name}"
+                                )
+        assert bad == [], "Test methods not following test_ convention:\n" + "\n".join(
+            f"  {b}" for b in bad
+        )
