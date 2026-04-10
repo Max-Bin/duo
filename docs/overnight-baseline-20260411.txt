@@ -1,0 +1,44 @@
+Duo Overnight Baseline — 2026-04-11T01:37:48.501989
+
+=== Git Status ===
+6918fdf perf: add slots=True to all dataclasses for memory efficiency
+Total commits: 423
+
+=== Test Suite ===
+2251 passed in 21.41s
+
+=== Coverage ===
+Name                   Stmts   Miss Branch BrPart  Cover   Missing
+------------------------------------------------------------------
+src/duo/__init__.py        7      0      0      0   100%
+src/duo/ceo_log.py        57      0      8      0   100%
+src/duo/ceo_state.py      18      0      4      0   100%
+src/duo/cli.py          3076      0   1220      0   100%
+src/duo/commander.py     685      0    222      0   100%
+src/duo/config.py        119      0     66      0   100%
+src/duo/dashboard.py      96      0     24      0   100%
+src/duo/errors.py         19      0      2      0   100%
+src/duo/poller.py         63      0     14      0   100%
+src/duo/protocol.py      390      0     82      0   100%
+src/duo/scheduler.py      51      0     14      0   100%
+src/duo/thinking.py      174      0     44      0   100%
+src/duo/transport.py     725      0    272      0   100%
+src/duo/verifier.py      185      0     60      0   100%
+------------------------------------------------------------------
+TOTAL                   5665      0   2032      0   100%
+
+=== Module Line Counts ===
+  __init__.py: 39 lines
+  ceo_log.py: 150 lines
+  ceo_state.py: 44 lines
+  cli.py: 5992 lines
+  commander.py: 1795 lines
+  config.py: 235 lines
+  dashboard.py: 186 lines
+  errors.py: 48 lines
+  poller.py: 147 lines
+  protocol.py: 986 lines
+  scheduler.py: 146 lines
+  thinking.py: 426 lines
+  transport.py: 1663 lines
+  verifier.py: 444 lines
