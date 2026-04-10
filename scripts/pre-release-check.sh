@@ -53,6 +53,10 @@ check "uv build succeeds" "uv build"
 # ── README badges ────────────────────────────────────────────────────
 check "README badges show correct version" "grep -q '$VERSION' README.md"
 
+# ── Version consistency ──────────────────────────────────────────────
+MAJOR_MINOR=$(echo "$VERSION" | sed 's/\.[0-9]*$//')
+check "SECURITY.md references current major.minor" "grep -q '${MAJOR_MINOR}.x' SECURITY.md"
+
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
