@@ -13451,3 +13451,146 @@ class TestCliBranchGapsBatch4:
         ):
             result = _handle_dialog("task1", "lbl", policy, "Pick one:", "bullet")
         assert result == "paused"
+
+
+class TestCliBranchGapsBatch5:
+    """Close more cli.py branch gaps: dialog handling, ceo-dispatch, init."""
+
+    # -- _handle_dialog: rule matches but action unknown → fall through (4020→4044) --
+    def test_dispatch_rule_unknown_action(self):
+        """_handle_dialog: matched rule with unknown action falls through (4020→4044)."""
+        from duo.cli import _handle_dialog
+
+        policy = {
+            "option_dialogs": {
+                "rules": [{"match": "Choose", "action": "unknown_action"}]
+            }
+        }
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            result = _handle_dialog(
+                "task1", "lbl", policy, "Choose something", "option"
+            )
+        assert result == "paused"
+
+    # -- _handle_dialog: select_last with non-numbered box lines (4039→4037) --
+    def test_dispatch_select_last_no_numbered_lines(self):
+        """_handle_dialog: select_last but box lines have no numbers (4039→4037)."""
+        from duo.cli import _handle_dialog
+
+        policy = {"option_dialogs": {"default": "select_last"}}
+        box_content = "╭─ Dialog ─╮\n│ no numbers here │\n│ just text │\n╰─────────╯"
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option") as mock_sel,
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch(
+                "duo.transport.extract_last_box_lines",
+                return_value=["no numbers", "just text"],
+            ),
+            patch("duo.transport.strip_ansi", return_value=box_content),
+        ):
+            result = _handle_dialog("task1", "lbl", policy, box_content, "option")
+        assert result == "selected_last_1"
+        mock_sel.assert_called_once_with("lbl", "1")
+
+    # -- _handle_dialog: bullet_policy isinstance but not select_first (4055→4064) --
+    def test_dispatch_bullet_not_select_first(self):
+        """_handle_dialog: bullet with default != select_first → paused (4055→4064)."""
+        from duo.cli import _handle_dialog
+
+        policy = {"bullet_dialogs": {"default": "defer"}}
+        with (
+            patch("duo.transport.is_permission_dialog", return_value=False),
+            patch("duo.transport.select_dialog_option"),
+            patch("duo.transport.approve_permission"),
+            patch("duo.transport.send_text_dialog_message"),
+            patch("duo.cli._write_loop_state"),
+        ):
+            result = _handle_dialog("task1", "lbl", policy, "Pick:", "bullet")
+        assert result == "paused"
+
+    # -- ceo-status: option dialog lines outside box (3867→3875) --
+    def test_ceo_status_option_no_numbers_in_box(self, runner: CliRunner, make_task):
+        """ceo-status option dialog with non-matching lines (3867→3875)."""
+        task = make_task("status-nonum")
+        task.pane_label = "test-pane"
+        save_task(task)
+        content = "some output\n╭─ Dialog ─╮\n│ just text │\n╰─────────╯\nmore"
+        with (
+            patch("duo.transport.is_process_alive", return_value=True),
+            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
+            patch("duo.transport.read_pane", return_value=content),
+        ):
+            result = runner.invoke(main, ["ceo-status", "status-nonum"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["state"] == "dialog"
+        assert data["options"] == 0
+
+    # -- _resolve_dispatch_action: policy_path exists but no match (4677→4680) --
+    def test_resolve_dispatch_action_policy_no_match(self, tmp_path: Path):
+        """_resolve_dispatch_action: policy returns no action (4677→4680)."""
+        from duo.cli import _resolve_dispatch_action
+        from duo.transport import DialogKind
+
+        # Create a policy file
+        policy = tmp_path / "policy.json"
+        policy.write_text('{"rules":[]}', encoding="utf-8")
+        with patch("duo.cli._match_policy", return_value=("", "")):
+            action, value = _resolve_dispatch_action(
+                DialogKind.OPTION, "content", str(policy)
+            )
+        # Should fall through to smart defaults
+        assert action in ("select", "defer")
+
+    # -- init: config.json doesn't exist → creates it (1832→1837 True branch) --
+    def test_init_creates_config(self, runner: CliRunner, monkeypatch, tmp_path: Path):
+        """init creates config.json when absent (1832→1837 True branch)."""
+        import duo.cli as cli_mod
+        import duo.config as config_mod
+        import duo.protocol as proto_mod
+
+        duo_dir = tmp_path / "dot-duo"
+        monkeypatch.setattr(cli_mod, "DUO_DIR", duo_dir)
+        monkeypatch.setattr(cli_mod, "TASKS_DIR", duo_dir / "tasks")
+        monkeypatch.setattr(proto_mod, "DUO_DIR", duo_dir)
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", duo_dir / "config.json")
+
+        # Create a fake git repo
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        result = runner.invoke(main, ["init", "--repo", str(repo)])
+        assert result.exit_code == 0
+        assert (duo_dir / "config.json").exists()
+
+    # -- doctor orphan worktree removal fails (2463→2452 False branch) --
+    def test_doctor_auto_fix_orphan_removal_fails(self, monkeypatch):
+        """_doctor_auto_fix: orphan worktree removal fails (2463→2452 False)."""
+        import duo.cli as cli_mod
+
+        calls = []
+
+        def mock_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            calls.append(args)
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = (
+                    "worktree /tmp/wt/duo-orphan\n  branch refs/heads/duo/orphan\n\n"
+                )
+            elif args[:3] == ["git", "worktree", "remove"]:
+                m.returncode = 1
+                m.stderr = "in use"
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_run):
+            fixed = cli_mod._doctor_auto_fix()
+        assert "removed orphan worktree" not in " ".join(fixed)
