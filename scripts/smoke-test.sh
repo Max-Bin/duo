@@ -132,6 +132,19 @@ run_test_expect_fail "ceo-status no-task" duo ceo-status nonexistent-task
 run_test_expect_fail "stop no-task" duo stop nonexistent-task
 run_test_expect_fail "send no-task" duo send nonexistent-task "hello"
 run_test_expect_fail "inspect no-task" duo inspect nonexistent-task
+run_test_expect_fail "diff no-task" duo diff nonexistent-task
+run_test_expect_fail "logs no-task" duo logs nonexistent-task
+run_test_expect_fail "stats no-task" duo stats nonexistent-task
+run_test_expect_fail "export no-task" duo export nonexistent-task
+run_test_expect_fail "retry no-task" duo retry nonexistent-task
+
+# === Data commands on empty state ===
+echo ""
+echo "📊 Data commands (empty state)"
+run_test "audit empty" duo audit
+run_test "cost empty" duo cost
+run_test "recover empty" duo recover
+run_test "stats empty" duo stats
 
 # === Summary ===
 echo ""
