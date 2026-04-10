@@ -15,6 +15,7 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from duo.ceo_log import _validate_session_id
+from duo.cli import _parse_age
 from duo.config import set_config
 from duo.poller import AdaptivePoller, age
 from duo.protocol import (
@@ -1027,3 +1028,50 @@ class TestConfigSetCoercion:
             cfg.CONFIG_PATH = Path(td) / "config.json"
             with pytest.raises(ValueError, match="finite"):
                 set_config("poll_base_interval", val)
+
+
+# ── _parse_age property tests ───────────────────────────────────────
+
+
+class TestParseAgeProperties:
+    """Property-based tests for _parse_age."""
+
+    multipliers = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+
+    @given(
+        value=st.integers(min_value=1, max_value=365),
+        unit=st.sampled_from(["d", "h", "m", "s"]),
+    )
+    def test_parse_age_correct_multiplication(self, value: int, unit: str) -> None:
+        """_parse_age(Vu) == V * multiplier[u]."""
+        result = _parse_age(f"{value}{unit}")
+        assert result == value * self.multipliers[unit]
+
+    @given(value=st.integers(min_value=1, max_value=365))
+    def test_days_hours_relationship(self, value: int) -> None:
+        """N days == N*24 hours."""
+        assert _parse_age(f"{value}d") == _parse_age(f"{value * 24}h")
+
+    @given(value=st.integers(min_value=1, max_value=365))
+    def test_hours_minutes_relationship(self, value: int) -> None:
+        """N hours == N*60 minutes."""
+        assert _parse_age(f"{value}h") == _parse_age(f"{value * 60}m")
+
+    @given(value=st.integers(min_value=1, max_value=3600))
+    def test_minutes_seconds_relationship(self, value: int) -> None:
+        """N minutes == N*60 seconds."""
+        assert _parse_age(f"{value}m") == _parse_age(f"{value * 60}s")
+
+    @given(
+        text=st.text(
+            alphabet=st.characters(categories=("L", "N", "P", "S")),
+            min_size=1,
+            max_size=20,
+        ).filter(lambda s: not __import__("re").match(r"^\d+[dhms]$", s))
+    )
+    def test_invalid_format_rejected(self, text: str) -> None:
+        """Any string not matching \\d+[dhms] raises UsageError."""
+        import click
+
+        with pytest.raises(click.UsageError):
+            _parse_age(text)
