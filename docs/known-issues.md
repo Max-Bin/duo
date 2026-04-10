@@ -862,10 +862,10 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
 
 ### Deferred (MED/LOW) — Reviewed Round BM
 
-- **Multi-step pane interactions lack `pane_lock()`** (MED → PROMOTE): `send_shell_command`,
-  `send_bootstrap`, `send_message` perform read→type→Enter sequences without
-  holding `pane_lock()`. `pane_lock()` already exists — wrapping these is low-cost.
-  **Round BM verdict: PROMOTE.**
+- **Multi-step pane interactions lack `pane_lock()`** (MED → RESOLVED): `send_shell_command`,
+  `send_bootstrap`, `send_message` now wrapped in `pane_lock()`. Fixed in Round BS.
+  Note: `send_bootstrap`'s `_BOOTSTRAP_DONE` is still in-process only; cross-process
+  bootstrap state persistence deferred as a separate concern.
 
 - **`send_option_other_message` assumes "Other" is last option** (MED → DEFER):
   Navigates by position rather than matching option text. Fragile but only if

@@ -1505,16 +1505,18 @@ def send_shell_command(label: str, command: str) -> None:
     """Send to SHELL (before Copilot starts). No PR cost.
 
     Safety: rejects if pane is at Copilot's main ❯ prompt.
+    Holds pane_lock to prevent interleaving with concurrent callers.
     """
-    content = read_pane(label, 5)
-    if is_at_main_prompt(content):
-        raise RuntimeError(
-            f"BLOCKED: '{label}' at ❯ prompt. "
-            "send_shell_command is for shell-only. Use select_dialog_option."
-        )
-    type_text(label, command)
-    read_pane(label, 5)
-    send_keys(label, "Enter")
+    with pane_lock(label):
+        content = read_pane(label, 5)
+        if is_at_main_prompt(content):
+            raise RuntimeError(
+                f"BLOCKED: '{label}' at ❯ prompt. "
+                "send_shell_command is for shell-only. Use select_dialog_option."
+            )
+        type_text(label, command)
+        read_pane(label, 5)
+        send_keys(label, "Enter")
 
 
 def send_bootstrap(label: str, prompt: str) -> None:
@@ -1523,25 +1525,28 @@ def send_bootstrap(label: str, prompt: str) -> None:
     Rollback logic: if pane I/O fails BEFORE text is typed, the lock is
     rolled back so the caller can retry.  Once ``type_text`` succeeds the
     lock is committed — rollback would risk duplicate/garbled input.
+
+    Holds pane_lock (cross-process) outside the thread-level _LOCK to
+    prevent interleaving.  Note: _BOOTSTRAP_DONE is in-process only;
+    cross-process bootstrap state is not persisted (see known-issues.md).
     """
-    with _LOCK:
-        if label in _BOOTSTRAP_DONE:
-            raise RuntimeError(
-                f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK."
-            )
-        _BOOTSTRAP_DONE.add(label)
-    try:
-        read_pane(label, 5)
-        type_text(label, prompt)
-    except Exception:
-        # Pre-type or type failure: text not in pane, safe to rollback
+    with pane_lock(label):
         with _LOCK:
-            _BOOTSTRAP_DONE.discard(label)
-        raise
-    # Text is in the pane — committed, no rollback even if Enter fails
-    read_pane(label, 5)
-    send_keys(label, "Enter")
-    _record_pr(label, "bootstrap", prompt[:80])
+            if label in _BOOTSTRAP_DONE:
+                raise RuntimeError(
+                    f"BLOCKED: Bootstrap done for '{label}'. PERMANENT LOCK."
+                )
+            _BOOTSTRAP_DONE.add(label)
+        try:
+            read_pane(label, 5)
+            type_text(label, prompt)
+        except Exception:
+            with _LOCK:
+                _BOOTSTRAP_DONE.discard(label)
+            raise
+        read_pane(label, 5)
+        send_keys(label, "Enter")
+        _record_pr(label, "bootstrap", prompt[:80])
 
 
 def clear_bootstrap_done(label: str) -> None:
@@ -1575,12 +1580,13 @@ def send_message(label: str, text: str) -> None:
 
     Adds an automatic sender header so the receiving pane can identify
     the origin.  Unlike :func:`send_bootstrap`, this does not consume a
-    Premium Request.
+    Premium Request.  Holds pane_lock to prevent interleaving.
     """
-    read_pane(label, 5)
-    bridge(["message", label, text])
-    read_pane(label, 5)
-    send_keys(label, "Enter")
+    with pane_lock(label):
+        read_pane(label, 5)
+        bridge(["message", label, text])
+        read_pane(label, 5)
+        send_keys(label, "Enter")
 
 
 def cancel_current(label: str) -> None:
