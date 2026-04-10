@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import shlex
 import subprocess
 import threading
@@ -89,6 +90,11 @@ def _get_copilot_model() -> str:
     """Get copilot model from config, env var override, or default."""
     env_model = os.environ.get("DUO_COPILOT_MODEL")
     if env_model:
+        if not re.match(r"^[a-zA-Z0-9._-]+$", env_model):
+            logger.warning(
+                "DUO_COPILOT_MODEL contains invalid chars, using config default"
+            )
+            return get_config("copilot_model") or "claude-opus-4.6"
         return env_model
     return get_config("copilot_model") or "claude-opus-4.6"
 
@@ -493,7 +499,7 @@ def start_session(task: Task) -> None:
 
     # cd to worktree, then start copilot (no -C flag available)
     time.sleep(_SESSION_SPLIT_WAIT)
-    copilot_cmd = f"copilot --model {_get_copilot_model()} --yolo"
+    copilot_cmd = f"copilot --model {shlex.quote(_get_copilot_model())} --yolo"
     try:
         send_shell_command(task.pane_label, f"cd {shlex.quote(str(task.worktree))}")
         time.sleep(_SESSION_CD_WAIT)
@@ -582,6 +588,9 @@ def restart_session(task: Task) -> None:
     old_inc = task.incarnation_id
     task.incarnation_id = new_incarnation()
     save_task(task)
+
+    # Kill the old (crashed) pane to prevent orphan accumulation
+    kill_pane(task.pane_label)
 
     # Clear bootstrap lock so new session can send bootstrap
     clear_bootstrap_done(task.pane_label)
@@ -763,9 +772,25 @@ def verify_and_advance(task: Task) -> None:
             task.current_attempt = 1
             save_task(task)
 
-            # Send continuation prompt (doesn't consume Premium Request!)
-            prompt = build_continue_prompt(task)
-            send_task_prompt(task, prompt)
+            # Send continuation prompt — rollback on failure
+            try:
+                prompt = build_continue_prompt(task)
+                send_task_prompt(task, prompt)
+            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+                logger.warning(
+                    "Failed to send continuation for '%s': %s — rolling back",
+                    task.id,
+                    exc,
+                )
+                task.current_step = step
+                task.current_attempt = attempt
+                save_task(task)
+                transition(task, TaskStatus.BLOCKED)
+                append_event(
+                    task,
+                    "continuation_send_failed",
+                    {"step": step + 1, "error": str(exc)},
+                )
 
     elif isinstance(verdict, Correction):
         # Check correction count
@@ -783,14 +808,30 @@ def verify_and_advance(task: Task) -> None:
             )
             return
 
-        # Send correction
+        # Send correction — rollback on failure
         task.current_attempt = attempt + 1
         save_task(task)
         task.step_dir(step).mkdir(parents=True, exist_ok=True)
 
         transition(task, TaskStatus.CORRECTING)
-        prompt = build_correction_prompt(task, verdict.reason)
-        send_task_prompt(task, prompt)
+        try:
+            prompt = build_correction_prompt(task, verdict.reason)
+            send_task_prompt(task, prompt)
+        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            logger.warning(
+                "Failed to send correction for '%s': %s — rolling back",
+                task.id,
+                exc,
+            )
+            task.current_attempt = attempt
+            save_task(task)
+            transition(task, TaskStatus.FAILED)
+            append_event(
+                task,
+                "correction_send_failed",
+                {"step": step, "attempt": attempt + 1, "error": str(exc)},
+            )
+            return
 
         append_event(
             task,
@@ -875,7 +916,12 @@ def poll_task(task: Task, poller: AdaptivePoller) -> PollResult:
                 TaskStatus.QUEUED,
             ):
                 return poll_result
-            append_event(task, "session_crashed", {"incarnation": inc})
+            # Adopt fresh state to avoid acting on stale data
+            task.incarnation_id = fresh.incarnation_id
+            task.current_step = fresh.current_step
+            task.current_attempt = fresh.current_attempt
+            task.status = fresh.status
+            append_event(task, "session_crashed", {"incarnation": fresh.incarnation_id})
             restart_session(task)
             if task.status == TaskStatus.FAILED:
                 return poll_result
