@@ -68,6 +68,7 @@ warn_unused_ignores = true
 [tool.coverage.run]
 source = ["src/duo"]
 omit = ["tests/*"]
+branch = true
 
 [tool.coverage.report]
 show_missing = true
