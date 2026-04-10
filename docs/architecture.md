@@ -45,7 +45,7 @@ from a previous session from corrupting current state.
 ```
 ┌─────────────────────────────────────────────────────┐
 │                      CLI (cli.py)                   │
-│           Click entry point · 51 commands           │
+│           Click entry point · 52 commands           │
 │              + config / events subgroups             │
 └──────┬───────────────┬──────────────┬───────────────┘
        │               │              │
@@ -88,17 +88,17 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~5 700 | Click CLI entry point — 50+ commands + `config` / `events` subgroups, CEO commands |
-| `protocol.py` | ~800 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
-| `commander.py` | ~1 400 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
-| `transport.py` | ~1 580 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
-| `thinking.py` | ~400 | Pre-start brainstorming with Claude Code — problem decomposition and analysis |
-| `verifier.py` | ~370 | Quality gates — security scope, secret-leak detection, symlink defense, acceptance tests |
-| `poller.py` | ~137 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
-| `scheduler.py` | ~136 | FIFO queue, `max_parallel` throttling, auto-dequeue on slot availability |
-| `config.py` | ~200 | Persistent JSON config with type coercion and validated ranges |
-| `dashboard.py` | ~177 | Rich live terminal dashboard — task table, queue panel, event stream |
-| `ceo_log.py` | ~142 | CEO session event logging — structured JSONL with categories |
+| `cli.py` | ~5 990 | Click CLI entry point — 52 commands + `config` / `events` subgroups, CEO commands |
+| `protocol.py` | ~940 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
+| `commander.py` | ~1 750 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
+| `transport.py` | ~1 630 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
+| `thinking.py` | ~430 | Pre-start brainstorming with Claude Code — problem decomposition and analysis |
+| `verifier.py` | ~440 | Quality gates — security scope, secret-leak detection, symlink defense, hardlink detection, acceptance tests |
+| `poller.py` | ~147 | Adaptive polling — exponential back-off 5 s → 120 s, heartbeat timeout |
+| `scheduler.py` | ~146 | FIFO queue, `max_parallel` throttling, auto-dequeue on slot availability |
+| `config.py` | ~226 | Persistent JSON config with type coercion and validated ranges |
+| `dashboard.py` | ~186 | Rich live terminal dashboard — task table, queue panel, event stream |
+| `ceo_log.py` | ~150 | CEO session event logging — structured JSONL with categories |
 | `ceo_state.py` | ~44 | CEO session state persistence |
 | `errors.py` | ~38 | Domain-specific exception hierarchy |
 
