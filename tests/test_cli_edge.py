@@ -760,3 +760,36 @@ class TestTestNamingConventionGuard:
         assert bad == [], "Test methods not following test_ convention:\n" + "\n".join(
             f"  {b}" for b in bad
         )
+
+
+class TestChangelogFormatGuard:
+    """Guard: CHANGELOG.md follows Keep a Changelog format."""
+
+    def test_every_version_has_content(self) -> None:
+        """Each version section must have at least one ### subsection."""
+        import re
+
+        content = Path("CHANGELOG.md").read_text()
+        sections = re.split(r"^## ", content, flags=re.MULTILINE)[1:]
+        assert len(sections) >= 2, "CHANGELOG needs at least 2 version sections"
+        for section in sections:
+            title = section.split("\n")[0].strip()
+            assert "###" in section, f"## {title} has no ### subsection"
+
+    def test_valid_subsection_headers(self) -> None:
+        """### headers must use standard Keep a Changelog categories."""
+        import re
+
+        valid = {
+            "Added",
+            "Changed",
+            "Deprecated",
+            "Removed",
+            "Fixed",
+            "Security",
+            "Improved",
+        }
+        content = Path("CHANGELOG.md").read_text()
+        headers = re.findall(r"^### (.+)$", content, re.MULTILINE)
+        for h in headers:
+            assert h.strip() in valid, f"Invalid CHANGELOG category: ### {h}"
