@@ -33,9 +33,11 @@ __all__ = [
     "TaskStatus",
     "append_event",
     "atomic_write_text",
+    "clear_go_session",
     "create_task",
     "list_corrupted",
     "list_tasks",
+    "load_go_session",
     "load_task",
     "new_incarnation",
     "now_iso",
@@ -47,6 +49,7 @@ __all__ = [
     "read_jsonl",
     "read_result_for_step",
     "replay_state",
+    "save_go_session",
     "save_task",
     "transition",
     "write_json",
@@ -830,3 +833,40 @@ def replay_state(task: Task) -> TaskStatus:
                 status = TaskStatus(ev["data"]["to"])
 
     return status
+
+
+# === Go session state ===
+
+_GO_SESSION_FILE = DUO_DIR / "go-session.json"
+
+
+def save_go_session(
+    *,
+    pane_label: str,
+    repo_root: str,
+    copilot_pane: str = "",
+) -> None:
+    """Persist go-session state for idempotent resume."""
+    write_json(
+        _GO_SESSION_FILE,
+        {
+            "pane_label": pane_label,
+            "repo_root": repo_root,
+            "copilot_pane": copilot_pane,
+            "started_at": now_iso(),
+        },
+    )
+
+
+def load_go_session() -> dict[str, Any] | None:
+    """Load saved go-session state, or None if missing/invalid."""
+    data = read_json(_GO_SESSION_FILE)
+    if not data or "pane_label" not in data:
+        return None
+    return data
+
+
+def clear_go_session() -> None:
+    """Remove go-session state file."""
+    with contextlib.suppress(FileNotFoundError):
+        _GO_SESSION_FILE.unlink()

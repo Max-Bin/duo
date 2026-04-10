@@ -24,9 +24,11 @@ from duo.protocol import (
     _clear_task_cache,
     append_event,
     atomic_write_text,
+    clear_go_session,
     create_task,
     list_corrupted,
     list_tasks,
+    load_go_session,
     load_task,
     new_incarnation,
     now_iso,
@@ -38,6 +40,7 @@ from duo.protocol import (
     read_jsonl,
     read_result_for_step,
     replay_state,
+    save_go_session,
     save_task,
     transition,
     write_json,
@@ -1811,3 +1814,81 @@ class TestAtomicWriteTextUUID:
         # No tmp files should remain
         files = list(tmp_path.iterdir())
         assert files == [target]
+
+
+# ---------------------------------------------------------------------------
+# Go session state
+# ---------------------------------------------------------------------------
+
+
+class TestGoSession:
+    def test_save_and_load(self, tmp_path, monkeypatch):
+        """save_go_session persists, load_go_session reads it back."""
+        import duo.protocol as proto
+
+        go_file = tmp_path / "go-session.json"
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", go_file)
+        save_go_session(pane_label="my-pane", repo_root="/tmp/repo", copilot_pane="cp")
+        data = load_go_session()
+        assert data is not None
+        assert data["pane_label"] == "my-pane"
+        assert data["repo_root"] == "/tmp/repo"
+        assert data["copilot_pane"] == "cp"
+        assert "started_at" in data
+
+    def test_load_returns_none_when_missing(self, tmp_path, monkeypatch):
+        """load_go_session returns None when file doesn't exist."""
+        import duo.protocol as proto
+
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", tmp_path / "nope.json")
+        assert load_go_session() is None
+
+    def test_load_returns_none_for_invalid(self, tmp_path, monkeypatch):
+        """load_go_session returns None when JSON is missing pane_label."""
+        import duo.protocol as proto
+
+        go_file = tmp_path / "go-session.json"
+        go_file.write_text('{"repo_root": "/tmp"}')
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", go_file)
+        assert load_go_session() is None
+
+    def test_clear_removes_file(self, tmp_path, monkeypatch):
+        """clear_go_session removes the state file."""
+        import duo.protocol as proto
+
+        go_file = tmp_path / "go-session.json"
+        go_file.write_text('{"pane_label":"x","repo_root":"/tmp"}')
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", go_file)
+        clear_go_session()
+        assert not go_file.exists()
+
+    def test_clear_noop_when_missing(self, tmp_path, monkeypatch):
+        """clear_go_session is a no-op when file doesn't exist."""
+        import duo.protocol as proto
+
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", tmp_path / "nope.json")
+        clear_go_session()  # Should not raise
+
+    def test_save_overwrites(self, tmp_path, monkeypatch):
+        """save_go_session overwrites previous state."""
+        import duo.protocol as proto
+
+        go_file = tmp_path / "go-session.json"
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", go_file)
+        save_go_session(pane_label="old", repo_root="/old")
+        save_go_session(pane_label="new", repo_root="/new")
+        data = load_go_session()
+        assert data is not None
+        assert data["pane_label"] == "new"
+        assert data["repo_root"] == "/new"
+
+    def test_save_default_copilot_pane(self, tmp_path, monkeypatch):
+        """save_go_session uses empty copilot_pane by default."""
+        import duo.protocol as proto
+
+        go_file = tmp_path / "go-session.json"
+        monkeypatch.setattr(proto, "_GO_SESSION_FILE", go_file)
+        save_go_session(pane_label="p", repo_root="/r")
+        data = load_go_session()
+        assert data is not None
+        assert data["copilot_pane"] == ""
