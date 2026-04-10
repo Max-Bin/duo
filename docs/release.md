@@ -9,6 +9,8 @@
 - Update `version` in `pyproject.toml`
 - Update `CHANGELOG.md`: rename `[X.Y.Z] — Unreleased` → `[X.Y.Z] — YYYY-MM-DD`
 - Add new `## [Next] — Unreleased` section at the top of `CHANGELOG.md`
+- Update version in `install.sh` banner
+- Update supported version in `SECURITY.md`
 
 ## 2. Pre-Release Checklist
 
