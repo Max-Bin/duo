@@ -13,6 +13,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - CI badge in README and README.zh-CN
 - 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
 - 11 new property tests: label path safety, glob matching, config defaults consistency, _fmt_ts fuzz
+- 12 new property tests: secret detection false positives, known format detection, writable pattern validation, poller backoff invariants
 - 9 new CLI smoke tests: graceful failures + data commands (74→83 total)
 - Getting-started.md: 5 new sections — `duo go`, `duo bench`, `duo export`, `duo events`, `duo completion`
 - `duo start` defaults to defer mode — Copilot launches but waits for `duo send` before consuming a Premium Request
@@ -48,6 +49,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 - Duplicate task ID detection in `create_task()` — raises ValueError instead of silently overwriting
+- `duo think --ask` timeout error message now includes actual duration (120s) for debuggability
 - Extracted `kill_pane()` into transport layer — all 7 direct tmux subprocess calls now routed through validated transport function
 - Semantic fix in `resume`: `cleanup_pane_state` only runs on successful pane teardown
 - Debug logging for pane teardown failures (OSError, TimeoutExpired, non-zero returncode)
@@ -94,6 +96,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - Cleaned 4 unused `noqa` directives; remaining 3 SIM115 noqas annotated with rationale
+- CONTRIBUTING.md: removed redundant `uv pip install -e .`, added `security:` commit type, fixed dogfood example
+- `performance-baseline.md` regression thresholds corrected to match bench-regression-check.sh
+- All remaining docs audited for accuracy: release.md, send-keys-resilience-audit.md, design-duo-think.md, plan-duo-go.md, performance-baseline.md
 - `__all__` exports sorted alphabetically in `__init__`, `poller`, `transport` (RUF022)
 - Smoke test `duo doctor` uses `run_test_allow_fail` (expected to exit non-zero without tmux-bridge in CI)
 - CI smoke job installs tmux for `duo doctor` checks
