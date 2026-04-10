@@ -12818,3 +12818,155 @@ class TestMetricsEdgeCases:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["avg_session_duration_s"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Round GF: CLI branch gap closures (batch 1)
+# ---------------------------------------------------------------------------
+
+
+class TestCliBranchGapsBatch1:
+    """Close easy cli.py branch gaps: merge JSON, stop JSON, inspect display."""
+
+    # -- merge --json-output with fetch failure (807→810) --
+    def test_merge_json_fetch_fails(self, runner: CliRunner, tmp_path: Path):
+        """merge --json-output suppresses fetch warning (branch 807→810)."""
+        task = _make_task("merge-jf")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt_merge_jf"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/merge-jf"
+        save_task(task)
+
+        worktree_base = str(tmp_path / "wt_base")
+
+        def mock_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "fetch", "origin"]:
+                m.returncode = 1
+                m.stderr = "network error"
+                return m
+            if args[:3] == ["git", "worktree", "list"]:
+                m.stdout = (
+                    f"worktree /main/repo\n\nworktree {worktree_base}/merge-jf\n\n"
+                )
+            return m
+
+        with (
+            patch("duo.cli.subprocess.run", side_effect=mock_run),
+            patch("duo.cli.get_config", return_value=worktree_base),
+        ):
+            result = runner.invoke(main, ["merge", "merge-jf", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["merged"] is True
+        # No text warning in JSON mode
+        assert "Warning" not in result.output
+
+    # -- merge --json-output with rebase abort failure (814→819) --
+    def test_merge_json_rebase_abort_fails(self, runner: CliRunner, tmp_path: Path):
+        """merge --json-output suppresses abort warning (branch 814→819)."""
+        task = _make_task("merge-ja")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt_merge_ja"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.branch = "duo/merge-ja"
+        save_task(task)
+
+        def mock_run(args, **kwargs):
+            m = MagicMock(returncode=0, stdout="", stderr="")
+            if args[:3] == ["git", "fetch", "origin"]:
+                return m
+            if args[:2] == ["git", "rebase"] and "--abort" not in args:
+                m.returncode = 1
+                m.stderr = "CONFLICT in file.py"
+                return m
+            if args == ["git", "rebase", "--abort"]:
+                m.returncode = 1
+                m.stderr = "abort failed"
+                return m
+            return m
+
+        with patch("duo.cli.subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["merge", "merge-ja", "--json-output"])
+        assert result.exit_code != 0
+        # Should NOT have plain-text warning about abort
+        assert "could not abort rebase" not in result.output
+
+    # -- stop --json-output kill_pane fails (923→926) --
+    def test_stop_json_kill_pane_fails(self, runner: CliRunner):
+        """stop --json-output suppresses pane kill warning (branch 923→926)."""
+        task = _make_task("stop-jpf")
+        task.status = TaskStatus.RUNNING
+        task.pane_label = "test-jpf"
+        save_task(task)
+
+        with (
+            patch("duo.transport.kill_pane", return_value=False),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["stop", "stop-jpf", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["stopped"] is True
+        # No text warning in JSON mode
+        assert "failed to kill pane" not in result.output
+
+    # -- inspect result with empty files_changed (1612→1615) --
+    def test_inspect_result_empty_files_changed(self, runner: CliRunner):
+        """inspect shows result without files_changed line when empty (1612→1615)."""
+        from duo.protocol import write_json
+
+        task = _make_task("res-nofiles")
+        task.step_dir(1).mkdir(parents=True, exist_ok=True)
+        write_json(
+            task.result_path(1, 1),
+            {
+                "step": 1,
+                "attempt": 1,
+                "incarnation": "inc1",
+                "status": "done",
+                "files_changed": [],
+                "summary": "Nothing changed",
+                "reason": "",
+            },
+        )
+
+        result = runner.invoke(main, ["inspect", "res-nofiles"])
+        assert result.exit_code == 0
+        assert "Result:" in result.output
+        assert "Nothing changed" in result.output
+        assert "Files changed:" not in result.output
+
+    # -- inspect with empty journal (1739→1746) --
+    def test_inspect_no_events(self, runner: CliRunner):
+        """inspect with empty journal skips Recent Events section (1739→1746)."""
+        task = _make_task("no-events")
+        # Ensure journal file does not exist
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+        result = runner.invoke(main, ["inspect", "no-events"])
+        assert result.exit_code == 0
+        assert "PR Consumed:     0" in result.output
+        assert "Recent Events" not in result.output
+
+    # -- inspect --include-files: empty changed/untracked/diff (1750,1754,1758) --
+    def test_inspect_include_files_all_empty(self, runner: CliRunner):
+        """inspect --include-files with no changes (1750→1754, 1758→exit)."""
+        _make_task("incl-empty")
+        empty = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        def fake_run_git(args, cwd, *, check=True):
+            return empty
+
+        with (
+            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("os.path.isdir", return_value=True),
+        ):
+            result = runner.invoke(main, ["inspect", "incl-empty", "--include-files"])
+        assert result.exit_code == 0
+        assert "Changed files" not in result.output
+        assert "Untracked files" not in result.output
+        assert "Diff preview" not in result.output

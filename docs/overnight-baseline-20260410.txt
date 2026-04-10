@@ -1,8 +1,44 @@
-=== Duo Overnight Baseline ===
-Date: 2026-04-10
-Git HEAD: 7e9707f
-Commits: 234
-Test files: 21
+# Duo Overnight Baseline — Session 2 Update
+# Generated after Rounds FQ–GE
+
+## Summary
+- Tests: 2069 (up from 2045 at session start)
+- Statement coverage: 100% (5330 stmts, 0 miss)
+- Branch coverage: 99.33% (1936 branches, 49 partial)
+
+## Branch Coverage by Module (100% = perfect)
+- __init__.py:     100% stmt, 100% branch
+- ceo_log.py:      100% stmt, 100% branch
+- ceo_state.py:    100% stmt, 100% branch
+- cli.py:          100% stmt, 99% branch (46 partial — display conditionals)
+- commander.py:    100% stmt, 100% branch  <-- NEW this session
+- config.py:       100% stmt, 100% branch  <-- NEW this session
+- dashboard.py:    100% stmt, 100% branch  <-- NEW this session
+- errors.py:       100% stmt, 100% branch
+- poller.py:       100% stmt, 100% branch
+- protocol.py:     100% stmt, 100% branch
+- scheduler.py:    100% stmt, 100% branch
+- thinking.py:     100% stmt, 100% branch
+- transport.py:    100% stmt, 99% branch (3 partial — Protocol stubs)
+- verifier.py:     100% stmt, 100% branch
+
+## Key Improvements This Session
+1. commander.py: 6 branch gaps -> 0 (100% branch)
+2. dashboard.py: 1 branch gap -> 0 (100% branch)
+3. transport.py: 9 branch gaps -> 3 (Protocol stubs only)
+4. config.py: rubber-duck audit + NaN/Infinity/non-dict hardening
+5. Overall: 62 -> 49 partial branches
+
+## Security Audits Completed
+- config.py (Round GD): NaN/Infinity, non-dict JSON, UTF-8 encoding
+- transport.py (Round FR): path traversal, shell quoting, pane leak
+- dashboard.py (Round FS): non-dict JSONL, markup escape, heartbeat OSError
+- ceo_log.py (Round FV): session ID path traversal
+- protocol.py (Round FW): read_json OSError broadening
+
+## Remaining Work
+- cli.py: 46 branch gaps (display conditionals in 27 commands)
+- transport.py: 3 Protocol stub gaps (inherent, cannot test)
 Source lines: 10070
 Statements: 4774
 
