@@ -34,9 +34,7 @@ jobs:
           uv run python -m coverage report --fail-under=100
 
       - name: Type check
-        run: |
-          uv pip install mypy
-          uv run mypy src/duo/ --ignore-missing-imports
+        run: uv run mypy src/duo/ --ignore-missing-imports
 
   lint:
     runs-on: ubuntu-latest
@@ -54,7 +52,7 @@ jobs:
 
       - name: Lint
         run: |
-          uv run ruff check src/duo/ tests/ --select=F,E,W
+          uv run ruff check src/duo/ tests/
 
       - name: Format check
         run: |
