@@ -314,6 +314,28 @@ class TestModuleExports:
         assert bad == [], f"__all__ references missing attributes: {bad}"
 
 
+class TestDuoUserErrorFixSuggestion:
+    """Guard: every DuoUserError must include a fix= suggestion."""
+
+    def test_all_duo_user_errors_have_fix(self) -> None:
+        """Every raise DuoUserError(...) in cli.py must have fix= keyword."""
+        import ast
+
+        src = Path(duo.cli.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        missing: list[int] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Raise) and node.exc:
+                call = node.exc
+                if isinstance(call, ast.Call):
+                    func = call.func
+                    if isinstance(func, ast.Name) and func.id == "DuoUserError":
+                        has_fix = any(kw.arg == "fix" for kw in call.keywords)
+                        if not has_fix:
+                            missing.append(node.lineno)
+        assert missing == [], f"DuoUserError at lines {missing} missing fix= parameter"
+
+
 class TestNoDuplicateTestClasses:
     """Guard against duplicate class names within the same test file."""
 
