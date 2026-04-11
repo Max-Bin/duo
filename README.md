@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2382%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2403%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -118,9 +118,18 @@ duo --help               # 52 commands in 10 groups
 ```bash
 duo list -q --status running          # one task ID per line — pipe-friendly
 duo list -c --status completed        # print count (for conditionals)
+duo list --wide                       # include description column
 duo status my-task -q                 # print just the status value (e.g. "running")
+duo inspect my-task -q                # print just the status value
 duo cost -q                           # print total PR count only
 duo stats -q                          # print total task count only
+duo audit -q                          # print total PR consumed only
+duo audit my-task -q                  # print task-specific PR count
+duo doctor -q                         # print only failures (empty = all pass)
+duo recover -q                        # print recovered count only
+duo cleanup --force -q                # print cleaned count only
+duo logs my-task -c                   # print event count (works with --filter)
+duo logs my-task -c --filter error    # count error events
 duo cleanup --dry-run --age 7d        # preview stale tasks without deleting
 duo send my-task -f prompt.txt        # read prompt from file
 duo merge my-task --dry-run           # preview merge (commits, files changed)

@@ -30,6 +30,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Similar task name suggestions on not-found errors
 - `cost -q/--quiet` — print only the total PR count for scripting
 - `stats -q/--quiet` — print only the total task count for scripting
+- `list --wide/-w` — include DESCRIPTION column in table output
+- `audit -q/--quiet` — print only the PR consumed count for scripting
+- `doctor -q/--quiet` — print only failures (empty output = all pass)
+- `recover -q/--quiet` — print only the recovered count
+- `inspect -q/--quiet` — print only the task status value
+- `cleanup -q/--quiet` — print only the cleaned count, suppresses prompts
+- `logs --count/-c` — print only the event count (works with --filter and --step)
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
