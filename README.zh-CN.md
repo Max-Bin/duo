@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2424%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2432%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -116,6 +116,8 @@ duo --help               # 10 组共 52 个命令
 ### 脚本助手
 
 ```bash
+duo start my-task --repo . -q          # 仅输出任务名
+duo send my-task "指令" -q             # 输出 'sent' 或 'queued'
 duo list -q --status running          # 每行一个任务 ID — 管道友好
 duo list -c --status completed        # 输出数量（用于条件判断）
 duo list --wide                       # 包含描述列
@@ -131,6 +133,7 @@ duo cleanup --force -q                # 仅输出清理数量
 duo diff my-task -q                   # 仅输出变更文件数
 duo retry my-task -q                  # 仅输出新状态值
 duo stop my-task -q                   # 输出 'stopped' 或当前状态
+duo kill my-task -q                   # 仅输出任务名
 duo merge my-task -q                  # 仅输出合并分支名
 duo merge my-task --dry-run -q        # 仅输出变更文件数
 duo queue -q                          # 仅输出队列长度

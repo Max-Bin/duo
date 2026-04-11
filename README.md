@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2424%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2432%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -116,6 +116,8 @@ duo --help               # 52 commands in 10 groups
 ### Scripting Helpers
 
 ```bash
+duo start my-task --repo . -q          # print only the task name
+duo send my-task "instruction" -q      # print 'sent' or 'queued'
 duo list -q --status running          # one task ID per line — pipe-friendly
 duo list -c --status completed        # print count (for conditionals)
 duo list --wide                       # include description column
@@ -131,6 +133,7 @@ duo cleanup --force -q                # print cleaned count only
 duo diff my-task -q                   # print changed file count only
 duo retry my-task -q                  # print new status value only
 duo stop my-task -q                   # print 'stopped' or current status
+duo kill my-task -q                   # print only task name
 duo merge my-task -q                  # print merged branch name only
 duo merge my-task --dry-run -q        # print changed file count only
 duo queue -q                          # print queue length only
