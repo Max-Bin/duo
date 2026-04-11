@@ -1592,6 +1592,28 @@ class TestConfigListEdgeCases:
         for key in config_mod.DEFAULTS:
             assert key in result.output
 
+    def test_config_list_shows_descriptions(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config list text output includes inline descriptions."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "list"])
+        assert result.exit_code == 0
+        assert "# " in result.output
+        assert "AI model" in result.output
+
+    def test_config_descriptions_cover_all_keys(self):
+        """Every DEFAULTS key has a CONFIG_DESCRIPTIONS entry."""
+        import duo.config as config_mod
+
+        for key in config_mod.DEFAULTS:
+            assert key in config_mod.CONFIG_DESCRIPTIONS, (
+                f"Missing description for config key: {key}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # _safe_join
@@ -3498,7 +3520,7 @@ class TestConfigSubcommands:
         assert "copilot_model" in data
 
     def test_config_list_json(self, runner: CliRunner, tmp_path: Path, monkeypatch):
-        """config list --json-output returns all config as JSON."""
+        """config list --json-output returns all config as JSON with descriptions."""
         import duo.config as config_mod
 
         fake_config = tmp_path / "config.json"
@@ -3508,6 +3530,12 @@ class TestConfigSubcommands:
         data = json.loads(result.output)
         assert "copilot_model" in data
         assert "max_corrections" in data
+        entry = data["copilot_model"]
+        assert "value" in entry
+        assert "default" in entry
+        assert "modified" in entry
+        assert "description" in entry
+        assert isinstance(entry["description"], str)
 
     def test_config_reset_unknown_key(
         self, runner: CliRunner, tmp_path: Path, monkeypatch

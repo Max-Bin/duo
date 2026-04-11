@@ -11,6 +11,7 @@ from typing import Any
 from duo.protocol import DUO_DIR, atomic_write_text
 
 __all__ = [
+    "CONFIG_DESCRIPTIONS",
     "CONFIG_PATH",
     "DEFAULTS",
     "get_config",
@@ -38,6 +39,21 @@ DEFAULTS: dict[str, Any] = {
     "pr_budget": 0,  # 0 = unlimited, >0 = max PR per task
     "task_timeout": 0,  # 0 = disabled, >0 = max seconds per task
     "worktree_base_path": str(Path("~/.duo/worktrees").expanduser()),
+}
+
+CONFIG_DESCRIPTIONS: dict[str, str] = {
+    "copilot_model": "AI model for Copilot CLI (e.g. claude-opus-4.6)",
+    "max_corrections": "Max retry attempts before escalation (1-100)",
+    "heartbeat_timeout": "Seconds before executor is considered stuck (1-3600)",
+    "poll_base_interval": "Initial polling interval in seconds (>0, max 300)",
+    "poll_max_interval": "Max polling interval after backoff (>0, max 3600)",
+    "auto_allow_all": "Send /allow-all on session start",
+    "auto_claude_commander": "Write CLAUDE.md with commander instructions",
+    "bypass_permissions": "Skip permission prompts in CEO workflow",
+    "max_parallel": "Max concurrent tasks (1-100)",
+    "pr_budget": "Max PRs per task; 0 = unlimited (0-100000)",
+    "task_timeout": "Max seconds per task; 0 = disabled (0-604800)",
+    "worktree_base_path": "Directory for git worktrees",
 }
 
 

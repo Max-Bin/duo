@@ -2992,21 +2992,28 @@ def config_set(key: str, value: str, *, as_json: bool = False) -> None:
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def config_list(*, as_json: bool = False) -> None:
     """List all config values."""
-    from duo.config import DEFAULTS, load_config
+    from duo.config import CONFIG_DESCRIPTIONS, DEFAULTS, load_config
 
     cfg = load_config()
     if as_json:
         output: dict[str, object] = {}
         for key in sorted(DEFAULTS):
             value = cfg.get(key, DEFAULTS[key])
-            output[key] = value
+            output[key] = {
+                "value": value,
+                "default": DEFAULTS[key],
+                "modified": value != DEFAULTS[key],
+                "description": CONFIG_DESCRIPTIONS.get(key, ""),
+            }
         click.echo(json.dumps(output, indent=2))
         return
     for key in sorted(DEFAULTS):
         value = cfg.get(key, DEFAULTS[key])
         default = DEFAULTS[key]
         marker = "" if value == default else " (modified)"
-        click.echo(f"  {key} = {value}{marker}")
+        desc = CONFIG_DESCRIPTIONS.get(key, "")
+        desc_suffix = f"  # {desc}" if desc else ""
+        click.echo(f"  {key} = {value}{marker}{desc_suffix}")
 
 
 @config.command("reset")
