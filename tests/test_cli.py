@@ -7464,6 +7464,28 @@ class TestNotFoundParametrized:
             assert result.exit_code != 0, f"{args} should fail"
             assert "not found" in result.output.lower(), f"{args} missing 'not found'"
 
+    def test_not_found_suggests_similar(self, runner: CliRunner):
+        """When task not found, suggest similar task names."""
+        _make_task("my-feature")
+        result = runner.invoke(main, ["status", "feature"])
+        assert result.exit_code != 0
+        assert "Did you mean" in result.output
+        assert "my-feature" in result.output
+
+    def test_not_found_no_suggestions_when_no_tasks(self, runner: CliRunner):
+        """When no tasks exist, show generic message."""
+        result = runner.invoke(main, ["status", "anything"])
+        assert result.exit_code != 0
+        assert "duo list" in result.output
+
+    def test_not_found_no_similar_tasks(self, runner: CliRunner):
+        """When tasks exist but none match, show generic message."""
+        _make_task("alpha")
+        result = runner.invoke(main, ["status", "zzz-unrelated"])
+        assert result.exit_code != 0
+        assert "duo list" in result.output
+        assert "Did you mean" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # Cleanup --age tests

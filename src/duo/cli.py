@@ -3711,10 +3711,17 @@ def _load_task_or_fail(name: str) -> Task:
     _validate_task_name(name)
     task = load_task(name)
     if task is None:
-        raise DuoUserError(
-            f"task '{name}' not found",
-            fix="Run 'duo list' to see available tasks.",
-        )
+        fix = "Run 'duo list' to see available tasks."
+        all_tasks = list_tasks()
+        if all_tasks:
+            similar = [
+                t.id
+                for t in all_tasks
+                if name.lower() in t.id.lower() or t.id.lower() in name.lower()
+            ]
+            if similar:
+                fix = f"Did you mean: {', '.join(similar[:3])}? Run 'duo list' to see all."
+        raise DuoUserError(f"task '{name}' not found", fix=fix)
     return task
 
 
