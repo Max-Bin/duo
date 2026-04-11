@@ -118,6 +118,7 @@ duo --help               # 10 组共 52 个命令
 ```bash
 duo list -q --status running          # 每行一个任务 ID — 管道友好
 duo list -c --status completed        # 输出数量（用于条件判断）
+duo status my-task -q                 # 仅输出状态值（如 "running"）
 duo cleanup --dry-run --age 7d        # 预览过期任务但不删除
 duo send my-task -f prompt.txt        # 从文件读取 prompt
 ```

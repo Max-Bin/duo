@@ -23,6 +23,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Shell completion for `duo diff` task names
 - Shell completion for `--status` filter values
 - `status` now shows Branch and Description fields
+- `status -q/--quiet` — print just the status value (single task) or ID+status (all tasks) for scripting
+- `logs --step N` — filter journal events by step number
+- `merge --dry-run` now shows commit count and changed files
+- `export` JSON/text now includes `pr_consumed` count and heartbeat data
+- Similar task name suggestions on not-found errors
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
