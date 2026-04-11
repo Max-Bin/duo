@@ -1014,7 +1014,8 @@ def watch(
 
 @main.command()
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def recover(as_json: bool) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the recovered count")
+def recover(as_json: bool, quiet: bool) -> None:
     """Recover all interrupted tasks from journals."""
     tasks = list_tasks()
     recovered = 0
@@ -1031,13 +1032,17 @@ def recover(as_json: bool) -> None:
             changes.append(
                 {"task": task.id, "from": task.status.value, "to": actual.value}
             )
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(f"  {task.id}: {task.status.value} → {actual.value}")
             task.status = actual
             from duo.protocol import save_task
 
             save_task(task)
             recovered += 1
+
+    if quiet:
+        click.echo(str(recovered))
+        return
 
     if as_json:
         click.echo(json.dumps({"recovered": recovered, "changes": changes}, indent=2))
@@ -2143,8 +2148,13 @@ def _inspect_build_json(task: Task, include_files: bool) -> dict[str, Any]:
     default=None,
     help="Number of recent journal events to show (default: 5, 0 for all)",
 )
+@click.option("-q", "--quiet", is_flag=True, help="Print only the task status")
 def inspect(
-    name: str, as_json: bool, include_files: bool, event_count: int | None
+    name: str,
+    as_json: bool,
+    include_files: bool,
+    event_count: int | None,
+    quiet: bool,
 ) -> None:
     """Show detailed task information."""
     from duo.protocol import (
@@ -2153,6 +2163,10 @@ def inspect(
     )
 
     task = _load_task_or_fail(name)
+
+    if quiet:
+        click.echo(task.status.value)
+        return
 
     if as_json:
         data = _inspect_build_json(task, include_files)
@@ -5771,6 +5785,7 @@ def _parse_age(age_str: str) -> int:
     "--corrupted", is_flag=True, help="List and purge quarantined corrupted tasks"
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option("-q", "--quiet", is_flag=True, help="Print only the cleaned count")
 def cleanup(
     clean_all: bool,
     force: bool,
@@ -5780,6 +5795,7 @@ def cleanup(
     corrupted: bool,
     *,
     as_json: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Clean up completed and failed tasks."""
     import shutil
@@ -5838,6 +5854,9 @@ def cleanup(
         targets = [t for t in targets if task_age(t.created_at) > max_age]
 
     if not targets:
+        if quiet:
+            click.echo("0")
+            return
         if as_json:
             click.echo(json.dumps({"cleaned": 0, "tasks": [], "dry_run": dry_run}))
         else:
@@ -5861,12 +5880,12 @@ def cleanup(
                 click.echo(f"  {t.id} ({t.status.value})")
         return
 
-    if not as_json:
+    if not as_json and not quiet:
         click.echo(f"Tasks to clean up ({len(targets)}):")
         for t in targets:
             click.echo(f"  {t.id} ({t.status.value})")
 
-    if not force and not as_json:
+    if not force and not as_json and not quiet:
         click.confirm("Proceed?", abort=True)
 
     cleaned = 0
@@ -5876,13 +5895,13 @@ def cleanup(
             r = _run_git(
                 ["worktree", "remove", "--force", task.worktree], cwd=".", check=False
             )
-            if r.returncode != 0 and not as_json:
+            if r.returncode != 0 and not as_json and not quiet:
                 click.echo(
                     f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
                 )
 
         r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
-        if r.returncode != 0 and not as_json:
+        if r.returncode != 0 and not as_json and not quiet:
             click.echo(
                 f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True
             )
@@ -5901,10 +5920,12 @@ def cleanup(
 
         cleaned += 1
         cleaned_ids.append(task.id)
-        if not as_json:
+        if not as_json and not quiet:
             click.echo(f"  ✓ {task.id}")
 
-    if as_json:
+    if quiet:
+        click.echo(str(cleaned))
+    elif as_json:
         click.echo(json.dumps({"cleaned": cleaned, "tasks": cleaned_ids}))
     else:
         click.echo(f"\nCleaned {cleaned} tasks.")

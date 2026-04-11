@@ -634,6 +634,22 @@ class TestRecover:
         assert data["recovered"] == 0
         assert data["changes"] == []
 
+    def test_recover_quiet(self, runner: CliRunner):
+        """recover -q prints only the recovered count."""
+        task = _make_task("q-rec")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        result = runner.invoke(main, ["recover", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
+    def test_recover_quiet_zero(self, runner: CliRunner):
+        """recover -q with no recoveries prints 0."""
+        _make_task("ok-rec")
+        result = runner.invoke(main, ["recover", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
 
 # ---------------------------------------------------------------------------
 # send command (error case)
@@ -1077,6 +1093,13 @@ class TestErrorMessages:
         result = runner.invoke(main, ["inspect", "nope"])
         assert "duo list" in result.output
 
+    def test_inspect_quiet(self, runner: CliRunner):
+        """inspect -q prints only the status value."""
+        _make_task("q-insp")
+        result = runner.invoke(main, ["inspect", "q-insp", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "created"
+
 
 # ---------------------------------------------------------------------------
 # edge-case tests
@@ -1332,6 +1355,21 @@ class TestCleanup:
         data = json.loads(result.output)
         assert data["cleaned"] == 0
         assert data["tasks"] == []
+
+    def test_cleanup_quiet(self, runner: CliRunner, make_task):
+        """cleanup -q prints only the cleaned count."""
+        task = make_task("q-clean")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["cleanup", "--force", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
+    def test_cleanup_quiet_none(self, runner: CliRunner):
+        """cleanup -q with nothing to clean prints 0."""
+        result = runner.invoke(main, ["cleanup", "--force", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
 
     def test_cleanup_json_corrupted(self, runner: CliRunner, make_task):
         """--json-output with --corrupted returns purge result."""
