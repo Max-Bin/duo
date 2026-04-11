@@ -110,6 +110,15 @@ duo merge fix-auth       # fast-forward merge when done
 duo --help               # 52 commands in 10 groups
 ```
 
+### Scripting Helpers
+
+```bash
+duo list -q --status running          # one task ID per line — pipe-friendly
+duo list -c --status completed        # print count (for conditionals)
+duo cleanup --dry-run --age 7d        # preview stale tasks without deleting
+duo send my-task -f prompt.txt        # read prompt from file
+```
+
 ## Examples
 
 See the [`examples/`](examples/) directory for step-by-step walkthroughs:
