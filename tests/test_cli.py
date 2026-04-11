@@ -1799,6 +1799,23 @@ class TestCost:
         result = runner.invoke(main, ["cost", "--budget", "0"])
         assert result.exit_code == 1
 
+    def test_cost_quiet(self, runner: CliRunner, make_task) -> None:
+        """cost -q prints only the total PR count."""
+        task = make_task("cost-q")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        result = runner.invoke(main, ["cost", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
+    def test_cost_quiet_no_tasks(self, runner: CliRunner) -> None:
+        """cost -q with no tasks prints 0."""
+        result = runner.invoke(main, ["cost", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
 
 # ---------------------------------------------------------------------------
 # config set pr_budget

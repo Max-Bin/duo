@@ -1761,12 +1761,14 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("--budget", default=None, type=int, help="Exit non-zero if total PR > N")
+@click.option("-q", "--quiet", is_flag=True, help="Print only the total PR count")
 def cost(
     task_name: str | None,
     since_days: int | None,
     *,
     as_json: bool = False,
     budget: int | None = None,
+    quiet: bool = False,
 ) -> None:
     """Show Premium Request consumption across tasks."""
     from collections import Counter
@@ -1801,7 +1803,9 @@ def cost(
         tasks_to_scan = list_tasks()
 
     if not tasks_to_scan:
-        if as_json:
+        if quiet:
+            click.echo("0")
+        elif as_json:
             click.echo(json.dumps({"tasks": [], "total_pr": 0}, indent=2))
         else:
             click.echo("No tasks.")
@@ -1841,7 +1845,9 @@ def cost(
             }
         )
 
-    if as_json:
+    if quiet:
+        click.echo(str(grand_total))
+    elif as_json:
         click.echo(json.dumps({"tasks": rows, "total_pr": grand_total}, indent=2))
     else:
         header = (
