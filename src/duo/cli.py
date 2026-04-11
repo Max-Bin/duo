@@ -1910,7 +1910,14 @@ def stats(as_json: bool) -> None:
     total = len(tasks)
 
     if as_json:
-        output: dict[str, Any] = {"total": total, "by_status": dict(counts)}
+        oldest = min((t.created_at for t in tasks if t.created_at), default=None)
+        newest = max((t.created_at for t in tasks if t.created_at), default=None)
+        output: dict[str, Any] = {
+            "total": total,
+            "by_status": dict(counts),
+            "oldest_task_age": _fmt_age(oldest) if oldest else None,
+            "newest_task_age": _fmt_age(newest) if newest else None,
+        }
         click.echo(json.dumps(output, indent=2))
         return
 
@@ -1936,6 +1943,13 @@ def stats(as_json: bool) -> None:
         count = counts.get(status_val, 0)
         if count > 0:
             click.echo(f"  {status_val}: {count}")
+
+    oldest = min((t.created_at for t in tasks if t.created_at), default=None)
+    newest = max((t.created_at for t in tasks if t.created_at), default=None)
+    if oldest:
+        click.echo(f"Oldest: {_fmt_age(oldest)}")
+    if newest:
+        click.echo(f"Newest: {_fmt_age(newest)}")
 
 
 @main.command()

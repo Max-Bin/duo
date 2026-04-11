@@ -5492,6 +5492,18 @@ class TestStats:
         assert "Tasks: 2" in result.output
         assert "running: 1" in result.output
         assert "completed: 1" in result.output
+        assert "Oldest:" in result.output
+        assert "Newest:" in result.output
+
+    def test_stats_no_created_at(self, runner: CliRunner):
+        """Stats handles tasks without created_at gracefully."""
+        t = _make_task("no-date")
+        t.created_at = ""
+        save_task(t)
+        result = runner.invoke(main, ["stats"])
+        assert result.exit_code == 0
+        assert "Tasks: 1" in result.output
+        assert "Oldest:" not in result.output
 
     def test_stats_json(self, runner: CliRunner):
         _make_task("stats-j")
@@ -5500,6 +5512,8 @@ class TestStats:
         data = json.loads(result.output)
         assert data["total"] == 1
         assert "by_status" in data
+        assert "oldest_task_age" in data
+        assert "newest_task_age" in data
 
     def test_stats_shows_all_active_statuses(self, runner: CliRunner):
         """Verify session_starting and result_reported appear in text output."""
