@@ -1666,11 +1666,16 @@ def batch(
 
 @main.command()
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def queue(as_json: bool) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the queue length")
+def queue(as_json: bool, quiet: bool) -> None:
     """Show queue status."""
     from duo.scheduler import queue_status
 
     qs = queue_status()
+
+    if quiet:
+        click.echo(str(len(qs["queued_tasks"])))
+        return
 
     if as_json:
         click.echo(json.dumps(qs, indent=2))

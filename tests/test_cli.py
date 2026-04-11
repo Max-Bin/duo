@@ -3727,6 +3727,34 @@ class TestQueueCommand:
             assert data["queued_count"] == 2
             assert data["queued_tasks"] == ["q-a", "q-b"]
 
+    def test_queue_quiet(self, runner: CliRunner):
+        """queue -q prints only the queue length."""
+        mock_qs = {
+            "active_count": 1,
+            "queued_count": 2,
+            "max_parallel": 3,
+            "active_tasks": ["run-a"],
+            "queued_tasks": ["q-a", "q-b"],
+        }
+        with patch("duo.scheduler.queue_status", return_value=mock_qs):
+            result = runner.invoke(main, ["queue", "-q"])
+            assert result.exit_code == 0
+            assert result.output.strip() == "2"
+
+    def test_queue_quiet_empty(self, runner: CliRunner):
+        """queue -q with empty queue prints 0."""
+        mock_qs = {
+            "active_count": 0,
+            "queued_count": 0,
+            "max_parallel": 3,
+            "active_tasks": [],
+            "queued_tasks": [],
+        }
+        with patch("duo.scheduler.queue_status", return_value=mock_qs):
+            result = runner.invoke(main, ["queue", "-q"])
+            assert result.exit_code == 0
+            assert result.output.strip() == "0"
+
 
 # ---------------------------------------------------------------------------
 # audit command — session log path
