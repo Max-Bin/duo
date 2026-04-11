@@ -2673,6 +2673,39 @@ class TestSendSuccess:
             assert prompt_path.exists()
             assert prompt_path.read_text() == "my important instruction"
 
+    def test_send_quiet_normal(self, runner: CliRunner):
+        """send -q prints 'sent' on normal send."""
+        task = _make_task("send-q-ok")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        with patch("duo.commander.send_task_prompt"):
+            result = runner.invoke(main, ["send", "send-q-ok", "do something", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "sent"
+
+    def test_send_quiet_queued(self, runner: CliRunner):
+        """send -q prints 'queued' for queued task."""
+        task = _make_task("send-q-queue")
+        task.status = TaskStatus.QUEUED
+        save_task(task)
+        result = runner.invoke(main, ["send", "send-q-queue", "do something", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "queued"
+
+    def test_send_quiet_deferred(self, runner: CliRunner):
+        """send -q prints 'sent' for deferred session."""
+        task = _make_task("send-q-def")
+        task.status = TaskStatus.SESSION_STARTING
+        task.pane_label = "send-q-def"
+        save_task(task)
+        with (
+            patch("duo.transport.send_bootstrap"),
+            patch("duo.commander.build_bootstrap_prompt", return_value="bootstrap"),
+        ):
+            result = runner.invoke(main, ["send", "send-q-def", "do something", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "sent"
+
 
 # ---------------------------------------------------------------------------
 # kill command — successful path

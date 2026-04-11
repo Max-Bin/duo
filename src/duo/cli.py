@@ -617,12 +617,16 @@ def start(
     help="Read prompt from file (use - for stdin)",
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option(
+    "-q", "--quiet", is_flag=True, help="Print only 'sent' or 'queued' for scripting"
+)
 def send(
     name: str,
     prompt: str | None,
     *,
     prompt_file: str | None = None,
     as_json: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Send a prompt to a task's Copilot session."""
     from duo.commander import send_task_prompt
@@ -657,6 +661,9 @@ def send(
         from duo.protocol import atomic_write_text
 
         atomic_write_text(prompt_path, prompt)
+        if quiet:
+            click.echo("queued")
+            return
         if as_json:
             click.echo(json.dumps({"sent": False, "queued": True, "task": name}))
         else:
@@ -697,6 +704,9 @@ def send(
             },
         )
         transition(task, TaskStatus.PROMPT_SENT)
+        if quiet:
+            click.echo("sent")
+            return
         if as_json:
             click.echo(json.dumps({"sent": True, "task": name, "first_prompt": True}))
         else:
@@ -704,6 +714,9 @@ def send(
         return
 
     send_task_prompt(task, prompt)
+    if quiet:
+        click.echo("sent")
+        return
     if as_json:
         click.echo(
             json.dumps(
