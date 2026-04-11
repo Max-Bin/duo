@@ -4605,6 +4605,32 @@ class TestLogsFormatting:
         assert result.exit_code == 0
         assert "⚠" in result.output
 
+    def test_step_filter(self, runner: CliRunner):
+        """--step N filters events to only those for step N."""
+        task = _make_task("log-step")
+        append_event(task, "step_started", {"step": 1})
+        append_event(task, "step_started", {"step": 2})
+        append_event(task, "step_completed", {"step": 1})
+        result = runner.invoke(main, ["logs", "log-step", "--step", "1", "--all"])
+        assert result.exit_code == 0
+        assert "step_started" in result.output
+        assert "step_completed" in result.output
+        lines = [l for l in result.output.splitlines() if "step_started" in l]
+        assert len(lines) == 1
+
+    def test_step_filter_json(self, runner: CliRunner):
+        """--step N with --json-output filters events."""
+        task = _make_task("log-step-j")
+        append_event(task, "ev1", {"step": 1})
+        append_event(task, "ev2", {"step": 2})
+        result = runner.invoke(
+            main, ["logs", "log-step-j", "--step", "2", "--all", "--json-output"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+        assert data[0]["data"]["step"] == 2
+
 
 # ---------------------------------------------------------------------------
 # init command

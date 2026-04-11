@@ -1857,6 +1857,9 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 @click.option(
     "--filter", "event_filter", default=None, help="Filter by event type substring"
 )
+@click.option(
+    "--step", "step_filter", default=None, type=int, help="Filter events by step number"
+)
 @click.pass_context
 def logs(
     ctx: click.Context,
@@ -1865,6 +1868,7 @@ def logs(
     show_all: bool,
     as_json: bool,
     event_filter: str | None,
+    step_filter: int | None,
 ) -> None:
     """Show task journal events."""
     from duo.protocol import read_jsonl
@@ -1878,6 +1882,14 @@ def logs(
 
     if event_filter:
         events = [ev for ev in events if event_filter in ev.get("event", "")]
+
+    if step_filter is not None:
+        events = [
+            ev
+            for ev in events
+            if ev.get("data", {}).get("step") == step_filter
+            or ev.get("step") == step_filter
+        ]
 
     if not show_all:
         events = events[-lines:]
