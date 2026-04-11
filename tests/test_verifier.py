@@ -953,3 +953,34 @@ class TestAiPlatformSecretDetection:
 
         result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
         assert isinstance(result, Correction), f"{pattern} not detected"
+
+
+class TestRemainingSecretPatterns:
+    """Ensure every DEFAULT_SECRET_PATTERN triggers detection."""
+
+    @pytest.mark.parametrize(
+        ("pattern", "diff_line"),
+        [
+            ("apikey=", "+apikey=super_secret_key_12345"),
+            ("secret=", "+secret=my_app_secret_value"),
+            ("PRIVATE_KEY", "+PRIVATE_KEY=-----BEGIN PRIVATE-----"),
+            ("private_key", "+private_key=/path/to/key.pem"),
+            ("Authorization: Bearer", "+Authorization: Bearer eyJhbGciOiJIUz"),
+            ("AZURE_CLIENT_SECRET=", "+AZURE_CLIENT_SECRET=abc123-def456"),
+            ("azure_client_secret=", "+azure_client_secret=abc123-def456"),
+            ("DATABASE_URL=", "+DATABASE_URL=postgres://user:pass@host/db"),
+            ("database_url=", "+database_url=postgres://user:pass@host/db"),
+            ("REDIS_URL=", "+REDIS_URL=redis://default:pass@host:6379"),
+            ("MONGODB_URI=", "+MONGODB_URI=mongodb+srv://user:pass@cluster"),
+            ("AWS_SECRET_ACCESS_KEY=", "+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG"),
+            ("aws_secret_access_key=", "+aws_secret_access_key=wJalrXUtnFEMI/K7MDENG"),
+            ("GH_TOKEN=", "+GH_TOKEN=ghp_abcdefghijk1234567890"),
+        ],
+    )
+    def test_pattern_detected(self, pattern: str, diff_line: str) -> None:
+        """Each secret pattern must trigger a Correction."""
+        task = _make_task()
+        from duo.protocol import DEFAULT_SECRET_PATTERNS
+
+        result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
+        assert isinstance(result, Correction), f"{pattern} not detected in diff"
