@@ -541,6 +541,7 @@ class TestSend:
         result = runner.invoke(main, ["send", "bad name!", "hello"])
         assert result.exit_code != 0
         assert "Task name must contain only" in result.output
+        assert "Try: 'bad-name'" in result.output
 
     def test_send_empty_prompt(self, runner: CliRunner):
         """Verify send() rejects empty prompts."""
