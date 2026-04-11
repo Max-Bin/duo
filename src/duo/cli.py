@@ -812,6 +812,7 @@ def _print_task(task: Task) -> None:
 @click.option("-c", "--count", is_flag=True, help="Only print the number of tasks")
 @click.option("--no-header", is_flag=True, help="Omit table header")
 @click.option("--active", is_flag=True, help="Show only running/active tasks")
+@click.option("--finished", is_flag=True, help="Show only completed/failed tasks")
 @click.option(
     "--wide", "-w", is_flag=True, help="Show description column in table output"
 )
@@ -830,6 +831,7 @@ def list_cmd(
     count: bool,
     no_header: bool,
     active: bool,
+    finished: bool,
     wide: bool,
     recent: int | None,
 ) -> None:
@@ -847,6 +849,14 @@ def list_cmd(
             TaskStatus.CORRECTING,
         }
         tasks = [t for t in tasks if t.status in _ACTIVE_STATUSES]
+
+    if finished:
+        _FINISHED_STATUSES = {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.ESCALATED,
+        }
+        tasks = [t for t in tasks if t.status in _FINISHED_STATUSES]
 
     if status_filter:
         valid_statuses = {s.value for s in TaskStatus}

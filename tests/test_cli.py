@@ -554,6 +554,33 @@ class TestList:
         assert result.exit_code == 0
         assert result.output.strip() == "1"
 
+    def test_finished_flag(self, runner: CliRunner):
+        """list --finished shows only completed/failed/escalated tasks."""
+        t1 = _make_task("fin-1")
+        t1.status = TaskStatus.COMPLETED
+        save_task(t1)
+        t2 = _make_task("fin-2")
+        t2.status = TaskStatus.RUNNING
+        save_task(t2)
+        t3 = _make_task("fin-3")
+        t3.status = TaskStatus.FAILED
+        save_task(t3)
+        result = runner.invoke(main, ["list", "--finished"])
+        assert result.exit_code == 0
+        assert "fin-1" in result.output
+        assert "fin-3" in result.output
+        assert "fin-2" not in result.output
+
+    def test_finished_count(self, runner: CliRunner):
+        """list --finished -c shows count of finished tasks."""
+        t1 = _make_task("fc-1")
+        t1.status = TaskStatus.COMPLETED
+        save_task(t1)
+        _make_task("fc-2")  # CREATED, not finished
+        result = runner.invoke(main, ["list", "--finished", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
 
 # ---------------------------------------------------------------------------
 # recover command
