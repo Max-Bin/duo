@@ -87,8 +87,25 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
 }
 
 
+_ALIASES: dict[str, str] = {
+    "ls": "list",
+    "st": "status",
+    "log": "logs",
+}
+
+
 class _OrderedGroup(click.Group):
     """Click group that displays commands in categorized sections."""
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        """Resolve command name, supporting aliases."""
+        rv = super().get_command(ctx, cmd_name)
+        if rv is not None:
+            return rv
+        target = _ALIASES.get(cmd_name)
+        if target is not None:
+            return super().get_command(ctx, target)
+        return None
 
     def format_commands(
         self, ctx: click.Context, formatter: click.HelpFormatter
@@ -128,6 +145,12 @@ class _OrderedGroup(click.Group):
                 formatter.write_dl(
                     extra
                 )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
+
+        # Show aliases
+        if _ALIASES:  # pragma: no branch — _ALIASES is a non-empty constant
+            alias_rows = [(a, f"→ {t}") for a, t in sorted(_ALIASES.items())]
+            with formatter.section("Aliases"):
+                formatter.write_dl(alias_rows)
 
 
 def _validate_task_name(name: str) -> None:

@@ -135,6 +135,27 @@ class TestMainGroup:
         assert result.exit_code == 0
         assert "Duo" in result.output
 
+    def test_help_shows_aliases(self, runner: CliRunner):
+        result = runner.invoke(main, ["--help"])
+        assert "Aliases" in result.output
+        assert "ls" in result.output
+        assert "→ list" in result.output
+
+    def test_alias_ls(self, runner: CliRunner):
+        result = runner.invoke(main, ["ls"])
+        assert result.exit_code == 0
+
+    def test_alias_st(self, runner: CliRunner, _isolate_tasks_dir: Path):
+        task = _make_task("alias-test")
+        result = runner.invoke(main, ["st", task.id])
+        assert result.exit_code == 0
+        assert task.id in result.output
+
+    def test_alias_log(self, runner: CliRunner, _isolate_tasks_dir: Path):
+        task = _make_task("log-alias")
+        result = runner.invoke(main, ["log", task.id])
+        assert result.exit_code == 0
+
     def test_creates_tasks_dir(self, tmp_path: Path, runner: CliRunner, monkeypatch):
         new_dir = tmp_path / "fresh" / "tasks"
         monkeypatch.setattr(duo.protocol, "TASKS_DIR", new_dir)

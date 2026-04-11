@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2436%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2440%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -150,6 +150,11 @@ duo logs my-task -c --filter error    # 统计错误事件数
 duo cleanup --dry-run --age 7d        # 预览过期任务但不删除
 duo send my-task -f prompt.txt        # 从文件读取 prompt
 duo merge my-task --dry-run           # 预览合并（提交数、变更文件）
+
+# 常用命令别名
+duo ls                                # → duo list
+duo st my-task                        # → duo status my-task
+duo log my-task                       # → duo logs my-task
 ```
 
 ## 示例

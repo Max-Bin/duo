@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2436%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2440%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -150,6 +150,11 @@ duo logs my-task -c --filter error    # count error events
 duo cleanup --dry-run --age 7d        # preview stale tasks without deleting
 duo send my-task -f prompt.txt        # read prompt from file
 duo merge my-task --dry-run           # preview merge (commits, files changed)
+
+# Aliases for common commands
+duo ls                                # → duo list
+duo st my-task                        # → duo status my-task
+duo log my-task                       # → duo logs my-task
 ```
 
 ## Examples

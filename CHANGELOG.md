@@ -6,6 +6,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Command aliases: `ls` → `list`, `st` → `status`, `log` → `logs`
+- Aliases shown in `duo --help` under "Aliases" section
 - `config edit` command — opens config file in `$EDITOR` / `$VISUAL` / `vi`
 - `config validate` command — check config file for errors (types, ranges, unknown keys)
 - `send --file` option — read prompt from a file instead of inline text
