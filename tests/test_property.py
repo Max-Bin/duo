@@ -1588,3 +1588,89 @@ class TestPollerRampResetSequenceProperty:
             else:
                 poller._reset()
             assert 5.0 <= poller.interval <= 60.0
+
+
+class TestMatchWritableUnicodeProperty:
+    """Property tests for verifier._match_writable unicode + glob edge cases."""
+
+    @given(name=st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True))
+    @settings(max_examples=30)
+    def test_exact_file_matches_itself(self, name: str) -> None:
+        """An exact filename always matches itself as pattern."""
+        from duo.verifier import _match_writable
+
+        assert _match_writable(name, name)
+
+    @given(
+        dirname=st.from_regex(r"[a-z]{1,5}", fullmatch=True),
+        filename=st.from_regex(r"[a-z]{1,5}\.py", fullmatch=True),
+    )
+    @settings(max_examples=30)
+    def test_star_glob_matches_direct_child(self, dirname: str, filename: str) -> None:
+        """Pattern dir/* matches dir/file."""
+        from duo.verifier import _match_writable
+
+        assert _match_writable(f"{dirname}/{filename}", f"{dirname}/*")
+
+    @given(
+        path_parts=st.lists(
+            st.from_regex(r"[a-z]{1,4}", fullmatch=True),
+            min_size=2,
+            max_size=5,
+        )
+    )
+    @settings(max_examples=30)
+    def test_double_star_matches_deep_paths(self, path_parts: list[str]) -> None:
+        """Pattern root/** matches paths at any depth under root."""
+        from duo.verifier import _match_writable
+
+        path = "/".join(path_parts)
+        root = path_parts[0]
+        # root/** should match any path starting with root/ at depth >= 2
+        if len(path_parts) >= 2:
+            assert _match_writable(path, f"{root}/**")
+
+
+class TestValidateWritablePatternsFilterProperty:
+    """Property tests for verifier._validate_writable_patterns filtering."""
+
+    @given(
+        patterns=st.lists(
+            st.from_regex(r"[a-z]{1,5}/\*", fullmatch=True),
+            min_size=0,
+            max_size=10,
+        )
+    )
+    @settings(max_examples=30)
+    def test_valid_patterns_pass_through(self, patterns: list[str]) -> None:
+        """Non-empty, non-absolute patterns all pass validation."""
+        from duo.verifier import _validate_writable_patterns
+
+        result = _validate_writable_patterns(patterns)
+        assert result == patterns
+
+    @given(
+        n_empty=st.integers(min_value=1, max_value=5),
+        n_valid=st.integers(min_value=0, max_value=5),
+    )
+    @settings(max_examples=20)
+    def test_empty_patterns_filtered(self, n_empty: int, n_valid: int) -> None:
+        """Empty strings are silently dropped."""
+        from duo.verifier import _validate_writable_patterns
+
+        patterns = [""] * n_empty + ["src/*"] * n_valid
+        result = _validate_writable_patterns(patterns)
+        assert len(result) == n_valid
+
+    @given(
+        n_abs=st.integers(min_value=1, max_value=5),
+        n_valid=st.integers(min_value=0, max_value=5),
+    )
+    @settings(max_examples=20)
+    def test_absolute_patterns_filtered(self, n_abs: int, n_valid: int) -> None:
+        """Absolute paths are silently dropped."""
+        from duo.verifier import _validate_writable_patterns
+
+        patterns = ["/usr/bin"] * n_abs + ["src/*"] * n_valid
+        result = _validate_writable_patterns(patterns)
+        assert len(result) == n_valid
