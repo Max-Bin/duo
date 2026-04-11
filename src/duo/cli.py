@@ -2051,7 +2051,16 @@ def _inspect_build_json(task: Task, include_files: bool) -> dict[str, Any]:
     is_flag=True,
     help="Show changed files and diff preview from worktree",
 )
-def inspect(name: str, as_json: bool, include_files: bool) -> None:
+@click.option(
+    "--events",
+    "event_count",
+    type=int,
+    default=None,
+    help="Number of recent journal events to show (default: 5, 0 for all)",
+)
+def inspect(
+    name: str, as_json: bool, include_files: bool, event_count: int | None
+) -> None:
     """Show detailed task information."""
     from duo.protocol import (
         read_heartbeat,
@@ -2104,8 +2113,9 @@ def inspect(name: str, as_json: bool, include_files: bool) -> None:
     click.echo(f"\nPR Consumed:     {pr_count}")
 
     if events:
-        recent = events[-5:]
-        click.echo(f"\nRecent Events ({len(events)} total):")
+        show_n = event_count if event_count is not None else 5
+        recent = events if show_n == 0 else events[-show_n:]
+        click.echo(f"\nRecent Events ({len(events)} total, showing {len(recent)}):")
         for ev in recent:
             ts = _fmt_ts(ev.get("ts", "?"))
             click.echo(f"  {ts} {ev.get('event', '?')}")

@@ -989,6 +989,29 @@ class TestInspect:
         assert isinstance(data["subtasks"], list)
         assert data["branch"] == "duo/json-inspect"
 
+    def test_inspect_events_count(self, runner: CliRunner):
+        """inspect --events N shows N events."""
+        from duo.protocol import append_event
+
+        task = _make_task("ev-count")
+        for i in range(10):
+            append_event(task, f"event_{i}", {"i": i})
+        result = runner.invoke(main, ["inspect", "ev-count", "--events", "3"])
+        assert result.exit_code == 0
+        assert "showing 3" in result.output
+
+    def test_inspect_events_zero_shows_all(self, runner: CliRunner):
+        """inspect --events 0 shows all events."""
+        from duo.protocol import append_event
+
+        task = _make_task("ev-all")
+        for i in range(5):
+            append_event(task, f"event_{i}", {"i": i})
+        result = runner.invoke(main, ["inspect", "ev-all", "--events", "0"])
+        assert result.exit_code == 0
+        # should show all events (task_created + 5 custom = 6 total)
+        assert "showing 6" in result.output
+
 
 # ---------------------------------------------------------------------------
 # verbose flag
