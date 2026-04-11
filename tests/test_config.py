@@ -565,3 +565,34 @@ class TestConfigDocAccuracy:
         text = docs_path.read_text(encoding="utf-8")
         for key in config_mod.DEFAULTS:
             assert key in text, f"Config key '{key}' not mentioned in architecture.md"
+
+
+def _all_config_keys() -> list[str]:
+    """Return all known config keys."""
+    return list(config_mod.DEFAULTS.keys())
+
+
+class TestConfigKeyRoundTrip:
+    """Parametrized: every config key can be get → set → reset without error."""
+
+    @pytest.mark.parametrize("key", _all_config_keys())
+    def test_get_returns_default(self, key: str) -> None:
+        """get_config returns the DEFAULTS value for each known key."""
+        val = config_mod.get_config(key)
+        assert val == config_mod.DEFAULTS[key]
+
+    @pytest.mark.parametrize("key", _all_config_keys())
+    def test_reset_restores_default(self, key: str) -> None:
+        """reset_config restores the default for each known key."""
+        default = config_mod.DEFAULTS[key]
+        # Mutate then reset
+        if isinstance(default, bool):
+            config_mod.set_config(key, str(not default).lower())
+        elif isinstance(default, int):
+            config_mod.set_config(key, str(default + 1) if default >= 0 else "1")
+        elif isinstance(default, float):
+            config_mod.set_config(key, str(default + 1.0))
+        else:
+            config_mod.set_config(key, default + "-changed")
+        config_mod.reset_config(key)
+        assert config_mod.get_config(key) == default
