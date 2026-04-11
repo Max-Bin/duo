@@ -203,6 +203,22 @@ class TestSpawnClaudePane:
             with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
                 _spawn_claude_pane("think-x", "/tmp/test")
 
+    def test_wait_for_idle_returns_false_warns(self) -> None:
+        """When wait_for_idle returns False, a warning is logged but pane is still returned."""
+        mock_run = MagicMock(
+            return_value=MagicMock(returncode=0, stdout="%99\n", stderr="")
+        )
+        with (
+            patch("subprocess.run", mock_run),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=False),
+            patch("duo.config.get_config", return_value=True),
+            patch("time.sleep"),
+        ):
+            pane_id = _spawn_claude_pane("think-x", "/tmp/test")
+            assert pane_id == "%99"
+
 
 # ---------------------------------------------------------------------------
 # ensure_pane
@@ -245,6 +261,20 @@ class TestEnsurePane:
             mock_cmd.assert_called_once_with(
                 "think-my-app", "claude --dangerously-skip-permissions"
             )
+
+    def test_recovers_dead_pane_wait_fails(self) -> None:
+        """Recovery proceeds even if wait_for_idle returns False."""
+        write_thinking_claude_md("my-app")
+        write_plan_template("my-app")
+        with (
+            patch("duo.thinking._pane_exists", return_value=True),
+            patch("duo.thinking._pane_alive", return_value=False),
+            patch("duo.config.get_config", return_value=True),
+            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.wait_for_idle", return_value=False),
+        ):
+            label = ensure_pane("my-app")
+            assert label == "think-my-app"
 
     def test_writes_scaffold_files(self) -> None:
         with (

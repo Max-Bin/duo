@@ -140,6 +140,8 @@ def _build_events_panel(tasks: list[Task], max_events: int = 8) -> Panel:
 
 def run_dashboard(task_ids: list[str] | None = None, refresh_rate: float = 2.0) -> None:
     """Run the live dashboard."""
+    if refresh_rate <= 0:
+        refresh_rate = 2.0
     console = Console()
 
     with Live(

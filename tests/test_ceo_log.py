@@ -218,6 +218,38 @@ class TestSessionStatsEdgeCases:
         assert stats["decisions_made"] == 1
         assert stats["avg_decision_ms"] == 0
 
+    def test_decision_with_non_numeric_elapsed_ms(self) -> None:
+        """session_stats skips non-numeric elapsed_ms values."""
+        session_id = start_ceo_session()
+        from duo.ceo_log import _append_event
+        from duo.protocol import now_iso
+
+        _append_event(
+            session_id,
+            {
+                "event": "decision",
+                "ts": now_iso(),
+                "task": "t1",
+                "decision_type": "approve",
+                "content": "yes",
+                "elapsed_ms": "not-a-number",
+            },
+        )
+        _append_event(
+            session_id,
+            {
+                "event": "decision",
+                "ts": now_iso(),
+                "task": "t1",
+                "decision_type": "approve",
+                "content": "yes",
+                "elapsed_ms": 100,
+            },
+        )
+        stats = session_stats(session_id)
+        assert stats["decisions_made"] == 2
+        assert stats["avg_decision_ms"] == 100
+
 
 # ---------------------------------------------------------------------------
 # Session ID validation (path traversal prevention)

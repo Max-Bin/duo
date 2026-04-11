@@ -238,7 +238,10 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
         kill_pane(pane_id)
         raise RuntimeError(f"Failed to start Claude Code in pane: {exc}") from exc
 
-    wait_for_idle(label, timeout=30)
+    if not wait_for_idle(label, timeout=30):
+        logger.warning(
+            "Claude Code did not become idle in pane %s — may not be ready", label
+        )
     logger.info("Claude Code started in pane %s (label=%s)", pane_id, label)
     return pane_id
 
@@ -271,7 +274,8 @@ def ensure_pane(name: str) -> str:
             if get_config("bypass_permissions"):
                 claude_cmd += " --dangerously-skip-permissions"
             send_shell_command(label, claude_cmd)
-            wait_for_idle(label, timeout=30)
+            if not wait_for_idle(label, timeout=30):
+                logger.warning("Recovered pane %s — Claude may not be ready", label)
         return label
 
     # No pane — create one

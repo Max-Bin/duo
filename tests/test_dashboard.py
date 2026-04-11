@@ -422,3 +422,27 @@ class TestHeartbeatReadResilience:
         with patch("duo.dashboard.read_heartbeat", side_effect=OSError("perm denied")):
             table = _build_tasks_table([task])
             assert table is not None
+
+
+class TestRunDashboardRefreshRateGuard:
+    """run_dashboard clamps invalid refresh_rate."""
+
+    @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
+    @patch("duo.dashboard.Console")
+    @patch("duo.dashboard.Live")
+    def test_zero_refresh_rate_clamped(self, mock_live, mock_console, mock_sleep):
+        from duo.dashboard import run_dashboard
+
+        mock_live.return_value.__enter__ = lambda s: s
+        mock_live.return_value.__exit__ = lambda s, *a: False
+        run_dashboard(refresh_rate=0.0)  # should not raise ZeroDivisionError
+
+    @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
+    @patch("duo.dashboard.Console")
+    @patch("duo.dashboard.Live")
+    def test_negative_refresh_rate_clamped(self, mock_live, mock_console, mock_sleep):
+        from duo.dashboard import run_dashboard
+
+        mock_live.return_value.__enter__ = lambda s: s
+        mock_live.return_value.__exit__ = lambda s, *a: False
+        run_dashboard(refresh_rate=-5.0)  # should not raise

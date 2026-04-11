@@ -114,7 +114,9 @@ def session_stats(session_id: str) -> dict[str, Any]:
         dt = d.get("decision_type", "unknown")
         decision_types[dt] = decision_types.get(dt, 0) + 1
         if "elapsed_ms" in d:
-            elapsed_times.append(d["elapsed_ms"])
+            val = d["elapsed_ms"]
+            if isinstance(val, (int, float)):
+                elapsed_times.append(int(val))
     avg_ms = sum(elapsed_times) // len(elapsed_times) if elapsed_times else 0
     return {
         "session_id": session_id,
