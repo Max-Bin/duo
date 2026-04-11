@@ -49,6 +49,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `start -q/--quiet` — print only the task name for scripting
 - `send -q/--quiet` — print only 'sent' or 'queued' for scripting
 - `kill -q/--quiet` — print only the task name for scripting
+- `resume -q/--quiet` — print only the resumed count for scripting
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
