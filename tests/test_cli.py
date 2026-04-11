@@ -4701,6 +4701,26 @@ class TestLogsFormatting:
         assert len(data) == 1
         assert data[0]["data"]["step"] == 2
 
+    def test_count_flag(self, runner: CliRunner):
+        """--count prints only the number of events."""
+        task = _make_task("log-cnt")
+        append_event(task, "started", {"step": 1})
+        append_event(task, "completed", {"step": 1})
+        append_event(task, "started", {"step": 2})
+        result = runner.invoke(main, ["logs", "log-cnt", "-c"])
+        assert result.exit_code == 0
+        count = int(result.output.strip())
+        assert count >= 3
+
+    def test_count_with_filter(self, runner: CliRunner):
+        """--count with --filter counts only matching events."""
+        task = _make_task("log-cf")
+        append_event(task, "started", {"step": 1})
+        append_event(task, "completed", {"step": 1})
+        result = runner.invoke(main, ["logs", "log-cf", "-c", "--filter", "started"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
 
 # ---------------------------------------------------------------------------
 # init command

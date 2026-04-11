@@ -1925,6 +1925,9 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 @click.option(
     "--step", "step_filter", default=None, type=int, help="Filter events by step number"
 )
+@click.option(
+    "-c", "--count", "show_count", is_flag=True, help="Print only the event count"
+)
 @click.pass_context
 def logs(
     ctx: click.Context,
@@ -1934,6 +1937,7 @@ def logs(
     as_json: bool,
     event_filter: str | None,
     step_filter: int | None,
+    show_count: bool,
 ) -> None:
     """Show task journal events."""
     from duo.protocol import read_jsonl
@@ -1955,6 +1959,10 @@ def logs(
             if ev.get("data", {}).get("step") == step_filter
             or ev.get("step") == step_filter
         ]
+
+    if show_count:
+        click.echo(str(len(events)))
+        return
 
     if not show_all:
         events = events[-lines:]
