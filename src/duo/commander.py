@@ -91,6 +91,14 @@ _IDLE_TIMEOUT_START = 30.0
 _IDLE_TIMEOUT_ALLOW_ALL = 10  # seconds to wait for /allow-all
 _MAX_CONSECUTIVE_POLL_ERRORS = 10
 
+# Common exception tuple for transport/subprocess errors
+_TRANSPORT_ERRORS = (
+    RuntimeError,
+    subprocess.CalledProcessError,
+    subprocess.TimeoutExpired,
+    OSError,
+)
+
 
 def _get_copilot_model() -> str:
     """Get copilot model from config, env var override, or default."""
@@ -636,12 +644,7 @@ def start_claude_commander(task: Task) -> str | None:
         if get_config("bypass_permissions"):
             claude_cmd += " --dangerously-skip-permissions"
         send_shell_command(commander_label, claude_cmd)
-    except (
-        RuntimeError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        OSError,
-    ) as exc:
+    except _TRANSPORT_ERRORS as exc:
         logger.warning("Failed to start Claude commander: %s", exc)
         kill_pane(pane_id)
         return None
@@ -974,12 +977,7 @@ def start_session(task: Task, *, defer: bool = False, reuse_pane: str = "") -> N
     time.sleep(_SESSION_SPLIT_WAIT)
     try:
         _start_and_prime_copilot(task, pane_id, defer=defer)
-    except (
-        RuntimeError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        OSError,
-    ) as exc:
+    except _TRANSPORT_ERRORS as exc:
         kill_pane(pane_id)
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
@@ -1033,12 +1031,7 @@ def restart_session(task: Task) -> None:
 
     try:
         start_session(task)
-    except (
-        RuntimeError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        OSError,
-    ) as exc:
+    except _TRANSPORT_ERRORS as exc:
         logger.warning("restart_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_restart_failed", {"error": str(exc)})
@@ -1174,12 +1167,7 @@ def _handle_pass_verdict(task: Task, step: int, attempt: int) -> None:
     try:
         prompt = build_continue_prompt(task)
         send_task_prompt(task, prompt)
-    except (
-        RuntimeError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        OSError,
-    ) as exc:
+    except _TRANSPORT_ERRORS as exc:
         logger.warning(
             "Failed to send continuation for '%s': %s — rolling back",
             task.id,
@@ -1235,12 +1223,7 @@ def _handle_correction_verdict(
     try:
         prompt = build_correction_prompt(task, reason)
         send_task_prompt(task, prompt)
-    except (
-        RuntimeError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-        OSError,
-    ) as exc:
+    except _TRANSPORT_ERRORS as exc:
         logger.warning(
             "Failed to send correction for '%s': %s — rolling back",
             task.id,
@@ -1631,12 +1614,7 @@ def monitor(task_ids: list[str] | None = None) -> None:
                 else:
                     prompt = build_task_prompt(task)
                 send_task_prompt(task, prompt)
-            except (
-                RuntimeError,
-                subprocess.CalledProcessError,
-                subprocess.TimeoutExpired,
-                OSError,
-            ) as exc:
+            except _TRANSPORT_ERRORS as exc:
                 _log_monitor("✗", task.id, f"failed to start: {exc}")
                 logger.warning("Failed to start promoted task '%s': %s", task.id, exc)
 
