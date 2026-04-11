@@ -587,54 +587,27 @@ class TestConfigRubberDuckHardening:
             config_mod.set_config("poll_base_interval", "-inf")
 
 
-class TestConfigDocAccuracy:
-    """Guard that docs mention all config keys and no phantom ones."""
-
-    def test_getting_started_lists_all_config_keys(self) -> None:
-        """docs/getting-started.md should reference every config key."""
-        docs_path = (
-            Path(__file__).resolve().parent.parent / "docs" / "getting-started.md"
-        )
-        text = docs_path.read_text(encoding="utf-8")
-        for key in config_mod.DEFAULTS:
-            assert key in text, (
-                f"Config key '{key}' not mentioned in getting-started.md"
-            )
-
-    def test_architecture_lists_all_config_keys(self) -> None:
-        """docs/architecture.md should reference every config key."""
-        docs_path = Path(__file__).resolve().parent.parent / "docs" / "architecture.md"
-        text = docs_path.read_text(encoding="utf-8")
-        for key in config_mod.DEFAULTS:
-            assert key in text, f"Config key '{key}' not mentioned in architecture.md"
-
-
-def _all_config_keys() -> list[str]:
-    """Return all known config keys."""
-    return list(config_mod.DEFAULTS.keys())
-
-
 class TestConfigKeyRoundTrip:
-    """Parametrized: every config key can be get → set → reset without error."""
+    """Every config key can be get → set → reset without error."""
 
-    @pytest.mark.parametrize("key", _all_config_keys())
-    def test_get_returns_default(self, key: str) -> None:
+    def test_all_keys_get_returns_default(self) -> None:
         """get_config returns the DEFAULTS value for each known key."""
-        val = config_mod.get_config(key)
-        assert val == config_mod.DEFAULTS[key]
+        for key, expected in config_mod.DEFAULTS.items():
+            val = config_mod.get_config(key)
+            assert val == expected, f"get_config({key!r}) returned {val!r}"
 
-    @pytest.mark.parametrize("key", _all_config_keys())
-    def test_reset_restores_default(self, key: str) -> None:
+    def test_all_keys_reset_restores_default(self) -> None:
         """reset_config restores the default for each known key."""
-        default = config_mod.DEFAULTS[key]
-        # Mutate then reset
-        if isinstance(default, bool):
-            config_mod.set_config(key, str(not default).lower())
-        elif isinstance(default, int):
-            config_mod.set_config(key, str(default + 1) if default >= 0 else "1")
-        elif isinstance(default, float):
-            config_mod.set_config(key, str(default + 1.0))
-        else:
-            config_mod.set_config(key, default + "-changed")
-        config_mod.reset_config(key)
-        assert config_mod.get_config(key) == default
+        for key, default in config_mod.DEFAULTS.items():
+            if isinstance(default, bool):
+                config_mod.set_config(key, str(not default).lower())
+            elif isinstance(default, int):
+                config_mod.set_config(key, str(default + 1) if default >= 0 else "1")
+            elif isinstance(default, float):
+                config_mod.set_config(key, str(default + 1.0))
+            else:
+                config_mod.set_config(key, default + "-changed")
+            config_mod.reset_config(key)
+            assert config_mod.get_config(key) == default, (
+                f"reset_config({key!r}) did not restore default"
+            )

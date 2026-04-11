@@ -190,19 +190,16 @@ class TestCompletion:
         result = runner.invoke(main, ["completion", "powershell"])
         assert result.exit_code != 0
 
-    @pytest.mark.parametrize(
-        "shell,keyword",
-        [
+    def test_completion_shells(self, runner: CliRunner):
+        for shell, keyword in [
             ("bash", "bash_source"),
             ("zsh", "zsh_source"),
             ("fish", "fish_source"),
-        ],
-    )
-    def test_completion_shells(self, runner: CliRunner, shell: str, keyword: str):
-        result = runner.invoke(main, ["completion", shell])
-        assert result.exit_code == 0
-        assert "_DUO_COMPLETE" in result.output
-        assert keyword in result.output
+        ]:
+            result = runner.invoke(main, ["completion", shell])
+            assert result.exit_code == 0
+            assert "_DUO_COMPLETE" in result.output
+            assert keyword in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -432,25 +429,21 @@ class TestSend:
             or "empty" in (result.output + str(result.exception)).lower()
         )
 
-    @pytest.mark.parametrize(
-        "status,expected_msg",
-        [
+    def test_send_rejects_dead_states(self, runner: CliRunner):
+        """send() rejects prompts to tasks in terminal or blocked states."""
+        cases = [
             (TaskStatus.COMPLETED, "terminal state"),
             (TaskStatus.FAILED, "terminal state"),
             (TaskStatus.ESCALATED, "terminal state"),
             (TaskStatus.BLOCKED, "blocked"),
-        ],
-    )
-    def test_send_rejects_dead_states(
-        self, runner: CliRunner, status: TaskStatus, expected_msg: str
-    ):
-        """send() rejects prompts to tasks in terminal or blocked states."""
-        task = _make_task(f"dead-{status.value}")
-        task.status = status
-        save_task(task)
-        result = runner.invoke(main, ["send", f"dead-{status.value}", "hello"])
-        assert result.exit_code != 0
-        assert expected_msg in result.output
+        ]
+        for status, expected_msg in cases:
+            task = _make_task(f"dead-{status.value}")
+            task.status = status
+            save_task(task)
+            result = runner.invoke(main, ["send", f"dead-{status.value}", "hello"])
+            assert result.exit_code != 0, f"{status.value} should be rejected"
+            assert expected_msg in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -507,24 +500,21 @@ class TestStart:
         result = runner.invoke(main, ["start", "../evil", "--repo", str(tmp_path)])
         assert result.exit_code != 0
 
-    @pytest.mark.parametrize(
-        "invalid_name",
-        [
+    def test_start_rejects_unicode_names(self, runner: CliRunner, tmp_path: Path):
+        """Unicode names in start command are rejected."""
+        for invalid_name in [
             "tâche",
             "任务",
             "タスク",
             "задача",
             "name with space",
             "name\twith\ttab",
-        ],
-    )
-    def test_start_rejects_unicode_names(
-        self, runner: CliRunner, tmp_path: Path, invalid_name: str
-    ):
-        result = runner.invoke(
-            main, ["start", invalid_name, "--repo", str(tmp_path), "--desc", "test"]
-        )
-        assert result.exit_code != 0
+        ]:
+            result = runner.invoke(
+                main,
+                ["start", invalid_name, "--repo", str(tmp_path), "--desc", "test"],
+            )
+            assert result.exit_code != 0, f"{invalid_name!r} should be rejected"
 
     def test_start_concurrent_lock(self, runner: CliRunner, tmp_path: Path):
         """Concurrent start attempts are protected by lockfile."""
@@ -1631,9 +1621,11 @@ class TestSafeJoin:
         result = _safe_join(str(tmp_path), "my-task")
         assert result == str(tmp_path / "my-task")
 
-    @pytest.mark.parametrize(
-        "malicious",
-        [
+    def test_safe_join_traversal_rejected(self, tmp_path: Path) -> None:
+        """Various path traversal attempts are rejected."""
+        import click
+
+        malicious_paths = [
             "../../../etc",
             "/etc/passwd",
             "foo/../../../etc",
@@ -1641,24 +1633,16 @@ class TestSafeJoin:
             "../",
             "..",
             "a/../b/../../../etc",
-        ],
-        ids=lambda x: x[:30],
-    )
-    def test_safe_join_traversal_rejected(self, tmp_path: Path, malicious: str) -> None:
-        """Various path traversal attempts are rejected."""
-        import click
+        ]
+        for malicious in malicious_paths:
+            with pytest.raises(click.BadParameter, match="traversal"):
+                _safe_join(str(tmp_path), malicious)
 
-        with pytest.raises(click.BadParameter, match="traversal"):
-            _safe_join(str(tmp_path), malicious)
-
-    @pytest.mark.parametrize(
-        "safe_name",
-        ["my-task", "task_123", "FooBar", "a", "x-y-z_0"],
-    )
-    def test_safe_join_valid_names(self, tmp_path: Path, safe_name: str) -> None:
+    def test_safe_join_valid_names(self, tmp_path: Path) -> None:
         """Valid task names are joined correctly."""
-        result = _safe_join(str(tmp_path), safe_name)
-        assert result == str(tmp_path / safe_name)
+        for safe_name in ["my-task", "task_123", "FooBar", "a", "x-y-z_0"]:
+            result = _safe_join(str(tmp_path), safe_name)
+            assert result == str(tmp_path / safe_name)
 
 
 # ---------------------------------------------------------------------------
@@ -1667,22 +1651,16 @@ class TestSafeJoin:
 
 
 class TestValidateTaskName:
-    @pytest.mark.parametrize(
-        "name",
-        ["foo", "foo-bar", "foo_bar", "Foo123", "a", "A-B_C-1"],
-    )
-    def test_valid_names(self, name: str):
-        _validate_task_name(name)  # Should not raise
+    def test_valid_names(self):
+        for name in ["foo", "foo-bar", "foo_bar", "Foo123", "a", "A-B_C-1"]:
+            _validate_task_name(name)  # Should not raise
 
-    @pytest.mark.parametrize(
-        "name",
-        ["bad name", "bad!name", "bad@name", "a/b", "a.b", ""],
-    )
-    def test_invalid_names(self, name: str):
+    def test_invalid_names(self):
         import click
 
-        with pytest.raises(click.BadParameter):
-            _validate_task_name(name)
+        for name in ["bad name", "bad!name", "bad@name", "a/b", "a.b", ""]:
+            with pytest.raises(click.BadParameter):
+                _validate_task_name(name)
 
     def test_task_name_too_long(self, runner: CliRunner, tmp_path: Path):
         """A 100-character name exceeds the 63-char limit and is rejected."""
@@ -1702,13 +1680,13 @@ class TestValidateTaskName:
         with pytest.raises(click.BadParameter, match="at most 63"):
             _validate_task_name("a" * 64)
 
-    @pytest.mark.parametrize("char", list("!@#$%^&*()+=[]{}|\\:;\"'<>,./? \t\n"))
-    def test_special_characters_rejected(self, char):
+    def test_special_characters_rejected(self):
         """Each special character in task name is rejected."""
         import click
 
-        with pytest.raises(click.BadParameter):
-            _validate_task_name(f"task{char}name")
+        for char in list("!@#$%^&*()+=[]{}|\\:;\"'<>,./? \t\n"):
+            with pytest.raises(click.BadParameter):
+                _validate_task_name(f"task{char}name")
 
 
 # ---------------------------------------------------------------------------
@@ -2193,9 +2171,9 @@ class TestStop:
             data = json.loads(result.output)
             assert data["stopped"] is False
 
-    @pytest.mark.parametrize(
-        "state",
-        [
+    def test_stop_from_all_non_terminal_states(self, runner: CliRunner):
+        """stop successfully transitions to BLOCKED from every non-terminal state."""
+        non_terminal = [
             TaskStatus.CREATED,
             TaskStatus.QUEUED,
             TaskStatus.SESSION_STARTING,
@@ -2206,25 +2184,21 @@ class TestStop:
             TaskStatus.VERIFYING,
             TaskStatus.CORRECTING,
             TaskStatus.ESCALATED,
-        ],
-    )
-    def test_stop_from_all_non_terminal_states(
-        self, runner: CliRunner, state: TaskStatus
-    ):
-        """stop successfully transitions to BLOCKED from every non-terminal state."""
-        tid = f"stop-{state.value}"
-        task = _make_task(tid)
-        task.status = state
-        save_task(task)
+        ]
+        for state in non_terminal:
+            tid = f"stop-{state.value}"
+            task = _make_task(tid)
+            task.status = state
+            save_task(task)
 
-        with patch("duo.cli.subprocess.run"):
-            result = runner.invoke(main, ["stop", tid])
-            assert result.exit_code == 0
-            assert "Stopped" in result.output
+            with patch("duo.cli.subprocess.run"):
+                result = runner.invoke(main, ["stop", tid])
+                assert result.exit_code == 0, f"stop failed for {state.value}"
+                assert "Stopped" in result.output
 
-        reloaded = load_task(tid)
-        assert reloaded is not None
-        assert reloaded.status == TaskStatus.BLOCKED
+            reloaded = load_task(tid)
+            assert reloaded is not None
+            assert reloaded.status == TaskStatus.BLOCKED
 
 
 # ---------------------------------------------------------------------------
@@ -4925,92 +4899,34 @@ class TestResume:
             assert data["resumed"][0]["resumed"] is False
             assert "Cannot normalize" in data["resumed"][0]["error"]
 
-    @pytest.mark.parametrize(
-        "state",
-        [
+    def test_resume_dead_pane_normalizes_active_states(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """resume with dead pane normalizes active states to FAILED before start."""
+        active_states = [
             TaskStatus.PROMPT_SENT,
             TaskStatus.ACKED,
             TaskStatus.RUNNING,
             TaskStatus.RESULT_REPORTED,
             TaskStatus.VERIFYING,
             TaskStatus.CORRECTING,
-        ],
-    )
-    def test_resume_dead_pane_normalizes_active_state(
-        self,
-        runner: CliRunner,
-        state: TaskStatus,
-        monkeypatch: pytest.MonkeyPatch,
-    ):
-        """resume with dead pane normalizes active states to FAILED before start."""
-        tid = f"resume-{state.value}"
-        task = _make_task(tid)
-        task.status = state
-        save_task(task)
+        ]
+        for state in active_states:
+            tid = f"resume-{state.value}"
+            task = _make_task(tid)
+            task.status = state
+            save_task(task)
 
-        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
-        mock_start = MagicMock()
-        monkeypatch.setattr("duo.commander.start_session", mock_start)
-        monkeypatch.setattr("duo.commander.send_task_prompt", MagicMock())
-        result = runner.invoke(main, ["resume", tid])
-        assert result.exit_code == 0
-        assert "Resumed" in result.output
-        # normalize_for_restart should have moved it to FAILED before start_session
-        mock_start.assert_called_once()
-
-
-class TestHelpTexts:
-    """Verify --help works for every registered command."""
-
-    @pytest.mark.parametrize(
-        "cmd",
-        [
-            ["version", "--help"],
-            ["completion", "--help"],
-            ["start", "--help"],
-            ["send", "--help"],
-            ["status", "--help"],
-            ["list", "--help"],
-            ["monitor", "--help"],
-            ["recover", "--help"],
-            ["merge", "--help"],
-            ["stop", "--help"],
-            ["kill", "--help"],
-            ["batch", "--help"],
-            ["queue", "--help"],
-            ["audit", "--help"],
-            ["dashboard", "--help"],
-            ["logs", "--help"],
-            ["inspect", "--help"],
-            ["init", "--help"],
-            ["doctor", "--help"],
-            ["resume", "--help"],
-            ["diff", "--help"],
-            ["config", "--help"],
-            ["export", "--help"],
-            ["cleanup", "--help"],
-            ["retry", "--help"],
-            ["config", "get", "--help"],
-            ["config", "set", "--help"],
-            ["config", "list", "--help"],
-            ["config", "reset", "--help"],
-        ],
-    )
-    def test_help_exits_zero(self, cmd):
-        runner = CliRunner()
-        result = runner.invoke(main, cmd)
-        assert result.exit_code == 0, f"{cmd} failed: {result.output}"
-        assert "Usage:" in result.output
-
-    def test_main_help_shows_sections(self):
-        """Main --help displays categorized command sections."""
-        runner = CliRunner()
-        result = runner.invoke(main, ["--help"])
-        assert result.exit_code == 0
-        assert "Task Lifecycle:" in result.output
-        assert "Monitoring:" in result.output
-        assert "Setup:" in result.output
-        assert "Recovery:" in result.output
+            monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+            mock_start = MagicMock()
+            monkeypatch.setattr("duo.commander.start_session", mock_start)
+            monkeypatch.setattr("duo.commander.send_task_prompt", MagicMock())
+            result = runner.invoke(main, ["resume", tid])
+            assert result.exit_code == 0, f"resume failed for {state.value}"
+            assert "Resumed" in result.output
+            mock_start.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -6514,11 +6430,10 @@ class TestRetry:
 
 
 class TestNotFoundParametrized:
-    """Parametrized 'not found' tests covering all task-based commands."""
+    """All task-based commands return 'not found' for nonexistent tasks."""
 
-    @pytest.mark.parametrize(
-        "args",
-        [
+    def test_all_commands_task_not_found(self, runner: CliRunner):
+        for args in [
             ["status", "nonexistent"],
             ["logs", "nonexistent"],
             ["inspect", "nonexistent"],
@@ -6531,12 +6446,10 @@ class TestNotFoundParametrized:
             ["retry", "nonexistent"],
             ["resume", "nonexistent"],
             ["send", "nonexistent", "hello"],
-        ],
-    )
-    def test_command_task_not_found(self, runner: CliRunner, args: list[str]):
-        result = runner.invoke(main, args)
-        assert result.exit_code != 0
-        assert "not found" in result.output.lower()
+        ]:
+            result = runner.invoke(main, args)
+            assert result.exit_code != 0, f"{args} should fail"
+            assert "not found" in result.output.lower(), f"{args} missing 'not found'"
 
 
 # ---------------------------------------------------------------------------

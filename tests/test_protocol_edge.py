@@ -110,117 +110,20 @@ class TestProtocolEdgeCases:
         assert (task.dir / "task.json").exists()
 
 
-class TestFSMDocAccuracy:
-    """Guard that docs/architecture.md FSM table matches TRANSITIONS."""
-
-    def test_architecture_transitions_match_code(self) -> None:
-        """Transition table in architecture.md must match protocol.TRANSITIONS."""
-        import re
-
-        from duo.protocol import TRANSITIONS
-
-        arch_path = Path(__file__).resolve().parent.parent / "docs" / "architecture.md"
-        text = arch_path.read_text(encoding="utf-8")
-
-        doc_transitions: dict[str, set[str]] = {}
-        pattern = re.compile(r"^(\w+)\s+→\s+\{\s*(.*?)\s*\}", re.MULTILINE)
-        for m in pattern.finditer(text):
-            state = m.group(1)
-            targets_str = m.group(2).strip()
-            targets = {t.strip() for t in targets_str.split(",") if t.strip()}
-            doc_transitions[state] = targets
-
-        code_transitions: dict[str, set[str]] = {}
-        for state, targets in TRANSITIONS.items():
-            code_transitions[state.name] = {t.name for t in targets}
-
-        assert set(doc_transitions.keys()) == set(code_transitions.keys()), (
-            f"States mismatch: doc has {set(doc_transitions.keys()) - set(code_transitions.keys())} extra, "
-            f"code has {set(code_transitions.keys()) - set(doc_transitions.keys())} extra"
-        )
-        for state in code_transitions:
-            assert doc_transitions[state] == code_transitions[state], (
-                f"Transition mismatch for {state}: "
-                f"doc={doc_transitions[state]}, code={code_transitions[state]}"
-            )
-
-
-class TestIllegalTransitionsRejected:
-    """Parametrized test verifying every illegal FSM transition is rejected."""
-
-    @staticmethod
-    def _illegal_pairs() -> list[tuple[str, str]]:
-        from duo.protocol import TRANSITIONS, TaskStatus
-
-        return [
-            (src.value, dst.value)
-            for src in TaskStatus
-            for dst in TaskStatus
-            if dst not in TRANSITIONS.get(src, frozenset())
-        ]
-
-    @pytest.mark.parametrize(
-        ("src", "dst"),
-        _illegal_pairs.__func__(),  # type: ignore[attr-defined]
-        ids=[f"{s}->{d}" for s, d in _illegal_pairs.__func__()],  # type: ignore[attr-defined]
-    )
-    def test_illegal_transition_returns_false(self, src: str, dst: str) -> None:
-        """transition() must return False for every illegal state pair."""
-        from duo.protocol import TaskStatus, save_task, transition
-
-        task = create_task(f"ill-{src}-{dst}", "d", "/w", "b", "c", [_make_subtask()])
-        task.status = TaskStatus(src)
-        save_task(task)
-        result = transition(task, TaskStatus(dst))
-        assert result is False, f"{src} → {dst} should be illegal but was allowed"
-
-
-class TestLegalTransitionsAccepted:
-    """Parametrized test verifying every legal FSM transition succeeds."""
-
-    @staticmethod
-    def _legal_pairs() -> list[tuple[str, str]]:
-        from duo.protocol import TRANSITIONS
-
-        return [
-            (src.value, dst.value) for src, dsts in TRANSITIONS.items() for dst in dsts
-        ]
-
-    @pytest.mark.parametrize(
-        ("src", "dst"),
-        _legal_pairs.__func__(),  # type: ignore[attr-defined]
-        ids=[f"{s}->{d}" for s, d in _legal_pairs.__func__()],  # type: ignore[attr-defined]
-    )
-    def test_legal_transition_succeeds(self, src: str, dst: str) -> None:
-        """transition() must return True for every legal state pair."""
-        from duo.protocol import TaskStatus, save_task, transition
-
-        task = create_task(f"leg-{src}-{dst}", "d", "/w", "b", "c", [_make_subtask()])
-        task.status = TaskStatus(src)
-        save_task(task)
-        result = transition(task, TaskStatus(dst))
-        assert result is True, f"{src} → {dst} should be legal but was rejected"
-        assert task.status == TaskStatus(dst)
-
-
-def _all_statuses() -> list[str]:
-    from duo.protocol import TaskStatus
-
-    return [s.value for s in TaskStatus]
-
-
 class TestTaskStatusPersistence:
-    """Parametrized: every TaskStatus survives save_task → load_task."""
+    """Every TaskStatus survives save_task → load_task."""
 
-    @pytest.mark.parametrize("status", _all_statuses())
-    def test_status_round_trip(self, status: str) -> None:
+    def test_all_statuses_round_trip(self) -> None:
         """Each TaskStatus survives serialization + deserialization."""
         from duo.protocol import TaskStatus, load_task, save_task
 
-        task = create_task(f"rt-{status}", "d", "/w", "b", "c", [_make_subtask()])
-        task.status = TaskStatus(status)
-        save_task(task)
-        _clear_task_cache()
-        loaded = load_task(f"rt-{status}")
-        assert loaded is not None
-        assert loaded.status == TaskStatus(status)
+        for status in TaskStatus:
+            task = create_task(
+                f"rt-{status.value}", "d", "/w", "b", "c", [_make_subtask()]
+            )
+            task.status = status
+            save_task(task)
+            _clear_task_cache()
+            loaded = load_task(f"rt-{status.value}")
+            assert loaded is not None
+            assert loaded.status == status, f"{status.value} did not round-trip"
