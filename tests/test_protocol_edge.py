@@ -143,3 +143,33 @@ class TestFSMDocAccuracy:
                 f"Transition mismatch for {state}: "
                 f"doc={doc_transitions[state]}, code={code_transitions[state]}"
             )
+
+
+class TestIllegalTransitionsRejected:
+    """Parametrized test verifying every illegal FSM transition is rejected."""
+
+    @staticmethod
+    def _illegal_pairs() -> list[tuple[str, str]]:
+        from duo.protocol import TRANSITIONS, TaskStatus
+
+        return [
+            (src.value, dst.value)
+            for src in TaskStatus
+            for dst in TaskStatus
+            if dst not in TRANSITIONS.get(src, frozenset())
+        ]
+
+    @pytest.mark.parametrize(
+        ("src", "dst"),
+        _illegal_pairs.__func__(),  # type: ignore[attr-defined]
+        ids=[f"{s}->{d}" for s, d in _illegal_pairs.__func__()],  # type: ignore[attr-defined]
+    )
+    def test_illegal_transition_returns_false(self, src: str, dst: str) -> None:
+        """transition() must return False for every illegal state pair."""
+        from duo.protocol import TaskStatus, save_task, transition
+
+        task = create_task(f"ill-{src}-{dst}", "d", "/w", "b", "c", [_make_subtask()])
+        task.status = TaskStatus(src)
+        save_task(task)
+        result = transition(task, TaskStatus(dst))
+        assert result is False, f"{src} → {dst} should be illegal but was allowed"

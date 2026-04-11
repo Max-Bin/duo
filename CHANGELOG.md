@@ -14,6 +14,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 20+ guard tests: public API stability, dead code (vulture), import cycles, docstrings, type annotations, test naming, CHANGELOG format, exception handling, dataclass conventions, logger naming, f-string logging, future annotations
 - 3 prompt builder property tests (hypothesis): bootstrap/override/correction content verification
 - 2 integration tests: restart normalization, escalation journal trail
+- 2 integration tests: verify_and_advance blocked result + single-step completion
+- 2 property tests: read_jsonl tail parameter (count + order invariants)
+- 2 property tests: extract_response tail preservation (safe lines + identity)
 - `make guard` target — runs all guard/meta tests in ~5s
 - 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
 - 11 new property tests: label path safety, glob matching, config defaults consistency, _fmt_ts fuzz
