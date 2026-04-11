@@ -8,6 +8,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - Command aliases: `ls` → `list`, `st` → `status`, `log` → `logs`
 - Aliases shown in `duo --help` under "Aliases" section
+- `version -q` — print only the version number
+- `batch -q` — print only the created task count (or count in dry-run)
 - `config edit` command — opens config file in `$EDITOR` / `$VISUAL` / `vi`
 - `config validate` command — check config file for errors (types, ranges, unknown keys)
 - `send --file` option — read prompt from a file instead of inline text

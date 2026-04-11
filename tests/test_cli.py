@@ -185,6 +185,13 @@ class TestVersion:
         assert "python" in data
         assert "platform" in data
 
+    def test_version_quiet(self, runner: CliRunner):
+        result = runner.invoke(main, ["version", "-q"])
+        assert result.exit_code == 0
+        # Should be just the version number, no "duo " prefix
+        assert "duo" not in result.output
+        assert result.output.strip() != ""
+
 
 # ---------------------------------------------------------------------------
 # completion command
@@ -3860,6 +3867,46 @@ class TestBatchCommand:
         assert data["dry_run"] is True
         assert len(data["tasks"]) == 1
         assert data["tasks"][0]["name"] == "d1"
+
+    def test_batch_quiet_dry_run(self, runner: CliRunner, tmp_path: Path):
+        """batch --dry-run -q prints only the task count."""
+        f = tmp_path / "tasks.json"
+        f.write_text(
+            json.dumps(
+                {
+                    "tasks": [
+                        {"name": "q1", "description": "A"},
+                        {"name": "q2", "description": "B"},
+                    ]
+                }
+            )
+        )
+        result = runner.invoke(main, ["batch", str(f), "--dry-run", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+
+    def test_batch_quiet(self, runner: CliRunner, tmp_path: Path):
+        """batch -q prints only the created count."""
+        f = tmp_path / "tasks.json"
+        f.write_text(json.dumps({"tasks": [{"name": "bq1", "description": "D"}]}))
+        with (
+            patch("duo.cli._create_single_task", return_value="bq1"),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={
+                    "active_count": 1,
+                    "max_parallel": 3,
+                    "queued_count": 0,
+                    "active_tasks": ["bq1"],
+                    "queued_tasks": [],
+                },
+            ),
+        ):
+            result = runner.invoke(
+                main, ["batch", str(f), "--repo", str(tmp_path), "-q"]
+            )
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
 
 
 # ---------------------------------------------------------------------------

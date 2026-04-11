@@ -361,13 +361,17 @@ def _create_worktree(name: str, repo: str) -> tuple[str, str]:
 
 @main.command()
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def version(*, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the version number")
+def version(*, as_json: bool = False, quiet: bool = False) -> None:
     """Show Duo version."""
     import platform
     import sys
 
     from duo import __version__
 
+    if quiet:
+        click.echo(__version__)
+        return
     if as_json:
         click.echo(
             json.dumps(
@@ -1751,6 +1755,7 @@ def _create_single_task(
     "--queue", "start_queued", is_flag=True, help="Create all tasks in queued state"
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option("-q", "--quiet", is_flag=True, help="Print only the created count")
 @click.pass_context
 def batch(
     ctx: click.Context,
@@ -1760,6 +1765,7 @@ def batch(
     start_queued: bool,
     *,
     as_json: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Create multiple tasks from a file (JSON or YAML)."""
     from duo.scheduler import queue_status
@@ -1769,6 +1775,9 @@ def batch(
     task_defs = _load_batch_file(file)
 
     if dry_run:
+        if quiet:
+            click.echo(str(len(task_defs)))
+            return
         if as_json:
             click.echo(
                 json.dumps(
@@ -1801,6 +1810,9 @@ def batch(
             created_names.append(name)
 
     qs = queue_status()
+    if quiet:
+        click.echo(str(created))
+        return
     if as_json:
         click.echo(
             json.dumps(
