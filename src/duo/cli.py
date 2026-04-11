@@ -725,10 +725,66 @@ def send(
 @click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("-q", "--quiet", is_flag=True, help="Print only the status value")
+@click.option(
+    "--wait",
+    "wait_for",
+    default=None,
+    help="Block until task reaches this status (e.g. completed, failed)",
+)
+@click.option(
+    "--timeout",
+    "wait_timeout",
+    default=300,
+    type=int,
+    help="Max seconds to wait (default: 300)",
+)
 def status(
-    name: str | None = None, *, as_json: bool = False, quiet: bool = False
+    name: str | None = None,
+    *,
+    as_json: bool = False,
+    quiet: bool = False,
+    wait_for: str | None = None,
+    wait_timeout: int = 300,
 ) -> None:
     """Show task status."""
+    if wait_for is not None:
+        if name is None:
+            raise click.UsageError("--wait requires a task NAME")
+        import time
+
+        valid_statuses = {s.value for s in TaskStatus}
+        if wait_for not in valid_statuses:
+            raise DuoUserError(
+                f"unknown status '{wait_for}'",
+                fix=f"Valid statuses: {', '.join(sorted(valid_statuses))}",
+            )
+        deadline = time.monotonic() + wait_timeout
+        while time.monotonic() < deadline:
+            task = load_task(name)
+            if task is None:
+                raise DuoUserError(
+                    f"task '{name}' not found",
+                    fix="Run 'duo list' to see available tasks.",
+                )
+            if task.status.value == wait_for:
+                if quiet:
+                    click.echo(task.status.value)
+                elif as_json:
+                    click.echo(json.dumps({"id": task.id, "status": task.status.value}))
+                else:
+                    click.echo(f"Task '{name}' reached '{wait_for}' status.")
+                return
+            time.sleep(1)
+        if quiet:
+            click.echo(load_task(name).status.value if load_task(name) else "unknown")  # type: ignore[union-attr]
+        else:
+            click.echo(
+                f"Timeout: task '{name}' did not reach '{wait_for}' "
+                f"within {wait_timeout}s (current: {load_task(name).status.value if load_task(name) else 'unknown'})",  # type: ignore[union-attr]
+                err=True,
+            )
+        raise SystemExit(1)
+
     if name:
         task = _load_task_or_fail(name)
         if quiet:

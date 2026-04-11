@@ -323,6 +323,91 @@ class TestStatus:
         assert result.exit_code == 0
         assert result.output.strip() == ""
 
+    def test_status_wait_already_reached(self, runner: CliRunner):
+        """status --wait returns immediately if status already matches."""
+        task = _make_task("wait-ok")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(
+            main, ["status", "wait-ok", "--wait", "completed", "--timeout", "2"]
+        )
+        assert result.exit_code == 0
+        assert "reached" in result.output
+
+    def test_status_wait_quiet(self, runner: CliRunner):
+        """status --wait -q prints just the status value."""
+        task = _make_task("wait-q")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["status", "wait-q", "--wait", "completed", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "completed"
+
+    def test_status_wait_timeout(self, runner: CliRunner):
+        """status --wait times out if status doesn't match."""
+        _make_task("wait-to")
+        result = runner.invoke(
+            main, ["status", "wait-to", "--wait", "completed", "--timeout", "1"]
+        )
+        assert result.exit_code != 0
+
+    def test_status_wait_timeout_quiet(self, runner: CliRunner):
+        """status --wait -q on timeout prints current status."""
+        _make_task("wait-tq")
+        result = runner.invoke(
+            main,
+            ["status", "wait-tq", "--wait", "completed", "--timeout", "1", "-q"],
+        )
+        assert result.exit_code != 0
+        assert result.output.strip() == "created"
+
+    def test_status_wait_json(self, runner: CliRunner):
+        """status --wait --json-output prints JSON on success."""
+        task = _make_task("wait-js")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(
+            main,
+            ["status", "wait-js", "--wait", "completed", "--json-output"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["status"] == "completed"
+
+    def test_status_wait_task_disappears(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ):
+        """status --wait errors if task disappears mid-poll."""
+        _make_task("wait-gone")
+        call_count = {"n": 0}
+        original_load = duo.protocol.load_task
+
+        def _vanishing_load(name: str) -> duo.protocol.Task | None:
+            call_count["n"] += 1
+            if call_count["n"] >= 2:
+                return None
+            return original_load(name)
+
+        monkeypatch.setattr("duo.cli.load_task", _vanishing_load)
+        result = runner.invoke(
+            main,
+            ["status", "wait-gone", "--wait", "completed", "--timeout", "5"],
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output
+
+    def test_status_wait_no_name(self, runner: CliRunner):
+        """status --wait without name raises error."""
+        result = runner.invoke(main, ["status", "--wait", "completed"])
+        assert result.exit_code != 0
+
+    def test_status_wait_invalid_status(self, runner: CliRunner):
+        """status --wait with invalid status name raises error."""
+        _make_task("wait-inv")
+        result = runner.invoke(main, ["status", "wait-inv", "--wait", "bogus"])
+        assert result.exit_code != 0
+        assert "unknown status" in result.output
+
 
 # ---------------------------------------------------------------------------
 # list command
