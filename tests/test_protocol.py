@@ -733,6 +733,26 @@ class TestLoadTaskSecretPatternMerge:
         assert task.security_policy.secret_patterns.count("API_KEY=") == 1
         assert "MY_EXTRA=" in task.security_policy.secret_patterns
 
+    def test_non_list_secret_patterns_uses_defaults(self):
+        """When saved secret_patterns is not a list (e.g., string), defaults are used."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "merge-nonlist"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"merge-nonlist","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":1,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{"secret_patterns":"not-a-list"}}'
+        )
+        task = load_task("merge-nonlist")
+        assert task is not None
+        assert task.security_policy.secret_patterns == list(
+            dict.fromkeys(DEFAULT_SECRET_PATTERNS)
+        )
+
 
 class TestLoadTaskWritablePathsValidation:
     """load_task() filters invalid writable_paths entries."""
@@ -1133,6 +1153,13 @@ class TestReadHeartbeat:
         task.heartbeat_path.write_text("not valid json {{{")
         assert read_heartbeat(task) is None
 
+    def test_read_heartbeat_wrong_json_type(self):
+        """Valid JSON but wrong root type (list) returns None."""
+        task = create_task("hb-list", "d", "/w", "b", "c", [_make_subtask()])
+        task.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        task.heartbeat_path.write_text("[1, 2, 3]")
+        assert read_heartbeat(task) is None
+
 
 # ---------------------------------------------------------------------------
 # read_ack_for_step
@@ -1165,6 +1192,14 @@ class TestReadAckForStep:
     def test_read_ack_missing(self):
         """No ack file, returns None."""
         task = create_task("ack-miss", "d", "/w", "b", "c", [_make_subtask()])
+        assert read_ack_for_step(task, 1, 1) is None
+
+    def test_read_ack_wrong_json_type(self):
+        """Valid JSON but wrong root type (list) returns None."""
+        task = create_task("ack-list", "d", "/w", "b", "c", [_make_subtask()])
+        ack_path = task.ack_path(1, 1)
+        ack_path.parent.mkdir(parents=True, exist_ok=True)
+        ack_path.write_text('"just a string"')
         assert read_ack_for_step(task, 1, 1) is None
 
 
@@ -1211,6 +1246,14 @@ class TestReadResultForStep:
         step_dir = task.result_path(1, 1).parent
         step_dir.mkdir(parents=True, exist_ok=True)
         task.result_path(1, 1).write_text("corrupt data!!!")
+        assert read_result_for_step(task, 1, 1) is None
+
+    def test_read_result_wrong_json_type(self):
+        """Valid JSON but wrong root type (int) returns None."""
+        task = create_task("res-int", "d", "/w", "b", "c", [_make_subtask()])
+        step_dir = task.result_path(1, 1).parent
+        step_dir.mkdir(parents=True, exist_ok=True)
+        task.result_path(1, 1).write_text("42")
         assert read_result_for_step(task, 1, 1) is None
 
 
@@ -1278,6 +1321,20 @@ class TestReplayStateMalformed:
                 json.dumps({"event": "status_changed", "data": {"to": "failed"}}) + "\n"
             )
         assert replay_state(task) == TaskStatus.FAILED
+
+    def test_non_dict_journal_entry_skipped(self):
+        """replay_state skips non-dict JSONL entries (e.g., lists, strings)."""
+        task = create_task("replay-nondict", "d", "/w", "b", "c", [_make_subtask()])
+        with open(task.journal_path, "a") as f:
+            f.write("[1, 2, 3]\n")
+            f.write('"just a string"\n')
+            f.write(
+                json.dumps(
+                    {"event": "status_changed", "data": {"to": "session_starting"}}
+                )
+                + "\n"
+            )
+        assert replay_state(task) == TaskStatus.SESSION_STARTING
 
 
 # ---------------------------------------------------------------------------

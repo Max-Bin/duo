@@ -723,6 +723,8 @@ def load_task(task_id: str) -> Task | None:
     if not isinstance(sp, dict):
         sp = {}
     loaded_patterns = sp.get("secret_patterns", [])
+    if not isinstance(loaded_patterns, list):
+        loaded_patterns = []
     merged_patterns = list(dict.fromkeys(DEFAULT_SECRET_PATTERNS + loaded_patterns))
     security_policy = SecurityPolicy(
         writable_paths=sp.get("writable_paths", []),
@@ -865,7 +867,7 @@ class StepResult:
 def read_heartbeat(task: Task) -> Heartbeat | None:
     """Read heartbeat.json."""
     data = read_json(task.heartbeat_path)
-    if data is None:
+    if not isinstance(data, dict):
         return None
     return Heartbeat(
         ts=data.get("ts", ""),
@@ -879,7 +881,7 @@ def read_heartbeat(task: Task) -> Heartbeat | None:
 def read_ack_for_step(task: Task, step: int, attempt: int) -> AckResult | None:
     """Read ack for a specific step+attempt."""
     data = read_json(task.ack_path(step, attempt))
-    if data is None:
+    if not isinstance(data, dict):
         return None
     return AckResult(
         step=data.get("step", 0),
@@ -893,7 +895,7 @@ def read_ack_for_step(task: Task, step: int, attempt: int) -> AckResult | None:
 def read_result_for_step(task: Task, step: int, attempt: int) -> StepResult | None:
     """Read result for a specific step+attempt."""
     data = read_json(task.result_path(step, attempt))
-    if data is None:
+    if not isinstance(data, dict):
         return None
     return StepResult(
         step=data.get("step", 0),
@@ -920,6 +922,8 @@ def replay_state(task: Task) -> TaskStatus:
 
     status = TaskStatus.CREATED
     for ev in events:
+        if not isinstance(ev, dict):
+            continue
         event_type = ev.get("event", "")
         if event_type == "status_changed":
             with contextlib.suppress(KeyError, ValueError):
