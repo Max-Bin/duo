@@ -220,6 +220,24 @@ def _complete_thinking_names(
         return []
 
 
+def _complete_status_values(
+    _ctx: click.Context,
+    _param: click.Parameter,
+    incomplete: str,
+) -> list[click.shell_completion.CompletionItem]:
+    """Tab-complete task status values."""
+    try:
+        from click.shell_completion import CompletionItem
+
+        return [
+            CompletionItem(s.value)
+            for s in TaskStatus
+            if s.value.startswith(incomplete)
+        ]
+    except Exception:
+        return []
+
+
 def _safe_join(base: str, name: str) -> str:
     """Join base directory and name, rejecting path traversal."""
     base_path = Path(base).resolve()
@@ -768,6 +786,7 @@ def _print_task(task: Task) -> None:
     "--status",
     "status_filter",
     default=None,
+    shell_complete=_complete_status_values,
     help="Filter by task status (e.g. running, completed, created)",
 )
 @click.option(
@@ -781,6 +800,7 @@ def _print_task(task: Task) -> None:
 @click.option("-q", "--quiet", is_flag=True, help="Only print task IDs (one per line)")
 @click.option("-c", "--count", is_flag=True, help="Only print the number of tasks")
 @click.option("--no-header", is_flag=True, help="Omit table header")
+@click.option("--active", is_flag=True, help="Show only running/active tasks")
 @click.option(
     "--recent",
     type=int,
@@ -795,10 +815,23 @@ def list_cmd(
     quiet: bool,
     count: bool,
     no_header: bool,
+    active: bool,
     recent: int | None,
 ) -> None:
     """List all tasks."""
     tasks = list_tasks()
+
+    if active:
+        _ACTIVE_STATUSES = {
+            TaskStatus.RUNNING,
+            TaskStatus.SESSION_STARTING,
+            TaskStatus.PROMPT_SENT,
+            TaskStatus.ACKED,
+            TaskStatus.RESULT_REPORTED,
+            TaskStatus.VERIFYING,
+            TaskStatus.CORRECTING,
+        }
+        tasks = [t for t in tasks if t.status in _ACTIVE_STATUSES]
 
     if status_filter:
         valid_statuses = {s.value for s in TaskStatus}

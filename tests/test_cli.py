@@ -504,6 +504,33 @@ class TestList:
         assert result.exit_code == 0
         assert result.output.strip() == "2"
 
+    def test_active_flag(self, runner: CliRunner):
+        """list --active shows only running/active tasks."""
+        t1 = _make_task("active-1")
+        t1.status = TaskStatus.RUNNING
+        save_task(t1)
+        t2 = _make_task("active-2")
+        t2.status = TaskStatus.COMPLETED
+        save_task(t2)
+        t3 = _make_task("active-3")
+        t3.status = TaskStatus.ACKED
+        save_task(t3)
+        result = runner.invoke(main, ["list", "--active"])
+        assert result.exit_code == 0
+        assert "active-1" in result.output
+        assert "active-3" in result.output
+        assert "active-2" not in result.output
+
+    def test_active_count(self, runner: CliRunner):
+        """list --active -c shows count of active tasks."""
+        t1 = _make_task("ac-1")
+        t1.status = TaskStatus.RUNNING
+        save_task(t1)
+        _make_task("ac-2")  # CREATED, not active
+        result = runner.invoke(main, ["list", "--active", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
 
 # ---------------------------------------------------------------------------
 # recover command
@@ -1971,6 +1998,39 @@ class TestThinkingNameCompletion:
             property(lambda self: (_ for _ in ()).throw(OSError("fail"))),
         )
         items = _complete_thinking_names(None, None, "")  # type: ignore[arg-type]
+        assert items == []
+
+
+class TestStatusValueCompletion:
+    def test_status_completion_prefix(self):
+        """_complete_status_values returns matching status values."""
+        from duo.cli import _complete_status_values
+
+        items = _complete_status_values(None, None, "run")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "running" in names
+        assert "completed" not in names
+
+    def test_status_completion_all(self):
+        """Empty prefix returns all status values."""
+        from duo.cli import _complete_status_values
+
+        items = _complete_status_values(None, None, "")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "running" in names
+        assert "completed" in names
+        assert "created" in names
+        assert len(names) == len(TaskStatus)
+
+    def test_status_completion_error(self, monkeypatch: pytest.MonkeyPatch):
+        """Returns empty list on error."""
+        from duo.cli import _complete_status_values
+
+        monkeypatch.setattr(
+            "duo.cli.TaskStatus",
+            property(lambda self: (_ for _ in ()).throw(RuntimeError("fail"))),
+        )
+        items = _complete_status_values(None, None, "")  # type: ignore[arg-type]
         assert items == []
 
 
