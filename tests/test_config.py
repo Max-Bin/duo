@@ -102,15 +102,36 @@ class TestSetConfig:
         with pytest.raises(ValueError, match="Cannot convert"):
             config_mod.set_config("auto_allow_all", value)
 
-    def test_coerces_int(self):
-        result = config_mod.set_config("max_corrections", "7")
-        assert result == 7
-        assert isinstance(result, int)
-
-    def test_coerces_float(self):
-        result = config_mod.set_config("poll_base_interval", "2.5")
-        assert result == 2.5
-        assert isinstance(result, float)
+    @pytest.mark.parametrize(
+        "key,value,expected_type",
+        [
+            ("max_corrections", "7", int),
+            ("max_corrections", "1", int),
+            ("max_corrections", "100", int),
+            ("pr_budget", "10", int),
+            ("pr_budget", "1", int),
+            ("poll_base_interval", "2.5", float),
+            ("poll_base_interval", "1.0", float),
+            ("poll_base_interval", "0.1", float),
+        ],
+        ids=[
+            "corrections-7",
+            "corrections-1",
+            "corrections-100",
+            "pr-budget-10",
+            "pr-budget-1",
+            "poll-2.5",
+            "poll-1.0",
+            "poll-0.1",
+        ],
+    )
+    def test_coerces_numeric(self, key: str, value: str, expected_type: type):
+        result = config_mod.set_config(key, value)
+        assert isinstance(result, expected_type)
+        if expected_type is int:
+            assert result == int(value)
+        else:
+            assert result == float(value)
 
     def test_unknown_key_stored_as_string(self):
         result = config_mod.set_config("custom_key", "hello")
