@@ -724,10 +724,16 @@ def send(
 @main.command()
 @click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def status(name: str | None = None, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the status value")
+def status(
+    name: str | None = None, *, as_json: bool = False, quiet: bool = False
+) -> None:
     """Show task status."""
     if name:
         task = _load_task_or_fail(name)
+        if quiet:
+            click.echo(task.status.value)
+            return
         if as_json:
             output = {
                 "id": task.id,
@@ -749,7 +755,12 @@ def status(name: str | None = None, *, as_json: bool = False) -> None:
     else:
         tasks = list_tasks()
         if not tasks:
-            click.echo("No tasks.")
+            if not quiet:
+                click.echo("No tasks.")
+            return
+        if quiet:
+            for t in tasks:
+                click.echo(f"{t.id}\t{t.status.value}")
             return
         for t in tasks:
             _print_task(t)

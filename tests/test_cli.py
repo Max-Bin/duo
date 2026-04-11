@@ -300,6 +300,29 @@ class TestStatus:
         assert "Working on:" not in result.output
         assert "Last pulse:" not in result.output
 
+    def test_status_quiet_single(self, runner: CliRunner):
+        """status -q prints only the status value for a named task."""
+        _make_task("q-task")
+        result = runner.invoke(main, ["status", "q-task", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "created"
+
+    def test_status_quiet_all(self, runner: CliRunner):
+        """status -q with no name prints ID\tstatus for each task."""
+        _make_task("alpha-q")
+        _make_task("beta-q")
+        result = runner.invoke(main, ["status", "-q"])
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        assert len(lines) == 2
+        assert "\tcreated" in lines[0]
+
+    def test_status_quiet_no_tasks(self, runner: CliRunner):
+        """status -q with no tasks prints nothing."""
+        result = runner.invoke(main, ["status", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
 
 # ---------------------------------------------------------------------------
 # list command
