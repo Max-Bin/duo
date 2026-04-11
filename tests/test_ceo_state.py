@@ -52,3 +52,21 @@ class TestCeoState:
         focus = load_ceo_focus()
         assert focus is not None
         assert set(focus.keys()) == {"task_id", "session_id", "notes", "started_at"}
+
+    def test_load_focus_invalid_schema_no_task_id(self) -> None:
+        """load_ceo_focus returns None for data missing task_id."""
+        import json
+
+        path = duo.ceo_state.CEO_STATE_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"notes": "orphan"}))
+        assert load_ceo_focus() is None
+
+    def test_load_focus_invalid_schema_non_string_task_id(self) -> None:
+        """load_ceo_focus returns None for non-string task_id."""
+        import json
+
+        path = duo.ceo_state.CEO_STATE_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"task_id": 123}))
+        assert load_ceo_focus() is None

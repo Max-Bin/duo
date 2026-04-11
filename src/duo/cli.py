@@ -1141,8 +1141,14 @@ def _load_batch_file(file: str) -> list[dict[str, Any]]:
                 "file must contain a 'tasks' key with a list of tasks. See examples/tasks.json"
             )
 
+    if not isinstance(tasks_data.get("tasks"), list):
+        raise click.UsageError("'tasks' must be a list of task objects.")
+
     if not tasks_data.get("tasks"):
         raise click.UsageError("No tasks defined in file.")
+
+    if not all(isinstance(t, dict) for t in tasks_data["tasks"]):
+        raise click.UsageError("Each task in 'tasks' must be a JSON object.")
 
     tasks_list: list[dict[str, Any]] = list(tasks_data["tasks"])
 
@@ -2648,11 +2654,16 @@ def _doctor_auto_fix() -> list[str]:
 
     fixed: list[str] = []
 
-    # Fix 1: Remove stale .lock files
+    # Fix 1: Remove stale .lock files (only if older than 1 hour)
     if TASKS_DIR.exists():
+        stale_threshold = time.time() - 3600
         for lf in TASKS_DIR.glob(".*.lock"):
-            lf.unlink(missing_ok=True)
-            fixed.append(f"removed stale lock: {lf.name}")
+            try:
+                if lf.stat().st_mtime < stale_threshold:
+                    lf.unlink(missing_ok=True)
+                    fixed.append(f"removed stale lock: {lf.name}")
+            except OSError:
+                pass
 
     # Fix 2: Purge quarantined (corrupted) tasks
     from duo.protocol import list_corrupted
@@ -3157,9 +3168,18 @@ def events_show(name: str) -> None:
             )
         target = files[0]
     else:
+        _validate_task_name(name)
         target = _WATCH_EVENTS_DIR / name
+        if not target.resolve().is_relative_to(
+            _WATCH_EVENTS_DIR.resolve()
+        ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
+            raise DuoUserError(f"Invalid event name: {name}")
         if not target.exists():
             target = _WATCH_EVENTS_DIR / f"{name}.json"
+            if not target.resolve().is_relative_to(
+                _WATCH_EVENTS_DIR.resolve()
+            ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
+                raise DuoUserError(f"Invalid event name: {name}")
     if not target.exists():
         raise DuoUserError(
             f"Event file not found: {name}",
@@ -4181,14 +4201,24 @@ def _load_policy(policy_path: str | None) -> dict[str, object]:
 
 def _write_loop_state(task_id: str, state: dict[str, object]) -> None:
     """Write ceo-loop state to ~/.duo/ceo-loops/{task}.json."""
+    _validate_task_name(task_id)
     CEO_LOOPS_DIR.mkdir(parents=True, exist_ok=True)
     state_path = CEO_LOOPS_DIR / f"{task_id}.json"
+    if not state_path.resolve().is_relative_to(
+        CEO_LOOPS_DIR.resolve()
+    ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
+        raise DuoUserError(f"Invalid task ID: {task_id}")
     atomic_write_text(state_path, json.dumps(state, indent=2) + "\n")
 
 
 def _read_loop_state(task_id: str) -> dict[str, object] | None:
     """Read ceo-loop state, or None if not present."""
+    _validate_task_name(task_id)
     state_path = CEO_LOOPS_DIR / f"{task_id}.json"
+    if not state_path.resolve().is_relative_to(
+        CEO_LOOPS_DIR.resolve()
+    ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
+        return None
     if not state_path.exists():
         return None
     try:
@@ -4734,8 +4764,12 @@ def ceo_restart(task: str, timeout: float) -> None:
     click.echo("  Copilot exited. Re-launching...")
 
     # --- Step 4: Re-launch Copilot CLI ---
+    import shlex as _shlex_restart
+
     model = _get_copilot_model()
-    copilot_cmd = f"copilot --model {model} --yolo"
+    copilot_cmd = f"copilot --model {_shlex_restart.quote(model)}"
+    if get_config("bypass_permissions"):
+        copilot_cmd += " --yolo"
     try:
         send_shell_command(t.pane_label, copilot_cmd)
     except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
@@ -5262,8 +5296,6 @@ def cleanup(
             in (
                 TaskStatus.COMPLETED,
                 TaskStatus.FAILED,
-                TaskStatus.ESCALATED,
-                TaskStatus.BLOCKED,
             )
         ]
     else:

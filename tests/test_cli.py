@@ -958,7 +958,7 @@ class TestCleanup:
         save_task(task)
         with patch("duo.cli.subprocess.run"):
             result = runner.invoke(main, ["cleanup", "--all", "--force"])
-        assert "esc-task" in result.output
+        assert "esc-task" not in result.output
 
     def test_cleanup_all_includes_blocked(self, runner: CliRunner, make_task):
         task = make_task("block-task")
@@ -966,7 +966,7 @@ class TestCleanup:
         save_task(task)
         with patch("duo.cli.subprocess.run"):
             result = runner.invoke(main, ["cleanup", "--all", "--force"])
-        assert "block-task" in result.output
+        assert "block-task" not in result.output
 
     def test_keep_journal(self, runner: CliRunner, make_task):
         from duo.protocol import append_event
@@ -2679,6 +2679,20 @@ class TestLoadBatchFile:
         with patch.dict(sys.modules, {"yaml": mock_yaml}):
             with pytest.raises(click.UsageError):
                 _load_batch_file(str(f))
+
+    def test_tasks_not_list(self, tmp_path: Path):
+        """tasks key that is not a list raises UsageError."""
+        f = tmp_path / "bad.json"
+        f.write_text('{"tasks": "not-a-list"}')
+        with pytest.raises(click.UsageError, match="must be a list"):
+            _load_batch_file(str(f))
+
+    def test_tasks_items_not_dicts(self, tmp_path: Path):
+        """tasks list containing non-dict items raises UsageError."""
+        f = tmp_path / "bad.json"
+        f.write_text('{"tasks": ["string-item"]}')
+        with pytest.raises(click.UsageError, match="must be a JSON object"):
+            _load_batch_file(str(f))
 
 
 # ---------------------------------------------------------------------------
@@ -6610,11 +6624,15 @@ class TestDoctorAutoFix:
     def test_fix_removes_stale_locks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        """--fix removes stale .lock files."""
+        """--fix removes stale .lock files (only if older than 1 hour)."""
+        import os
+
         from duo.cli import _doctor_auto_fix
 
         monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
-        (tmp_path / ".my-task.lock").touch()
+        lock_file = tmp_path / ".my-task.lock"
+        lock_file.touch()
+        os.utime(lock_file, (0, 0))
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(
             "duo.cli.subprocess.run",
@@ -6622,7 +6640,46 @@ class TestDoctorAutoFix:
         )
         fixed = _doctor_auto_fix()
         assert any("stale lock" in f for f in fixed)
-        assert not (tmp_path / ".my-task.lock").exists()
+        assert not lock_file.exists()
+
+    def test_fix_lock_oserror_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Lock files that raise OSError on stat are silently skipped."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        lock_file = tmp_path / ".bad.lock"
+        lock_file.touch()
+        # Remove the file so stat fails, but glob still finds it via race
+        lock_file.unlink()
+        # Re-create as a broken symlink so glob finds it but stat fails
+        lock_file.symlink_to(tmp_path / "nonexistent-target")
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=128, stdout=""),
+        )
+        fixed = _doctor_auto_fix()
+        assert not any("stale lock" in f for f in fixed)
+
+    def test_fix_fresh_lock_not_removed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Lock files less than 1 hour old are NOT removed."""
+        from duo.cli import _doctor_auto_fix
+
+        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        lock_file = tmp_path / ".fresh.lock"
+        lock_file.touch()  # mtime = now (fresh)
+        monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=128, stdout=""),
+        )
+        fixed = _doctor_auto_fix()
+        assert not any("stale lock" in f for f in fixed)
+        assert lock_file.exists()
 
     def test_fix_purges_quarantined(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -6695,7 +6752,11 @@ class TestDoctorAutoFix:
     ):
         """doctor --fix shows fixed items in output."""
         monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
-        (tmp_path / ".stale.lock").touch()
+        lock_file = tmp_path / ".stale.lock"
+        lock_file.touch()
+        import os
+
+        os.utime(lock_file, (0, 0))
         monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
         monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
@@ -6714,7 +6775,11 @@ class TestDoctorAutoFix:
     ):
         """doctor --fix --json-output includes fixed list."""
         monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
-        (tmp_path / ".old.lock").touch()
+        lock_file = tmp_path / ".old.lock"
+        lock_file.touch()
+        import os
+
+        os.utime(lock_file, (0, 0))
         monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
         monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
@@ -7714,6 +7779,43 @@ class TestCeoRestart:
         assert result.exit_code == 0
         assert "/allow-all may not have been sent" in result.output
 
+    def test_restart_no_yolo_when_bypass_disabled(
+        self,
+        runner: CliRunner,
+        _task_fixture: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When bypass_permissions is False, --yolo is not added."""
+        monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
+        monkeypatch.setattr("duo.transport.cancel_current", lambda label: None)
+
+        sent_cmds: list[str] = []
+
+        def capture_send(label, cmd):
+            sent_cmds.append(cmd)
+
+        monkeypatch.setattr("duo.transport.send_shell_command", capture_send)
+        monkeypatch.setattr(
+            "duo.transport.read_pane", lambda label, lines: "user@host:~$"
+        )
+        monkeypatch.setattr(
+            "duo.transport.wait_for_idle", lambda label, timeout, poll_interval: True
+        )
+
+        import time
+
+        monkeypatch.setattr(time, "sleep", lambda s: None)
+        monkeypatch.setattr(
+            "duo.cli.get_config",
+            lambda k: False if k == "bypass_permissions" else "claude-sonnet-4.5",
+        )
+
+        result = runner.invoke(main, ["ceo-restart", "restart-test"])
+        assert result.exit_code == 0
+        copilot_cmds = [c for c in sent_cmds if "copilot" in c]
+        assert copilot_cmds
+        assert "--yolo" not in copilot_cmds[0]
+
 
 # ── Bare array batch file auto-wrapping ──────────────────────────────
 
@@ -7856,6 +7958,20 @@ class TestEventsCommand:
         assert result.exit_code == 0
         assert '"task_id"' in result.output
 
+    def test_events_show_exact_name_match(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Event file that matches the exact name (no .json fallback needed)."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        (edir / "exact-event").write_text(
+            json.dumps({"task_id": "exact", "detected_at": "2026-04-08T10:00:00Z"})
+        )
+        result = runner.invoke(main, ["events", "show", "exact-event"])
+        assert result.exit_code == 0
+        assert "exact" in result.output
+
     def test_events_show_not_found(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -7871,6 +7987,28 @@ class TestEventsCommand:
         monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "nope")
         result = runner.invoke(main, ["events", "show"])
         assert result.exit_code != 0
+
+    def test_events_show_path_traversal(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Path traversal in event name is rejected."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        result = runner.invoke(main, ["events", "show", "../../../etc/passwd"])
+        assert result.exit_code != 0
+
+    def test_events_show_corrupt_file(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Corrupt event file shows error."""
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        (edir / "bad-event.json").write_text("{corrupt json!!!")
+        result = runner.invoke(main, ["events", "show", "bad-event"])
+        assert result.exit_code != 0
+        assert "Invalid event file" in result.output or "corrupted" in result.output
 
     def test_events_clear_empty(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -9452,6 +9590,15 @@ class TestCeoResume:
         result = runner.invoke(main, ["ceo-resume", "nonexistent"])
         assert result.exit_code != 0
         assert "No ceo-loop state" in result.output
+
+    def test_resume_path_traversal(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Path traversal in task name is rejected."""
+        loops = tmp_path / "loops"
+        monkeypatch.setattr("duo.cli.CEO_LOOPS_DIR", loops)
+        result = runner.invoke(main, ["ceo-resume", "../evil"])
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------

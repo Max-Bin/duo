@@ -23,17 +23,18 @@ def save_ceo_focus(task_id: str, session_id: str = "", notes: str = "") -> None:
 
 
 def load_ceo_focus() -> dict[str, Any] | None:
-    """Load the current CEO focus, or None if not set."""
+    """Load the current CEO focus, or None if not set or invalid."""
     data = read_json(CEO_STATE_PATH)
-    if data is None:
+    if not isinstance(data, dict):
+        return None
+    if "task_id" not in data or not isinstance(data.get("task_id"), str):
         return None
     return dict(data)
 
 
 def clear_ceo_focus() -> None:
     """Clear the current CEO focus."""
-    if CEO_STATE_PATH.exists():
-        CEO_STATE_PATH.unlink()
+    CEO_STATE_PATH.unlink(missing_ok=True)
 
 
 __all__ = [

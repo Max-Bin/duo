@@ -1311,28 +1311,15 @@ class TestClaudeCommander:
         task = _make_task()
         with tempfile.TemporaryDirectory() as tmp:
             task.worktree = tmp
-            # Create a plan file
-            plan_dir = Path(task.dir).parent.parent / "thinking" / task.id
-            plan_dir.mkdir(parents=True, exist_ok=True)
-            (plan_dir / "plan.md").write_text("# Test Plan\nDo X then Y")
-            with patch("duo.commander.DUO_DIR", plan_dir.parent.parent):
-                # Re-patch so the function looks in the right place
-                pass
-            # The function uses DUO_DIR from protocol — need to create at real path
-            from duo.protocol import DUO_DIR
-
-            thinking_dir = DUO_DIR / "thinking" / task.id
+            duo_dir = Path(tmp) / ".duo"
+            thinking_dir = duo_dir / "thinking" / task.id
             thinking_dir.mkdir(parents=True, exist_ok=True)
             (thinking_dir / "plan.md").write_text("# Test Plan\nDo X then Y")
-            try:
+            with patch("duo.commander.DUO_DIR", duo_dir):
                 write_commander_claude_md(task)
                 content = (Path(tmp) / "CLAUDE.md").read_text()
                 assert "Thinking Session Plan" in content
                 assert "Do X then Y" in content
-            finally:
-                # Cleanup
-                (thinking_dir / "plan.md").unlink(missing_ok=True)
-                thinking_dir.rmdir()
 
     def test_write_claude_md_plan_read_error(self) -> None:
         """CLAUDE.md still generated when plan.md read raises OSError."""
