@@ -14,7 +14,7 @@ The v1.x series focuses on hardening the runtime and improving the developer exp
 - ✅ **PR usage analytics** — `duo cost` for tracking Premium Request consumption per task
 - ✅ **Developer experience** — actionable error messages, `duo doctor` diagnostics
 - ✅ **Security hardening** — 53 secret patterns, path traversal defense, input validation
-- ✅ **100% test coverage** — 3053+ tests with statement and branch coverage
+- ✅ **100% test coverage** — 2300+ tests with statement and branch coverage
 - ✅ **CEO automation** — `ceo-loop`, `ceo-smart`, `ceo-dispatch` for autonomous dialog handling
 - ✅ **Pre-start brainstorming** — `duo think` for problem decomposition before coding
 
