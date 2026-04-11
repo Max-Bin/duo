@@ -656,12 +656,15 @@ def status(name: str | None = None, *, as_json: bool = False) -> None:
                 "id": task.id,
                 "status": task.status.value,
                 "step": task.current_step,
+                "total_steps": len(task.subtasks),
                 "attempt": task.current_attempt,
                 "worktree": task.worktree,
                 "branch": task.branch,
+                "incarnation_id": task.incarnation_id,
                 "created_at": task.created_at,
                 "session_started_at": task.session_started_at,
                 "description": task.description,
+                "age": _fmt_age(task.created_at),
             }
             click.echo(json.dumps(output, indent=2))
             return

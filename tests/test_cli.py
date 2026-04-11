@@ -5339,11 +5339,14 @@ class TestJsonOutput:
         assert data[0]["id"] == "json-task"
         assert data[0]["status"] == "created"
         assert "step" in data[0]
+        assert "total_steps" in data[0]
         assert "attempt" in data[0]
         assert "worktree" in data[0]
         assert "branch" in data[0]
+        assert "incarnation_id" in data[0]
         assert "created_at" in data[0]
         assert "session_started_at" in data[0]
+        assert "age" in data[0]
 
     def test_list_json_empty(self, runner: CliRunner):
         """list --json-output with no tasks still shows 'No tasks.'."""
@@ -5373,11 +5376,14 @@ class TestJsonOutput:
         assert data["status"] == "created"
         assert data["description"] == "Status JSON task"
         assert "step" in data
+        assert "total_steps" in data
         assert "attempt" in data
         assert "worktree" in data
         assert "branch" in data
+        assert "incarnation_id" in data
         assert "created_at" in data
         assert "session_started_at" in data
+        assert "age" in data
 
     def test_status_json_not_found(self, runner: CliRunner):
         """status --json-output with unknown task shows error."""
