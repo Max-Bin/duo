@@ -37,6 +37,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `inspect -q/--quiet` — print only the task status value
 - `cleanup -q/--quiet` — print only the cleaned count, suppresses prompts
 - `logs --count/-c` — print only the event count (works with --filter and --step)
+- `diff -q/--quiet` — print only the changed file count
+- `retry -q/--quiet` — print only the new status value
+- `queue -q/--quiet` — print only the queue length
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
