@@ -263,3 +263,74 @@ def reset_config(key: str | None = None) -> None:
         elif key in config:
             del config[key]
         save_config(config)
+
+
+def validate_config() -> list[str]:
+    """Validate current config and return a list of issues found.
+
+    Returns an empty list if the config is valid.
+    """
+    issues: list[str] = []
+    if not CONFIG_PATH.exists():
+        return issues  # no config file = all defaults, always valid
+
+    try:
+        raw = CONFIG_PATH.read_text(encoding="utf-8")
+    except OSError as e:
+        issues.append(f"Cannot read config file: {e}")
+        return issues
+
+    try:
+        stored = json.loads(raw)
+    except json.JSONDecodeError as e:
+        issues.append(f"Invalid JSON: {e}")
+        return issues
+
+    if not isinstance(stored, dict):
+        issues.append(f"Config must be a JSON object, got {type(stored).__name__}")
+        return issues
+
+    unknown = [k for k in stored if k not in DEFAULTS]
+    issues.extend(f"Unknown key: '{k}'" for k in unknown)
+
+    for key, value in stored.items():
+        if key not in DEFAULTS:
+            continue
+        expected = type(DEFAULTS[key])
+        if expected is bool:
+            if not isinstance(value, bool):
+                issues.append(f"'{key}': expected bool, got {type(value).__name__}")
+        elif expected in (int, float):
+            if not isinstance(value, (int, float)):
+                issues.append(f"'{key}': expected number, got {type(value).__name__}")
+                continue
+            if isinstance(value, float) and not math.isfinite(value):
+                issues.append(f"'{key}': non-finite value {value!r}")
+                continue
+            if key in _INT_MINIMUMS and value < _INT_MINIMUMS[key]:
+                issues.append(
+                    f"'{key}': value {value} below minimum {_INT_MINIMUMS[key]}"
+                )
+            if key in _INT_MAXIMUMS and value > _INT_MAXIMUMS[key]:
+                issues.append(
+                    f"'{key}': value {value} above maximum {_INT_MAXIMUMS[key]}"
+                )
+            if key in _FLOAT_MINIMUMS and value <= _FLOAT_MINIMUMS[key]:
+                issues.append(
+                    f"'{key}': value {value} must be > {_FLOAT_MINIMUMS[key]}"
+                )
+            if key in _FLOAT_MAXIMUMS and value > _FLOAT_MAXIMUMS[key]:
+                issues.append(
+                    f"'{key}': value {value} above maximum {_FLOAT_MAXIMUMS[key]}"
+                )
+        elif expected is str:  # pragma: no branch — all DEFAULTS are bool/int/float/str
+            if not isinstance(value, str):
+                issues.append(f"'{key}': expected str, got {type(value).__name__}")
+
+    # Cross-key invariants
+    base = stored.get("poll_base_interval", DEFAULTS["poll_base_interval"])
+    mx = stored.get("poll_max_interval", DEFAULTS["poll_max_interval"])
+    if isinstance(base, (int, float)) and isinstance(mx, (int, float)) and mx < base:
+        issues.append(f"poll_max_interval ({mx}) < poll_base_interval ({base})")
+
+    return issues

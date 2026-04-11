@@ -3273,6 +3273,24 @@ def config_edit() -> None:
     click.edit(filename=str(CONFIG_PATH), editor=editor)
 
 
+@config.command("validate")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def config_validate(*, as_json: bool = False) -> None:
+    """Validate config file and report issues."""
+    from duo.config import validate_config
+
+    issues = validate_config()
+    if as_json:
+        click.echo(json.dumps({"valid": len(issues) == 0, "issues": issues}))
+    elif issues:
+        click.echo("Config issues found:")
+        for issue in issues:
+            click.echo(f"  ⚠ {issue}")
+        raise SystemExit(1)
+    else:
+        click.echo("✓ Config is valid.")
+
+
 def _export_as_json(task: Task) -> str:
     """Generate a JSON export string for the given task."""
     from duo.protocol import read_jsonl, read_result_for_step

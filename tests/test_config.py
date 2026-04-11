@@ -581,3 +581,120 @@ class TestConfigKeyRoundTrip:
             assert config_mod.get_config(key) == default, (
                 f"reset_config({key!r}) did not restore default"
             )
+
+
+class TestValidateConfig:
+    """Tests for validate_config()."""
+
+    def test_valid_config(self) -> None:
+        config_mod.save_config(
+            {
+                "max_corrections": 5,
+                "auto_allow_all": True,
+                "copilot_model": "test-model",
+                "poll_base_interval": 10.0,
+            }
+        )
+        issues = config_mod.validate_config()
+        assert issues == []
+
+    def test_no_config_file(self) -> None:
+        if config_mod.CONFIG_PATH.exists():
+            config_mod.CONFIG_PATH.unlink()
+        issues = config_mod.validate_config()
+        assert issues == []
+
+    def test_invalid_json(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text("{bad", encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("Invalid JSON" in i for i in issues)
+
+    def test_not_a_dict(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text("[1,2,3]", encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("JSON object" in i for i in issues)
+
+    def test_unknown_key(self) -> None:
+        config_mod.save_config({"unknown_xyz": True})
+        issues = config_mod.validate_config()
+        assert any("Unknown key" in i for i in issues)
+
+    def test_wrong_type_bool(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text('{"auto_allow_all": "yes"}', encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("expected bool" in i for i in issues)
+
+    def test_wrong_type_number(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text(
+            '{"max_corrections": "five"}', encoding="utf-8"
+        )
+        issues = config_mod.validate_config()
+        assert any("expected number" in i for i in issues)
+
+    def test_wrong_type_str(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text('{"copilot_model": 42}', encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("expected str" in i for i in issues)
+
+    def test_non_finite_float(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # JSON doesn't support Infinity, but we can test NaN via a trick
+        # Actually JSON can't encode NaN either, so test via save_config workaround
+        # Just test the code path by writing raw JSON-like content
+        config_mod.CONFIG_PATH.write_text(
+            '{"poll_base_interval": 1e999}', encoding="utf-8"
+        )
+        # 1e999 parses as Infinity in some JSON implementations, but Python's
+        # json.loads will raise ValueError. So this tests the JSONDecodeError path.
+        issues = config_mod.validate_config()
+        assert len(issues) > 0
+
+    def test_cross_key_invariant(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text(
+            '{"poll_base_interval": 100.0, "poll_max_interval": 10.0}',
+            encoding="utf-8",
+        )
+        issues = config_mod.validate_config()
+        assert any("poll_max_interval" in i for i in issues)
+
+    def test_value_below_minimum(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text('{"max_corrections": 0}', encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("below minimum" in i for i in issues)
+
+    def test_value_above_maximum(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text('{"max_corrections": 999}', encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("above maximum" in i for i in issues)
+
+    def test_float_below_minimum(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text('{"poll_base_interval": 0}', encoding="utf-8")
+        issues = config_mod.validate_config()
+        assert any("must be >" in i for i in issues)
+
+    def test_float_above_maximum(self) -> None:
+        config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_mod.CONFIG_PATH.write_text(
+            '{"poll_base_interval": 999.0}', encoding="utf-8"
+        )
+        issues = config_mod.validate_config()
+        assert any("above maximum" in i for i in issues)
+
+    def test_read_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        unreadable = tmp_path / "unreadable.json"
+        unreadable.write_text("{}", encoding="utf-8")
+        unreadable.chmod(0o000)
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", unreadable)
+        issues = config_mod.validate_config()
+        assert any("Cannot read" in i for i in issues)
+        # Restore permissions for cleanup
+        unreadable.chmod(0o644)

@@ -4024,10 +4024,100 @@ class TestConfigSubcommands:
         result = runner.invoke(main, ["config", "edit"])
         assert result.exit_code == 0
 
+    def test_config_validate_valid(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate reports valid when config is correct."""
+        import duo.config as config_mod
 
-# ---------------------------------------------------------------------------
-# monitor command
-# ---------------------------------------------------------------------------
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text('{"max_corrections": 5}', encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate"])
+        assert result.exit_code == 0
+        assert "valid" in result.output
+
+    def test_config_validate_no_file(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate with no config file reports valid (defaults used)."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "no-such-config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate"])
+        assert result.exit_code == 0
+        assert "valid" in result.output
+
+    def test_config_validate_invalid_json(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate detects invalid JSON."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text("{bad json", encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate"])
+        assert result.exit_code == 1
+        assert "Invalid JSON" in result.output
+
+    def test_config_validate_wrong_type(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate detects type mismatches."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text('{"max_corrections": "not_a_number"}', encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate"])
+        assert result.exit_code == 1
+        assert "expected number" in result.output
+
+    def test_config_validate_unknown_key(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate detects unknown keys."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text('{"mystery_key": 42}', encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate"])
+        assert result.exit_code == 1
+        assert "Unknown key" in result.output
+
+    def test_config_validate_json_output(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate --json-output returns structured result."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text('{"max_corrections": "bad"}', encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["valid"] is False
+        assert len(data["issues"]) > 0
+
+    def test_config_validate_cross_key_invariant(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config validate detects poll_max < poll_base."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text(
+            '{"poll_base_interval": 100.0, "poll_max_interval": 10.0}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "validate"])
+        assert result.exit_code == 1
+        assert "poll_max_interval" in result.output
 
 
 class TestMonitorCommand:
