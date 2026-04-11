@@ -1426,3 +1426,40 @@ class TestPathTraversalDetectionProperty:
         pos = min(position, len(safe_part))
         path = safe_part[:pos] + "\x00" + safe_part[pos:]
         assert "\x00" in path
+
+
+class TestReadJsonlTailProperty:
+    """Property tests for read_jsonl tail parameter."""
+
+    @given(
+        n_events=st.integers(min_value=1, max_value=50),
+        tail=st.integers(min_value=1, max_value=50),
+    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_tail_returns_at_most_n_events(
+        self, n_events: int, tail: int, tmp_path: Path
+    ) -> None:
+        """read_jsonl(tail=N) returns at most N events."""
+        p = tmp_path / "test.jsonl"
+        lines = [json.dumps({"i": i}) + "\n" for i in range(n_events)]
+        p.write_text("".join(lines))
+        result = read_jsonl(p, tail=tail)
+        assert len(result) == min(n_events, tail)
+
+    @given(
+        n_events=st.integers(min_value=1, max_value=50),
+        tail=st.integers(min_value=1, max_value=50),
+    )
+    @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
+    def test_tail_returns_last_n_events(
+        self, n_events: int, tail: int, tmp_path: Path
+    ) -> None:
+        """read_jsonl(tail=N) returns the LAST N events, not first N."""
+        p = tmp_path / "test2.jsonl"
+        lines = [json.dumps({"i": i}) + "\n" for i in range(n_events)]
+        p.write_text("".join(lines))
+        result = read_jsonl(p, tail=tail)
+        expected_start = max(0, n_events - tail)
+        expected = list(range(expected_start, n_events))
+        actual = [r["i"] for r in result]
+        assert actual == expected
