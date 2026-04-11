@@ -453,16 +453,25 @@ class TestConfigBranchEdgeCases:
 class TestConfigRubberDuckHardening:
     """Tests from rubber-duck audit: non-finite, non-dict, int overflow."""
 
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param("[]", id="array"),
+            pytest.param('"hello"', id="string"),
+            pytest.param("null", id="null"),
+            pytest.param("42", id="number"),
+            pytest.param("true", id="bool"),
+        ],
+    )
     def test_load_non_dict_json_falls_back(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str
     ) -> None:
-        """Non-dict JSON (array, string, null) falls back to defaults."""
+        """Non-dict JSON falls back to defaults."""
         cfg_path = tmp_path / "config.json"
         monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
-        for content in ["[]", '"hello"', "null", "42"]:
-            cfg_path.write_text(content, encoding="utf-8")
-            cfg = config_mod.load_config()
-            assert cfg == dict(config_mod.DEFAULTS)
+        cfg_path.write_text(content, encoding="utf-8")
+        cfg = config_mod.load_config()
+        assert cfg == dict(config_mod.DEFAULTS)
 
     def test_load_nan_in_numeric_field_uses_default(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

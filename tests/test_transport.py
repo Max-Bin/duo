@@ -1127,11 +1127,14 @@ class TestLabelValidation:
             result = resolve_label("task-fix.auth_01")
         assert result == "%42"
 
-    def test_resolve_label_unsafe_rejected(self):
+    @pytest.mark.parametrize(
+        "bad_label",
+        ["lab;rm -rf /", "pane$(whoami)", "a b", "foo&bar", "x|y"],
+    )
+    def test_resolve_label_unsafe_rejected(self, bad_label: str):
         """Label with shell metacharacters is rejected before reaching tmux."""
-        for bad in ["lab;rm -rf /", "pane$(whoami)", "a b", "foo&bar", "x|y"]:
-            with pytest.raises(ValueError, match="Unsafe pane label"):
-                resolve_label(bad)
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            resolve_label(bad_label)
 
 
 # ── Bridge timeout ───────────────────────────────────────────────────

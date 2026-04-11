@@ -862,21 +862,18 @@ class TestDataclassConventionGuard:
         assert Pass.__dataclass_params__.frozen  # type: ignore[attr-defined]
         assert Correction.__dataclass_params__.frozen  # type: ignore[attr-defined]
 
-    def test_protocol_models_have_slots(self) -> None:
+    @pytest.mark.parametrize(
+        "cls_name",
+        ["Task", "Subtask", "SecurityPolicy", "Heartbeat", "AckResult", "StepResult"],
+    )
+    def test_protocol_models_have_slots(self, cls_name: str) -> None:
         """All protocol dataclasses must use slots=True for memory efficiency."""
-        from duo.protocol import (
-            AckResult,
-            Heartbeat,
-            SecurityPolicy,
-            StepResult,
-            Subtask,
-            Task,
-        )
+        import duo.protocol
 
-        for cls in [Task, Subtask, SecurityPolicy, Heartbeat, AckResult, StepResult]:
-            assert cls.__dataclass_params__.slots, (  # type: ignore[attr-defined]
-                f"{cls.__name__} missing slots=True"
-            )
+        cls = getattr(duo.protocol, cls_name)
+        assert cls.__dataclass_params__.slots, (  # type: ignore[attr-defined]
+            f"{cls_name} missing slots=True"
+        )
 
 
 class TestLoggerNamingGuard:
