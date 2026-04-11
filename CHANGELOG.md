@@ -43,6 +43,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 6 new property tests: _validate_task_name and _fmt_ts edge cases (81→87, 27 classes)
 - 2 module export guards: verify all modules define __all__ with valid attributes
 - 1 FSM doc accuracy guard: architecture.md transition table must match protocol.TRANSITIONS
+- 44 parametrized transport edge tests: strip_ansi (12), CAPI detection (10), labels (12), dialog boundary (5)
+- 13 parametrized scheduler active_count tests (7 active + 6 non-active statuses)
+- 12 parametrized __all__ exports guard tests (155 exports across 12 modules)
+- 4 hypothesis property tests: poller age range + ramp/reset sequence invariants
+- 18 parametrized config bool coercion tests (6 truthy + 6 falsy + 6 invalid)
 - 2 config doc guards: getting-started.md and architecture.md must list all config keys
 - 1 no-duplicate-test-class guard: prevents Python class shadowing (found 20 lost tests!)
 - 1 no-shadowed-methods guard: prevents Python method shadowing within test classes
