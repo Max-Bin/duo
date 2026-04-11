@@ -352,6 +352,25 @@ class TestCommandHelpText:
         assert short_help == [], f"Commands with missing/short help text: {short_help}"
 
 
+def _all_command_names() -> list[str]:
+    """Return all registered CLI command names for parametrize."""
+    ctx = click.Context(main)
+    return list(main.list_commands(ctx))
+
+
+class TestCommandHelpSmoke:
+    """Parametrized smoke test: every command's --help exits 0."""
+
+    @pytest.mark.parametrize("cmd_name", _all_command_names())
+    def test_help_exits_zero(self, cmd_name: str) -> None:
+        """'duo <cmd> --help' must exit 0 for every command."""
+        runner = CliRunner()
+        result = runner.invoke(main, [cmd_name, "--help"])
+        assert result.exit_code == 0, (
+            f"duo {cmd_name} --help exited {result.exit_code}: {result.output[:200]}"
+        )
+
+
 class TestNoDuplicateTestClasses:
     """Guard against duplicate class names within the same test file."""
 
