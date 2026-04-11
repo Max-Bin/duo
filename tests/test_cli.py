@@ -3739,6 +3739,61 @@ class TestConfigSubcommands:
         assert result.exit_code == 0
         assert str(fake_config) in result.output
 
+    def test_config_edit_creates_file(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config edit creates config file if missing."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        monkeypatch.setenv("EDITOR", "true")
+        result = runner.invoke(main, ["config", "edit"])
+        assert result.exit_code == 0
+        assert fake_config.exists()
+
+    def test_config_edit_opens_existing(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config edit opens existing config file."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text('{"copilot_model": "test"}', encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        monkeypatch.setenv("EDITOR", "true")
+        result = runner.invoke(main, ["config", "edit"])
+        assert result.exit_code == 0
+
+    def test_config_edit_visual_fallback(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config edit falls back to $VISUAL when $EDITOR not set."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        monkeypatch.delenv("EDITOR", raising=False)
+        monkeypatch.setenv("VISUAL", "true")
+        result = runner.invoke(main, ["config", "edit"])
+        assert result.exit_code == 0
+
+    def test_config_edit_default_editor(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """config edit defaults to vi when no EDITOR or VISUAL set."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        fake_config.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        monkeypatch.delenv("EDITOR", raising=False)
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setattr("click.edit", lambda **kw: None)
+        result = runner.invoke(main, ["config", "edit"])
+        assert result.exit_code == 0
+
 
 # ---------------------------------------------------------------------------
 # monitor command

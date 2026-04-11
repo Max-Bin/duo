@@ -3168,6 +3168,18 @@ def config_path() -> None:
     click.echo(CONFIG_PATH)
 
 
+@config.command("edit")
+def config_edit() -> None:
+    """Open config file in $EDITOR."""
+    from duo.config import CONFIG_PATH
+
+    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "vi"))
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_PATH.exists():
+        CONFIG_PATH.write_text("{}\n", encoding="utf-8")
+    click.edit(filename=str(CONFIG_PATH), editor=editor)
+
+
 def _export_as_json(task: Task) -> str:
     """Generate a JSON export string for the given task."""
     from duo.protocol import read_jsonl, read_result_for_step
