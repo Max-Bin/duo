@@ -1065,3 +1065,32 @@ class TestMakefileTargetsGuard:
 
         missing = phony_targets - defined
         assert missing == set(), f".PHONY targets without recipes: {sorted(missing)}"
+
+
+class TestAllExportsGuard:
+    """Guard: every __all__ entry must resolve to an actual attribute."""
+
+    MODULES = [
+        "duo.ceo_log",
+        "duo.ceo_state",
+        "duo.commander",
+        "duo.config",
+        "duo.dashboard",
+        "duo.errors",
+        "duo.poller",
+        "duo.protocol",
+        "duo.scheduler",
+        "duo.thinking",
+        "duo.transport",
+        "duo.verifier",
+    ]
+
+    @pytest.mark.parametrize("module_name", MODULES, ids=lambda m: m.split(".")[-1])
+    def test_all_exports_resolvable(self, module_name: str) -> None:
+        """Every name in __all__ must exist as an attribute of the module."""
+        import importlib
+
+        mod = importlib.import_module(module_name)
+        all_exports = getattr(mod, "__all__", [])
+        missing = [name for name in all_exports if not hasattr(mod, name)]
+        assert missing == [], f"{module_name}.__all__ has stale entries: {missing}"
