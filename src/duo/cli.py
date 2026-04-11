@@ -781,6 +781,12 @@ def _print_task(task: Task) -> None:
 @click.option("-q", "--quiet", is_flag=True, help="Only print task IDs (one per line)")
 @click.option("-c", "--count", is_flag=True, help="Only print the number of tasks")
 @click.option("--no-header", is_flag=True, help="Omit table header")
+@click.option(
+    "--recent",
+    type=int,
+    default=None,
+    help="Show only the N most recently created tasks",
+)
 def list_cmd(
     as_json: bool,
     status_filter: str | None,
@@ -789,6 +795,7 @@ def list_cmd(
     quiet: bool,
     count: bool,
     no_header: bool,
+    recent: int | None,
 ) -> None:
     """List all tasks."""
     tasks = list_tasks()
@@ -808,6 +815,11 @@ def list_cmd(
         tasks.sort(key=lambda t: t.status.value, reverse=reverse)
     elif sort_by == "age":
         tasks.sort(key=lambda t: t.created_at or "", reverse=not reverse)
+
+    if recent is not None:
+        # Sort by created_at descending and take the first N
+        tasks.sort(key=lambda t: t.created_at or "", reverse=True)
+        tasks = tasks[:recent]
 
     if count:
         click.echo(len(tasks))

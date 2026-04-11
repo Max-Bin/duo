@@ -482,6 +482,28 @@ class TestList:
         assert "STATUS" not in result.output
         assert "header-task" in result.output
 
+    def test_recent(self, runner: CliRunner):
+        """list --recent N shows only the N newest tasks."""
+        for i in range(3):
+            t = _make_task(f"recent-{i}")
+            t.created_at = f"2025-01-0{i + 1}T00:00:00Z"
+            save_task(t)
+        result = runner.invoke(main, ["list", "--recent", "2"])
+        assert result.exit_code == 0
+        assert "recent-2" in result.output
+        assert "recent-1" in result.output
+        assert "recent-0" not in result.output
+
+    def test_recent_with_count(self, runner: CliRunner):
+        """list --recent N --count shows filtered count."""
+        for i in range(3):
+            t = _make_task(f"rc-{i}")
+            t.created_at = f"2025-01-0{i + 1}T00:00:00Z"
+            save_task(t)
+        result = runner.invoke(main, ["list", "--recent", "2", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+
 
 # ---------------------------------------------------------------------------
 # recover command
