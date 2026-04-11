@@ -2949,8 +2949,24 @@ def config() -> None:
     """Manage Duo configuration."""
 
 
+def _complete_config_keys(
+    ctx: click.Context,  # noqa: ARG001
+    param: click.Parameter,  # noqa: ARG001
+    incomplete: str,
+) -> list[click.shell_completion.CompletionItem]:
+    from click.shell_completion import CompletionItem
+
+    from duo.config import CONFIG_DESCRIPTIONS, DEFAULTS
+
+    return [
+        CompletionItem(k, help=CONFIG_DESCRIPTIONS.get(k, ""))
+        for k in sorted(DEFAULTS)
+        if k.startswith(incomplete)
+    ]
+
+
 @config.command("get")
-@click.argument("key")
+@click.argument("key", shell_complete=_complete_config_keys)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def config_get(key: str, *, as_json: bool = False) -> None:
     """Get a config value."""
@@ -2969,7 +2985,7 @@ def config_get(key: str, *, as_json: bool = False) -> None:
 
 
 @config.command("set")
-@click.argument("key")
+@click.argument("key", shell_complete=_complete_config_keys)
 @click.argument("value")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def config_set(key: str, value: str, *, as_json: bool = False) -> None:
@@ -3017,7 +3033,7 @@ def config_list(*, as_json: bool = False) -> None:
 
 
 @config.command("reset")
-@click.argument("key", required=False)
+@click.argument("key", required=False, shell_complete=_complete_config_keys)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def config_reset(key: str | None = None, *, as_json: bool = False) -> None:
     """Reset config to defaults (or reset a single key)."""

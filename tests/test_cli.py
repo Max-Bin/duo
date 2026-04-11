@@ -1614,6 +1614,24 @@ class TestConfigListEdgeCases:
                 f"Missing description for config key: {key}"
             )
 
+    def test_config_key_completion(self):
+        """_complete_config_keys returns matching keys with help text."""
+        from duo.cli import _complete_config_keys
+
+        items = _complete_config_keys(None, None, "poll_")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "poll_base_interval" in names
+        assert "poll_max_interval" in names
+        assert "copilot_model" not in names
+        assert all(i.help for i in items)
+
+    def test_config_key_completion_empty_prefix(self):
+        """Empty prefix returns all keys."""
+        from duo.cli import _complete_config_keys
+
+        items = _complete_config_keys(None, None, "")  # type: ignore[arg-type]
+        assert len(items) == 12
+
 
 # ---------------------------------------------------------------------------
 # _safe_join
