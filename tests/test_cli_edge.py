@@ -907,3 +907,22 @@ class TestFutureAnnotationsGuard:
             "Missing 'from __future__ import annotations':\n"
             + "\n".join(f"  {m}" for m in missing)
         )
+
+
+class TestExampleFilesGuard:
+    """Guard: example files must be valid and parseable."""
+
+    def test_example_json_valid(self) -> None:
+        for f in sorted(Path("examples").rglob("*.json")):
+            data = json.loads(f.read_text())
+            assert "tasks" in data, f"{f} missing 'tasks' key"
+            for task in data["tasks"]:
+                assert "name" in task, f"{f}: task missing 'name'"
+                assert "description" in task, f"{f}: task missing 'description'"
+
+    def test_example_yaml_valid(self) -> None:
+        import yaml
+
+        for f in sorted(Path("examples").rglob("*.yaml")):
+            data = yaml.safe_load(f.read_text())
+            assert "tasks" in data, f"{f} missing 'tasks' key"
