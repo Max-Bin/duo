@@ -51,32 +51,39 @@ def _force_status(task: Task, status: TaskStatus) -> None:
 
 
 class TestActiveCount:
+    NON_ACTIVE = {
+        TaskStatus.CREATED,
+        TaskStatus.QUEUED,
+        TaskStatus.BLOCKED,
+        TaskStatus.FAILED,
+        TaskStatus.COMPLETED,
+        TaskStatus.ESCALATED,
+    }
+
+    @pytest.mark.parametrize(
+        "status",
+        sorted(ACTIVE_STATUSES, key=lambda s: s.value),
+        ids=lambda s: s.value,
+    )
+    def test_active_status_counted(self, status: TaskStatus) -> None:
+        """Each ACTIVE_STATUSES member increments active_count."""
+        t = _make_task("t1")
+        _force_status(t, status)
+        assert active_count() == 1
+
+    @pytest.mark.parametrize(
+        "status",
+        sorted(NON_ACTIVE, key=lambda s: s.value),
+        ids=lambda s: s.value,
+    )
+    def test_non_active_status_not_counted(self, status: TaskStatus) -> None:
+        """Non-active statuses do NOT increment active_count."""
+        t = _make_task("t1")
+        _force_status(t, status)
+        assert active_count() == 0
+
     def test_no_tasks(self) -> None:
         assert active_count() == 0
-
-    def test_created_not_active(self) -> None:
-        _make_task("t1")
-        assert active_count() == 0
-
-    def test_queued_not_active(self) -> None:
-        t = _make_task("t1")
-        _force_status(t, TaskStatus.QUEUED)
-        assert active_count() == 0
-
-    def test_completed_not_active(self) -> None:
-        t = _make_task("t1")
-        _force_status(t, TaskStatus.COMPLETED)
-        assert active_count() == 0
-
-    def test_failed_not_active(self) -> None:
-        t = _make_task("t1")
-        _force_status(t, TaskStatus.FAILED)
-        assert active_count() == 0
-
-    def test_running_is_active(self) -> None:
-        t = _make_task("t1")
-        _force_status(t, TaskStatus.RUNNING)
-        assert active_count() == 1
 
     def test_multiple_active(self) -> None:
         for i, status in enumerate(ACTIVE_STATUSES):
