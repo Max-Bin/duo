@@ -201,3 +201,26 @@ class TestLegalTransitionsAccepted:
         result = transition(task, TaskStatus(dst))
         assert result is True, f"{src} → {dst} should be legal but was rejected"
         assert task.status == TaskStatus(dst)
+
+
+def _all_statuses() -> list[str]:
+    from duo.protocol import TaskStatus
+
+    return [s.value for s in TaskStatus]
+
+
+class TestTaskStatusPersistence:
+    """Parametrized: every TaskStatus survives save_task → load_task."""
+
+    @pytest.mark.parametrize("status", _all_statuses())
+    def test_status_round_trip(self, status: str) -> None:
+        """Each TaskStatus survives serialization + deserialization."""
+        from duo.protocol import TaskStatus, load_task, save_task
+
+        task = create_task(f"rt-{status}", "d", "/w", "b", "c", [_make_subtask()])
+        task.status = TaskStatus(status)
+        save_task(task)
+        _clear_task_cache()
+        loaded = load_task(f"rt-{status}")
+        assert loaded is not None
+        assert loaded.status == TaskStatus(status)
