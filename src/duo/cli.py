@@ -3160,6 +3160,14 @@ def config_reset(key: str | None = None, *, as_json: bool = False) -> None:
         click.echo("All config reset to defaults.")
 
 
+@config.command("path")
+def config_path() -> None:
+    """Show the config file path."""
+    from duo.config import CONFIG_PATH
+
+    click.echo(CONFIG_PATH)
+
+
 def _export_as_json(task: Task) -> str:
     """Generate a JSON export string for the given task."""
     from duo.protocol import read_jsonl, read_result_for_step

@@ -3729,6 +3729,16 @@ class TestConfigSubcommands:
         data = json.loads(result.output)
         assert data["reset"] == "all"
 
+    def test_config_path(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """config path shows the config file location."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "path"])
+        assert result.exit_code == 0
+        assert str(fake_config) in result.output
+
 
 # ---------------------------------------------------------------------------
 # monitor command
