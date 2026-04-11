@@ -249,6 +249,29 @@ class TestStatus:
         assert "alpha" in result.output
         assert "beta" in result.output
 
+    def test_status_shows_branch(self, runner: CliRunner):
+        """status shows the branch name."""
+        task = _make_task()
+        result = runner.invoke(main, ["status", "test-task"])
+        assert result.exit_code == 0
+        assert "Branch:" in result.output
+        assert task.branch in result.output
+
+    def test_status_shows_description(self, runner: CliRunner):
+        """status shows description when set."""
+        _make_task("desc-task", "Fix the login bug")
+        result = runner.invoke(main, ["status", "desc-task"])
+        assert result.exit_code == 0
+        assert "Description:" in result.output
+        assert "Fix the login bug" in result.output
+
+    def test_status_no_description(self, runner: CliRunner):
+        """status omits description when empty."""
+        _make_task("no-desc-task", "")
+        result = runner.invoke(main, ["status", "no-desc-task"])
+        assert result.exit_code == 0
+        assert "Description:" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # list command

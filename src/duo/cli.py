@@ -720,7 +720,10 @@ def _print_task(task: Task) -> None:
     click.echo(f"    Step:        {task.current_step}/{len(task.subtasks)}")
     click.echo(f"    Attempt:     {task.current_attempt}")
     click.echo(f"    Incarnation: {task.incarnation_id}")
+    click.echo(f"    Branch:      {task.branch}")
     click.echo(f"    Worktree:    {task.worktree}")
+    if task.description:
+        click.echo(f"    Description: {task.description}")
     if task.created_at:
         click.echo(f"    Age:         {_fmt_age(task.created_at)}")
     if task.session_started_at:
