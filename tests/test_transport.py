@@ -591,20 +591,35 @@ class TestDiagnosePane:
 
 
 class TestIsProcessAlive:
+    @pytest.mark.parametrize(
+        "process_line,expected",
+        [
+            ("HEADER\n%1 main:0 80x24 zsh agent /home\n", False),
+            ("HEADER\n%1 main:0 80x24 -zsh agent /home\n", False),
+            ("HEADER\n%1 main:0 80x24 bash agent /home\n", False),
+            ("HEADER\n%1 main:0 80x24 -bash agent /home\n", False),
+            ("HEADER\n%1 main:0 80x24 sh agent /home\n", False),
+            ("HEADER\n%1 main:0 80x24 fish agent /home\n", False),
+            ("HEADER\n%1 main:0 80x24 copilot agent /home\n", True),
+            ("HEADER\n%1 main:0 80x24 python agent /home\n", True),
+            ("HEADER\n%1 main:0 80x24 claude agent /home\n", True),
+        ],
+        ids=[
+            "zsh-dead",
+            "dash-zsh-dead",
+            "bash-dead",
+            "dash-bash-dead",
+            "sh-dead",
+            "fish-dead",
+            "copilot-alive",
+            "python-alive",
+            "claude-alive",
+        ],
+    )
     @patch("subprocess.run")
-    def test_shell_process_returns_false(self, mock_run):
-        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 zsh agent /home\n")
-        assert is_process_alive("agent") is False
-
-    @patch("subprocess.run")
-    def test_dash_shell_returns_false(self, mock_run):
-        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 -zsh agent /home\n")
-        assert is_process_alive("agent") is False
-
-    @patch("subprocess.run")
-    def test_non_shell_returns_true(self, mock_run):
-        mock_run.return_value = _ok("HEADER\n%1 main:0 80x24 copilot agent /home\n")
-        assert is_process_alive("agent") is True
+    def test_process_detection(self, mock_run, process_line, expected):
+        mock_run.return_value = _ok(process_line)
+        assert is_process_alive("agent") is expected
 
     @patch("subprocess.run")
     def test_unknown_label_returns_false(self, mock_run):
@@ -1192,11 +1207,15 @@ class TestIsAtMainPromptEdgeCases:
         content = "◉ Processing...\n❯ Type @ to mention files"
         assert is_at_main_prompt(content) is False
 
-    def test_spinner_variants(self) -> None:
+    @pytest.mark.parametrize(
+        "marker",
+        ["◉ ", "◎ ", "○ "],
+        ids=["filled-spinner", "double-spinner", "empty-spinner"],
+    )
+    def test_spinner_variants(self, marker: str) -> None:
         """All spinner markers suppress the prompt."""
-        for marker in ("◉ ", "◎ ", "○ "):
-            content = f"{marker}Thinking\n❯ Type @ to mention files"
-            assert is_at_main_prompt(content) is False, marker
+        content = f"{marker}Thinking\n❯ Type @ to mention files"
+        assert is_at_main_prompt(content) is False
 
     def test_shift_tab_skipped(self) -> None:
         """shift+tab line is skipped when scanning for prompt."""
@@ -1223,33 +1242,31 @@ class TestIsAtMainPromptEdgeCases:
 
 
 class TestIsPermissionDialog:
+    @pytest.mark.parametrize(
+        "content,expected",
+        [
+            ("╭──\n  Do you want to run this command?\n  1. Yes\n╰──", True),
+            ("Allow directory access\n  1. Allow\n  2. Deny", True),
+            ("Do you want to edit file.py?", True),
+            ("Do you want to allow access?", True),
+            ("What would you like to do?\n  1. Option A\n  2. Option B", False),
+            ("", False),
+            ("normal output\nwithout dialog", False),
+        ],
+        ids=[
+            "run-command",
+            "allow-directory",
+            "edit-permission",
+            "allow-permission",
+            "regular-dialog",
+            "empty",
+            "normal-output",
+        ],
+    )
     @patch("duo.transport.read_pane")
-    def test_detects_run_permission(self, mock_read):
-        """Detects 'Do you want to run' as permission dialog."""
-        mock_read.return_value = (
-            "╭──\n  Do you want to run this command?\n  1. Yes\n╰──"
-        )
-        assert is_permission_dialog("test") is True
-
-    @patch("duo.transport.read_pane")
-    def test_detects_allow_directory(self, mock_read):
-        """Detects 'Allow directory' as permission dialog."""
-        mock_read.return_value = "Allow directory access\n  1. Allow\n  2. Deny"
-        assert is_permission_dialog("test") is True
-
-    @patch("duo.transport.read_pane")
-    def test_not_permission_for_regular_dialog(self, mock_read):
-        """Regular dialog without permission keywords returns False."""
-        mock_read.return_value = (
-            "What would you like to do?\n  1. Option A\n  2. Option B"
-        )
-        assert is_permission_dialog("test") is False
-
-    @patch("duo.transport.read_pane")
-    def test_empty_content_not_permission(self, mock_read):
-        """Empty pane content returns False."""
-        mock_read.return_value = ""
-        assert is_permission_dialog("test") is False
+    def test_permission_detection(self, mock_read, content, expected):
+        mock_read.return_value = content
+        assert is_permission_dialog("test") is expected
 
 
 # ── approve_permission ────────────────────────────────────────────────
