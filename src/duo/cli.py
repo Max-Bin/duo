@@ -409,6 +409,9 @@ def completion(shell: str) -> None:
     help="Reuse existing tmux pane ID instead of creating new one",
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option(
+    "-q", "--quiet", is_flag=True, help="Print only the task name for scripting"
+)
 def start(
     name: str,
     repo: str,
@@ -420,6 +423,7 @@ def start(
     reuse_pane: str,
     *,
     as_json: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Create a task with worktree + Copilot session."""
     from duo.commander import start_session
@@ -503,7 +507,7 @@ def start(
         lock_fd.close()
         lock_path.unlink(missing_ok=True)
 
-    if not as_json:
+    if not as_json and not quiet:
         click.echo(f"Created task: {name}")
         click.echo(f"  Worktree: {worktree}")
         click.echo(f"  Branch: {branch}")
@@ -515,6 +519,9 @@ def start(
         from duo.protocol import transition
 
         if not transition(task, TaskStatus.QUEUED):
+            if quiet:
+                click.echo(name)
+                return
             if as_json:
                 click.echo(
                     json.dumps(
@@ -531,6 +538,9 @@ def start(
                     f"Warning: task '{name}' created but could not transition to QUEUED.",
                     err=True,
                 )
+            return
+        if quiet:
+            click.echo(name)
             return
         if as_json:
             click.echo(
@@ -556,6 +566,9 @@ def start(
 
     if action == "queued":
         qs = queue_status()
+        if quiet:
+            click.echo(name)
+            return
         if as_json:
             click.echo(
                 json.dumps(
@@ -580,9 +593,12 @@ def start(
 
     # Start Copilot session
     defer = not immediate
-    if not as_json:
+    if not as_json and not quiet:
         click.echo("Starting Copilot session...")
     start_session(task, defer=defer, reuse_pane=reuse_pane)
+    if quiet:
+        click.echo(name)
+        return
     if as_json:
         click.echo(
             json.dumps(
@@ -1461,7 +1477,14 @@ def _kill_all_tasks(as_json: bool) -> None:
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("--all", "kill_all", is_flag=True, help="Kill all tasks")
-def kill(name: str | None, *, as_json: bool = False, kill_all: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only task name for scripting")
+def kill(
+    name: str | None,
+    *,
+    as_json: bool = False,
+    kill_all: bool = False,
+    quiet: bool = False,
+) -> None:
     """Kill a task and clean up."""
     if kill_all:
         _kill_all_tasks(as_json)
@@ -1476,7 +1499,7 @@ def kill(name: str | None, *, as_json: bool = False, kill_all: bool = False) -> 
     from duo.transport import cleanup_pane_state, kill_pane
 
     pane_killed = kill_pane(task.pane_label)
-    if not pane_killed and not as_json:
+    if not pane_killed and not as_json and not quiet:
         click.echo("Warning: failed to kill pane", err=True)
 
     cleanup_pane_state(task.pane_label)
@@ -1505,7 +1528,7 @@ def kill(name: str | None, *, as_json: bool = False, kill_all: bool = False) -> 
             ["worktree", "remove", "--force", task.worktree], cwd=repo_cwd, check=False
         )
         wt_removed = r.returncode == 0
-        if not wt_removed and not as_json:
+        if not wt_removed and not as_json and not quiet:
             click.echo(
                 f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
             )
@@ -1513,7 +1536,7 @@ def kill(name: str | None, *, as_json: bool = False, kill_all: bool = False) -> 
     # Remove branch
     r = _run_git(["branch", "-D", task.branch], cwd=repo_cwd, check=False)
     branch_deleted = r.returncode == 0
-    if not branch_deleted and not as_json:
+    if not branch_deleted and not as_json and not quiet:
         click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
     from duo.protocol import append_event, save_task, transition
@@ -1525,6 +1548,9 @@ def kill(name: str | None, *, as_json: bool = False, kill_all: bool = False) -> 
     if not transition(task, TaskStatus.FAILED):
         task.status = TaskStatus.FAILED
         save_task(task)
+    if quiet:
+        click.echo(name)
+        return
     if as_json:
         click.echo(
             json.dumps(

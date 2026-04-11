@@ -3224,6 +3224,25 @@ class TestKillAll:
         reloaded = load_task("kill-all-fb")
         assert reloaded.status == TaskStatus.FAILED
 
+    def test_kill_quiet(self, runner: CliRunner, tmp_path: Path):
+        """kill -q prints only the task name."""
+        task = _make_task("kill-q")
+        wt_dir = tmp_path / "kq_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "kill-q", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "kill-q"
+
 
 class TestMergeCommand:
     def test_merge_not_completed(self, runner: CliRunner):
@@ -7065,6 +7084,64 @@ class TestStartFlags:
             mock_start.assert_called_once()
             _, kwargs = mock_start.call_args
             assert kwargs["reuse_pane"] == "%55"
+
+    def test_start_quiet(self, runner: CliRunner, tmp_path: Path):
+        """start -q prints only the task name."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.commander.start_session"),
+            patch("duo.scheduler.enqueue_or_start", return_value="start"),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "q-task"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "q-task", "--repo", str(tmp_path), "-q"],
+            )
+            assert result.exit_code == 0
+            assert result.output.strip() == "q-task"
+
+    def test_start_quiet_queued(self, runner: CliRunner, tmp_path: Path):
+        """start -q --queue prints only the task name."""
+        with patch("duo.cli._create_worktree") as mock_wt:
+            mock_wt.return_value = (str(tmp_path / "wt" / "qq-task"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "qq-task", "--repo", str(tmp_path), "--queue", "-q"],
+            )
+            assert result.exit_code == 0
+            assert result.output.strip() == "qq-task"
+
+    def test_start_quiet_queue_transition_fail(self, runner: CliRunner, tmp_path: Path):
+        """start -q --queue prints name even when transition fails."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "qqf-task"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "qqf-task", "--repo", str(tmp_path), "--queue", "-q"],
+            )
+            assert result.exit_code == 0
+            assert result.output.strip() == "qqf-task"
+
+    def test_start_quiet_auto_queued(self, runner: CliRunner, tmp_path: Path):
+        """start -q prints name when auto-queued by scheduler."""
+        with (
+            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.scheduler.enqueue_or_start", return_value="queued"),
+            patch(
+                "duo.scheduler.queue_status",
+                return_value={"queued_count": 1, "active_count": 2, "max_parallel": 2},
+            ),
+        ):
+            mock_wt.return_value = (str(tmp_path / "wt" / "aq-task"), "abc123")
+            result = runner.invoke(
+                main,
+                ["start", "aq-task", "--repo", str(tmp_path), "-q"],
+            )
+            assert result.exit_code == 0
+            assert result.output.strip() == "aq-task"
 
 
 # ---------------------------------------------------------------------------
