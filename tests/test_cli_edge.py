@@ -960,3 +960,25 @@ class TestProjectMetadataGuard:
             data = tomllib.load(f)
         scripts = data.get("project", {}).get("scripts", {})
         assert "duo" in scripts, "pyproject.toml missing 'duo' script entry point"
+
+
+class TestScriptExecutabilityGuard:
+    """Guard: all shell scripts must be executable and have shebangs."""
+
+    def test_scripts_executable(self) -> None:
+        import os
+
+        scripts = list(Path("scripts").glob("*.sh"))
+        if Path("install.sh").exists():
+            scripts.append(Path("install.sh"))
+        non_exec = [f.name for f in scripts if not os.access(f, os.X_OK)]
+        assert non_exec == [], f"Non-executable scripts: {non_exec}"
+
+    def test_scripts_have_shebang(self) -> None:
+        scripts = list(Path("scripts").glob("*.sh"))
+        if Path("install.sh").exists():
+            scripts.append(Path("install.sh"))
+        bad = [
+            f.name for f in scripts if not f.read_text().split("\n")[0].startswith("#!")
+        ]
+        assert bad == [], f"Scripts missing shebang: {bad}"
