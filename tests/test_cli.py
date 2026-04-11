@@ -6357,6 +6357,37 @@ class TestDiffCommand:
             assert data["files_changed"] == ["src/foo.py", "src/bar.py"]
             assert data["has_changes"] is True
 
+    def test_diff_quiet(self, runner: CliRunner, tmp_path: Path):
+        """diff -q prints only the changed file count."""
+        wt = tmp_path / "worktree"
+        wt.mkdir()
+
+        sub = Subtask(step_id=1, description="d", target_files=[], writable_paths=[])
+        create_task(
+            task_id="diff-q",
+            description="desc",
+            worktree=str(wt),
+            branch="duo/diff-q",
+            base_commit="abc123",
+            subtasks=[sub],
+        )
+
+        import subprocess
+
+        original_run = subprocess.run
+
+        def mock_run(cmd, **kwargs):
+            if cmd[0] == "git" and "diff" in cmd and "--name-only" in cmd:
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout="a.py\nb.py\nc.py\n", stderr=""
+                )
+            return original_run(cmd, **kwargs)
+
+        with patch("subprocess.run", side_effect=mock_run):
+            result = runner.invoke(main, ["diff", "diff-q", "-q"])
+            assert result.exit_code == 0
+            assert result.output.strip() == "3"
+
 
 # ---------------------------------------------------------------------------
 # --json-output flag
@@ -7622,6 +7653,15 @@ class TestRetry:
         data = json.loads(result.output)
         assert data["retried"] is False
         assert "error" in data
+
+    def test_retry_quiet(self, runner: CliRunner):
+        """retry -q prints only the new status value."""
+        task = _make_task("retry-q")
+        task.status = TaskStatus.FAILED
+        save_task(task)
+        result = runner.invoke(main, ["retry", "retry-q", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "session_starting"
 
 
 class TestNotFoundParametrized:

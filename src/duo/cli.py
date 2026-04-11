@@ -3332,7 +3332,8 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
 @main.command()
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def retry(name: str, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the new status value")
+def retry(name: str, *, as_json: bool = False, quiet: bool = False) -> None:
     """Retry a failed, blocked, or escalated task from its current step."""
     from duo.protocol import transition
 
@@ -3369,6 +3370,9 @@ def retry(name: str, *, as_json: bool = False) -> None:
                 err=True,
             )
         raise SystemExit(1)
+    if quiet:
+        click.echo(target.value)
+        return
     if as_json:
         click.echo(
             json.dumps(
@@ -5938,8 +5942,14 @@ def cleanup(
     "--name-only", "name_only", is_flag=True, help="List changed file names only"
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+@click.option("-q", "--quiet", is_flag=True, help="Print only the changed file count")
 def diff_cmd(
-    name: str, *, show_stat: bool, name_only: bool, as_json: bool = False
+    name: str,
+    *,
+    show_stat: bool,
+    name_only: bool,
+    as_json: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Show git diff for a task's worktree changes."""
     task = _load_task_or_fail(name)
@@ -5949,6 +5959,14 @@ def diff_cmd(
             f"worktree '{task.worktree}' not found",
             fix="It may have been cleaned up. Run 'duo cleanup' to remove stale tasks.",
         )
+
+    if quiet:
+        r_names = _run_git(
+            ["diff", task.base_commit, "--name-only"], cwd=task.worktree, check=False
+        )
+        files = [f for f in r_names.stdout.strip().splitlines() if f]
+        click.echo(str(len(files)))
+        return
 
     if as_json:
         r_names = _run_git(
