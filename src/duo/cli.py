@@ -3192,13 +3192,19 @@ def events_show(name: str) -> None:
         if not target.resolve().is_relative_to(
             _WATCH_EVENTS_DIR.resolve()
         ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
-            raise DuoUserError(f"Invalid event name: {name}")
+            raise DuoUserError(
+                f"Invalid event name: {name}",
+                fix="Event names must be alphanumeric with hyphens/underscores only.",
+            )
         if not target.exists():
             target = _WATCH_EVENTS_DIR / f"{name}.json"
             if not target.resolve().is_relative_to(
                 _WATCH_EVENTS_DIR.resolve()
             ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
-                raise DuoUserError(f"Invalid event name: {name}")
+                raise DuoUserError(
+                    f"Invalid event name: {name}",
+                    fix="Event names must be alphanumeric with hyphens/underscores only.",
+                )
     if not target.exists():
         raise DuoUserError(
             f"Event file not found: {name}",
@@ -4226,7 +4232,10 @@ def _write_loop_state(task_id: str, state: dict[str, object]) -> None:
     if not state_path.resolve().is_relative_to(
         CEO_LOOPS_DIR.resolve()
     ):  # pragma: no cover — defense-in-depth; _validate_task_name rejects all traversal inputs
-        raise DuoUserError(f"Invalid task ID: {task_id}")
+        raise DuoUserError(
+            f"Invalid task ID: {task_id}",
+            fix="Task IDs must be alphanumeric with hyphens/underscores only.",
+        )
     atomic_write_text(state_path, json.dumps(state, indent=2) + "\n")
 
 
