@@ -1667,16 +1667,22 @@ class TestSafeJoin:
 
 
 class TestValidateTaskName:
-    def test_valid_names(self):
-        for name in ["foo", "foo-bar", "foo_bar", "Foo123", "a", "A-B_C-1"]:
-            _validate_task_name(name)  # Should not raise
+    @pytest.mark.parametrize(
+        "name",
+        ["foo", "foo-bar", "foo_bar", "Foo123", "a", "A-B_C-1"],
+    )
+    def test_valid_names(self, name: str):
+        _validate_task_name(name)  # Should not raise
 
-    def test_invalid_names(self):
+    @pytest.mark.parametrize(
+        "name",
+        ["bad name", "bad!name", "bad@name", "a/b", "a.b", ""],
+    )
+    def test_invalid_names(self, name: str):
         import click
 
-        for name in ["bad name", "bad!name", "bad@name", "a/b", "a.b", ""]:
-            with pytest.raises(click.BadParameter):
-                _validate_task_name(name)
+        with pytest.raises(click.BadParameter):
+            _validate_task_name(name)
 
     def test_task_name_too_long(self, runner: CliRunner, tmp_path: Path):
         """A 100-character name exceeds the 63-char limit and is rejected."""
