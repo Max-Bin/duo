@@ -85,6 +85,7 @@ duo merge fix-auth       # fast-forward merge when done
 | `duo go` | **One-command setup** — CEO (Claude Code) + Executor (Copilot) side by side |
 | `duo start <task> --repo . --desc "..."` | Create worktree + executor session |
 | `duo send <task> "instruction"` | Send a follow-up prompt to a running task |
+| `duo send <task> -f prompt.txt` | Send prompt from a file |
 | `duo stop <task>` | Gracefully stop a task and its pane |
 | `duo status [task]` | Show FSM state for one or all tasks |
 | `duo merge <task>` | Fast-forward merge the worktree into the target branch |
@@ -95,6 +96,8 @@ duo merge fix-auth       # fast-forward merge when done
 | `duo cost` | Show Premium Request consumption across tasks |
 | `duo doctor` | Check that all dependencies are installed |
 | `duo config list` | Show all configuration values |
+| `duo config set <key> <value>` | Set a configuration value |
+| `duo config edit` | Open config in $EDITOR |
 | `duo list` | List all tasks and their statuses |
 | `duo list --sort age` | Sort tasks by age, status, or name |
 | `duo list -q --status running` | Print only running task IDs (for scripting) |

@@ -85,6 +85,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 | `duo go` | **一键启动** — CEO (Claude Code) + Executor (Copilot) 并排工作 |
 | `duo start <task> --repo . --desc "..."` | 创建 worktree + executor 会话 |
 | `duo send <task> "指令"` | 给运行中的任务发送后续 prompt |
+| `duo send <task> -f prompt.txt` | 从文件读取 prompt |
 | `duo stop <task>` | 优雅停止任务及其 pane |
 | `duo status [task]` | 查看单个或全部任务的 FSM 状态 |
 | `duo merge <task>` | 将 worktree fast-forward 合并到目标分支 |
