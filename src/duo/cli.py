@@ -827,6 +827,7 @@ def list_cmd(
                 "created_at": t.created_at,
                 "session_started_at": t.session_started_at,
                 "age": _fmt_age(t.created_at),
+                "description": t.description,
             }
             for t in tasks
         ]

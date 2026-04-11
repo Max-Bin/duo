@@ -5691,6 +5691,7 @@ class TestJsonOutput:
         assert "created_at" in data[0]
         assert "session_started_at" in data[0]
         assert "age" in data[0]
+        assert data[0]["description"] == "A JSON task"
 
     def test_list_json_empty(self, runner: CliRunner):
         """list --json-output with no tasks still shows 'No tasks.'."""
