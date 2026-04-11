@@ -3417,7 +3417,8 @@ def _complete_config_keys(
 @config.command("get")
 @click.argument("key", shell_complete=_complete_config_keys)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def config_get(key: str, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the raw value")
+def config_get(key: str, *, as_json: bool = False, quiet: bool = False) -> None:
     """Get a config value."""
     from duo.config import get_config
 
@@ -3427,6 +3428,9 @@ def config_get(key: str, *, as_json: bool = False) -> None:
             f"Unknown config key: {key}",
             fix="Run 'duo config list' to see available keys.",
         )
+    if quiet:
+        click.echo(str(value))
+        return
     if as_json:
         click.echo(json.dumps({key: value}))
     else:
@@ -5723,9 +5727,15 @@ def ceo_metrics_cmd(
     type=click.Path(),
     help="Write to file instead of stdout",
 )
-def export(name: str, fmt: str, outfile: str | None) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the event count")
+def export(name: str, fmt: str, outfile: str | None, quiet: bool) -> None:
     """Export task report (events, files changed, summary)."""
     task = _load_task_or_fail(name)
+
+    if quiet:
+        events = read_jsonl(task.journal_path) if task.journal_path.exists() else []
+        click.echo(str(len(events)))
+        return
 
     if fmt == "jsonl":
         events = read_jsonl(task.journal_path) if task.journal_path.exists() else []

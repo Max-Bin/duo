@@ -4065,6 +4065,16 @@ class TestExportJsonl:
         assert "Task Report: exp-text-def" in result.output
         assert "Status:" in result.output
 
+    def test_export_quiet(self, runner: CliRunner):
+        """export -q prints only the event count."""
+        task = _make_task("exp-q")
+        append_event(task, "started", {"step": 1})
+        append_event(task, "completed", {"step": 1})
+        result = runner.invoke(main, ["export", "exp-q", "-q"])
+        assert result.exit_code == 0
+        count = int(result.output.strip())
+        assert count >= 2
+
 
 # ---------------------------------------------------------------------------
 # cleanup command — force, keep-journal
@@ -4277,6 +4287,18 @@ class TestConfigSubcommands:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "copilot_model" in data
+
+    def test_config_get_quiet(self, runner: CliRunner, tmp_path: Path, monkeypatch):
+        """config get -q prints only the raw value."""
+        import duo.config as config_mod
+
+        fake_config = tmp_path / "config.json"
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", fake_config)
+        result = runner.invoke(main, ["config", "get", "copilot_model", "-q"])
+        assert result.exit_code == 0
+        val = result.output.strip()
+        assert "=" not in val
+        assert val  # not empty
 
     def test_config_list_json(self, runner: CliRunner, tmp_path: Path, monkeypatch):
         """config list --json-output returns all config as JSON with descriptions."""
