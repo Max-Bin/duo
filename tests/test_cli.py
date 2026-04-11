@@ -5001,6 +5001,18 @@ class TestLogsFormatting:
         assert result.exit_code == 0
         assert result.output.strip() == "1"
 
+    def test_quiet_prints_event_types(self, runner: CliRunner):
+        """logs -q prints one event type per line."""
+        task = _make_task("log-q")
+        append_event(task, "step_started", {"step": 1})
+        append_event(task, "step_completed", {"step": 1})
+        result = runner.invoke(main, ["logs", "log-q", "-q", "--all"])
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        types = [l.strip() for l in lines]
+        assert "step_started" in types
+        assert "step_completed" in types
+
 
 # ---------------------------------------------------------------------------
 # init command

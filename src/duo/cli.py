@@ -2072,6 +2072,7 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 @click.option(
     "-c", "--count", "show_count", is_flag=True, help="Print only the event count"
 )
+@click.option("-q", "--quiet", is_flag=True, help="Print one event type per line")
 @click.pass_context
 def logs(
     ctx: click.Context,
@@ -2082,6 +2083,7 @@ def logs(
     event_filter: str | None,
     step_filter: int | None,
     show_count: bool,
+    quiet: bool,
 ) -> None:
     """Show task journal events."""
     from duo.protocol import read_jsonl
@@ -2110,6 +2112,11 @@ def logs(
 
     if not show_all:
         events = events[-lines:]
+
+    if quiet:
+        for ev in events:
+            click.echo(ev.get("event", "unknown"))
+        return
 
     if as_json:
         click.echo(json.dumps(events, indent=2))
