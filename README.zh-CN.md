@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2435%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2436%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -130,6 +130,7 @@ duo audit my-task -q                  # 仅输出单任务 PR 数
 duo doctor -q                         # 仅输出失败项（空 = 全部通过）
 duo recover -q                        # 仅输出恢复数量
 duo resume my-task -q                 # 仅输出恢复任务数
+duo logs my-task -q                   # 每行一个事件类型（管道到 sort | uniq -c）
 duo cleanup --force -q                # 仅输出清理数量
 duo diff my-task -q                   # 仅输出变更文件数
 duo retry my-task -q                  # 仅输出新状态值
