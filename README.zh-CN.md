@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2411%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2419%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -135,6 +135,8 @@ duo config get copilot_model -q       # 仅输出原始值（用于 shell 变量
 duo export my-task -q                 # 仅输出事件数量
 duo list --finished                   # 仅已完成/失败/升级的任务
 duo list --active -c                  # 统计活跃任务数
+duo status my-task --wait completed   # 阻塞直到状态达到目标
+duo status my-task --wait running --timeout 60  # 带超时
 duo logs my-task -c                   # 输出事件数量（可配合 --filter）
 duo logs my-task -c --filter error    # 统计错误事件数
 duo cleanup --dry-run --age 7d        # 预览过期任务但不删除

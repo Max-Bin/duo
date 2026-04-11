@@ -43,6 +43,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `config get -q/--quiet` — print only the raw config value
 - `export -q/--quiet` — print only the journal event count
 - `list --finished` — show only completed/failed/escalated tasks
+- `status --wait STATUS` — block until task reaches target status (with `--timeout N`)
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)

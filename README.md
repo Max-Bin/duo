@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2411%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2419%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -135,6 +135,8 @@ duo config get copilot_model -q       # print raw value (for shell vars)
 duo export my-task -q                 # print event count only
 duo list --finished                   # only completed/failed/escalated
 duo list --active -c                  # count active tasks
+duo status my-task --wait completed   # block until status reached
+duo status my-task --wait running --timeout 60  # with timeout
 duo logs my-task -c                   # print event count (works with --filter)
 duo logs my-task -c --filter error    # count error events
 duo cleanup --dry-run --age 7d        # preview stale tasks without deleting
