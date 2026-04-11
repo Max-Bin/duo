@@ -1009,3 +1009,46 @@ manually prompted to check the pane.
 
 **Occurrences:** Multiple times during the multi-day CEO session,
 especially with large permission dialogs containing inline scripts.
+
+---
+
+## Stale dialog box in scrollback — RESOLVED
+
+**Status: Resolved** (commits `dddd9ff` and `2058c98`).
+
+**Root cause:** `approve_permission()` and `send_option_other_message()`
+parsed the FIRST `╭─…╰─` box in pane content, breaking at the first
+`╰─`. If scrollback contained an older dialog, these functions could
+read stale options and submit the wrong choice to the active dialog.
+
+**Fix:** Both functions now reset their option state on each new `╭─`
+and continue past `╰─` instead of breaking, so they always use the
+LAST (active) dialog box. This is consistent with `extract_last_box_lines()`
+which already used the last-box pattern.
+
+**Tests:** `test_stale_dialog_in_scrollback_uses_last_box` added to both
+`TestApprovePermission` and `TestSendOptionOtherMessage`.
+
+**Severity:** HIGH — wrong permission option in safety-sensitive path.
+
+---
+
+## Protocol readers crash on valid non-object JSON — RESOLVED
+
+**Status: Resolved** (commit `a3e9598`).
+
+**Root cause:** `read_heartbeat()`, `read_ack_for_step()`, and
+`read_result_for_step()` checked `if data is None` but not the type.
+Valid JSON like `[]`, `"string"`, or `42` would pass the None check,
+then crash with `AttributeError` when calling `.get()`.
+
+`replay_state()` similarly assumed all JSONL entries were dicts.
+
+**Fix:** All readers now use `isinstance(data, dict)` guard. Replay
+state skips non-dict entries. `load_task` guards `secret_patterns`
+must be a list.
+
+**Tests:** 5 regression tests covering wrong-type JSON for all readers
+plus non-dict journal entries and non-list secret_patterns.
+
+**Severity:** MEDIUM — malformed protocol files crash monitoring paths.
