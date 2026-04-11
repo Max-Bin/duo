@@ -3368,7 +3368,8 @@ def doctor(as_json: bool, strict: bool, fix: bool, quiet: bool) -> None:
 @main.command()
 @click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def resume(name: str | None, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the resumed count")
+def resume(name: str | None, *, as_json: bool = False, quiet: bool = False) -> None:
     """Resume interrupted task sessions."""
     from duo.commander import normalize_for_restart, restart_session, start_session
     from duo.transport import cleanup_pane_state, is_process_alive, kill_pane
@@ -3379,6 +3380,9 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
     if name is not None:
         task = _load_task_or_fail(name)
         if task.status in TERMINAL_STATES:
+            if quiet:
+                click.echo("0")
+                return
             if as_json:
                 click.echo(json.dumps({"resumed": [], "already_complete": [name]}))
             else:
@@ -3390,6 +3394,9 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
         SKIP_STATES = TERMINAL_STATES | {TaskStatus.QUEUED}
         targets = [t for t in all_tasks if t.status not in SKIP_STATES]
         if not targets:
+            if quiet:
+                click.echo("0")
+                return
             if as_json:
                 click.echo(
                     json.dumps({"resumed": [], "message": "no interrupted tasks"})
@@ -3403,7 +3410,7 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
         try:
             pane_alive = is_process_alive(task.pane_label)
         except (RuntimeError, OSError):
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(
                     f"  Warning: could not check pane status for '{task.id}', assuming dead",
                     err=True,
@@ -3422,7 +3429,7 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
                 else:
                     click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
                 continue
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(f"Resumed task '{task.id}' — restarted session")
             results.append({"task": task.id, "resumed": True, "method": "restart"})
         else:
@@ -3445,7 +3452,7 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
                 else:
                     click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
                 continue
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(f"Resumed task '{task.id}' — started new session")
             results.append({"task": task.id, "resumed": True, "method": "new_session"})
 
@@ -3458,12 +3465,16 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
             prompt = build_task_prompt(task)
         try:
             send_task_prompt(task, prompt)
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(f"  Replayed prompt for step {task.current_step}")
         except (RuntimeError, OSError) as exc:
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(f"  Warning: could not replay prompt: {exc}", err=True)
 
+    if quiet:
+        resumed_count = sum(1 for r in results if r.get("resumed"))
+        click.echo(str(resumed_count))
+        return
     if as_json:
         click.echo(json.dumps({"resumed": results}))
 

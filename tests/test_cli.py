@@ -5820,6 +5820,37 @@ class TestResume:
         assert result.exit_code == 0
         assert "already completed" in result.output
 
+    def test_resume_quiet_completed(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """resume -q on completed task prints 0."""
+        task = _make_task("rq-done")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        result = runner.invoke(main, ["resume", "rq-done", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_resume_quiet_no_tasks(self, runner: CliRunner):
+        """resume -q with no interrupted tasks prints 0."""
+        result = runner.invoke(main, ["resume", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_resume_quiet_success(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """resume -q prints resumed count."""
+        task = _make_task("rq-ok")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        monkeypatch.setattr("duo.commander.start_session", MagicMock())
+        monkeypatch.setattr("duo.commander.send_task_prompt", MagicMock())
+        result = runner.invoke(main, ["resume", "rq-ok", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
     def test_resume_all_interrupted(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
