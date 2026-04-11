@@ -1674,3 +1674,82 @@ class TestValidateWritablePatternsFilterProperty:
         patterns = ["/usr/bin"] * n_abs + ["src/*"] * n_valid
         result = _validate_writable_patterns(patterns)
         assert len(result) == n_valid
+
+
+class TestWriteJsonReadJsonProperty:
+    """Property tests for protocol write_json + read_json round-trip."""
+
+    @given(
+        data=st.fixed_dictionaries(
+            {
+                "key": st.text(min_size=1, max_size=20),
+                "value": st.integers(min_value=-1000, max_value=1000),
+            }
+        )
+    )
+    @settings(
+        max_examples=30,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_round_trip(self, data: dict, tmp_path: Path) -> None:
+        """write_json → read_json preserves data."""
+        from duo.protocol import read_json, write_json
+
+        path = tmp_path / "test.json"
+        write_json(path, data)
+        result = read_json(path)
+        assert result == data
+
+    @given(
+        n=st.integers(min_value=1, max_value=10),
+        event_name=st.from_regex(r"[a-z_]{3,15}", fullmatch=True),
+    )
+    @settings(
+        max_examples=20,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_append_event_grows_journal(
+        self, n: int, event_name: str, tmp_path: Path
+    ) -> None:
+        """append_event appends exactly N entries to journal."""
+        import uuid
+
+        import duo.protocol
+        from duo.protocol import Subtask, append_event, create_task, read_jsonl
+
+        orig_dir = duo.protocol.TASKS_DIR
+        duo.protocol.TASKS_DIR = tmp_path
+        try:
+            task_id = f"prop-{uuid.uuid4().hex[:8]}"
+            sub = Subtask(
+                step_id=1, description="s", target_files=[], writable_paths=[]
+            )
+            task = create_task(task_id, "d", str(tmp_path), "b", "c", [sub])
+            for _ in range(n):
+                append_event(task, event_name)
+            events = read_jsonl(task.journal_path)
+            event_matches = [e for e in events if e.get("event") == event_name]
+            assert len(event_matches) == n
+        finally:
+            duo.protocol.TASKS_DIR = orig_dir
+
+
+class TestAtomicWriteTextProperty:
+    """Property: atomic_write_text never leaves partial files."""
+
+    @given(
+        content=st.text(
+            alphabet=st.characters(blacklist_characters="\r"), min_size=0, max_size=500
+        )
+    )
+    @settings(
+        max_examples=30,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    def test_content_preserved(self, content: str, tmp_path: Path) -> None:
+        """Written content is exactly what's read back."""
+        from duo.protocol import atomic_write_text
+
+        path = tmp_path / "atomic.txt"
+        atomic_write_text(path, content)
+        assert path.read_text(encoding="utf-8") == content
