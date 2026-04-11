@@ -10,6 +10,7 @@ import duo.transport
 from duo.transport import (
     DialogKind,
     read_pane,
+    resolve_label,
     select_dialog_option,
     send_text_dialog_message,
 )
@@ -145,3 +146,216 @@ class TestTransportEdgeCasesNew:
         result = send_text_dialog_message("test", long_text)
         assert result is True
         mock_type.assert_called_once_with("test", long_text)
+
+
+# ---------------------------------------------------------------------------
+# Parametrized transport tests — Round HO
+# ---------------------------------------------------------------------------
+
+
+class TestStripAnsiParametrized:
+    """Parametrized strip_ansi covering all ANSI variant families."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param("hello world", "hello world", id="plain-text"),
+            pytest.param("", "", id="empty-string"),
+            pytest.param("\x1b[31mred\x1b[0m", "red", id="basic-color"),
+            pytest.param("\x1b[1mbold\x1b[0m", "bold", id="bold"),
+            pytest.param("\x1b[38;5;196mhi\x1b[0m", "hi", id="256-color"),
+            pytest.param("\x1b[38;2;255;0;0mR\x1b[0m", "R", id="truecolor"),
+            pytest.param("\x1b[1m\x1b[31m\x1b[4mX\x1b[0m", "X", id="stacked-codes"),
+            pytest.param("\x1b[31m\x1b[1m\x1b[0m", "", id="only-ansi"),
+            pytest.param(
+                "\x1b[1m\x1b[31mhello\x1b[0m \x1b[32mworld\x1b[0m",
+                "hello world",
+                id="nested",
+            ),
+            pytest.param("text\x1b[", "text\x1b[", id="partial-sequence"),
+            pytest.param("❯ Type @", "❯ Type @", id="unicode-preserved"),
+            pytest.param(
+                "\x1b[2Ahello\x1b[5Cworld",
+                "helloworld",
+                id="cursor-movement",
+            ),
+        ],
+    )
+    def test_strip_ansi(self, raw: str, expected: str) -> None:
+        from duo.transport import strip_ansi
+
+        assert strip_ansi(raw) == expected
+
+
+class TestDetectCopilotApiErrorParametrized:
+    """Parametrized tests for detect_copilot_api_error()."""
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            pytest.param(
+                "✗ Execution failed: CAPIError: 400",
+                True,
+                id="capi-error-400",
+            ),
+            pytest.param(
+                "rate limit exceeded, try again",
+                True,
+                id="rate-limit-lower",
+            ),
+            pytest.param(
+                "Rate Limit hit",
+                True,
+                id="rate-limit-mixed-case",
+            ),
+            pytest.param(
+                "RATE LIMIT exceeded",
+                True,
+                id="rate-limit-upper",
+            ),
+            pytest.param(
+                "Some output\nCAPIError: 429 context limit\nmore text",
+                True,
+                id="capi-in-multiline",
+            ),
+            pytest.param(
+                "Some output with rate limit in the middle of a line",
+                True,
+                id="rate-limit-substring",
+            ),
+            pytest.param(
+                "error: something went wrong",
+                False,
+                id="generic-error",
+            ),
+            pytest.param(
+                "all good, working fine",
+                False,
+                id="clean-content",
+            ),
+            pytest.param("", False, id="empty-string"),
+            pytest.param(
+                "normal copilot output line\n❯ Type @ to mention files",
+                False,
+                id="normal-prompt",
+            ),
+        ],
+    )
+    def test_detect(self, content: str, expected: bool) -> None:
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error(content) is expected
+
+
+class TestIsCAPIContextErrorParametrized:
+    """Parametrized tests for is_capi_context_error()."""
+
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            pytest.param(
+                "CAPIError: 400 Bad Request",
+                True,
+                id="capi-400",
+            ),
+            pytest.param(
+                "CAPIError: context window exceeded",
+                True,
+                id="capi-context",
+            ),
+            pytest.param(
+                "capierror: something",
+                False,
+                id="lowercase-rejected",
+            ),
+            pytest.param(
+                "rate limit exceeded",
+                False,
+                id="not-capi-error",
+            ),
+            pytest.param("", False, id="empty-string"),
+        ],
+    )
+    def test_detect(self, content: str, expected: bool) -> None:
+        from duo.transport import is_capi_context_error
+
+        assert is_capi_context_error(content) is expected
+
+
+class TestLabelValidationParametrized:
+    """Parametrized tests for _validate_label (via resolve_label)."""
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            pytest.param("lab;rm -rf /", id="semicolon"),
+            pytest.param("pane$(whoami)", id="dollar-paren"),
+            pytest.param("a b", id="space"),
+            pytest.param("foo&bar", id="ampersand"),
+            pytest.param("x|y", id="pipe"),
+            pytest.param("a`id`b", id="backtick"),
+            pytest.param("a\nb", id="newline"),
+            pytest.param("a>b", id="redirect"),
+        ],
+    )
+    def test_unsafe_label_rejected(self, label: str) -> None:
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            resolve_label(label)
+
+    @pytest.mark.parametrize(
+        "label",
+        [
+            pytest.param("task-fix.auth_01", id="dots-underscores"),
+            pytest.param("duo-copilot-standby", id="hyphens"),
+            pytest.param("simple", id="simple-alpha"),
+            pytest.param("UPPER_CASE.v2", id="upper-dots"),
+        ],
+    )
+    def test_safe_label_accepted(self, label: str) -> None:
+        from unittest.mock import MagicMock, patch
+
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout="%1\n", stderr=""),
+        ):
+            result = resolve_label(label)
+            assert result == "%1"
+
+
+class TestDialogBoundaryParametrized:
+    """Parametrized tests for detect_dialog_kind with various content shapes."""
+
+    @pytest.mark.parametrize(
+        ("content", "expected_kind"),
+        [
+            pytest.param(
+                "normal output text\n❯ Type @ to mention files",
+                DialogKind.NONE,
+                id="main-prompt-not-dialog",
+            ),
+            pytest.param(
+                "╭─ Choose ─╮\n❯ 1. Yes\n  2. No\n╰───────────╯",
+                DialogKind.OPTION,
+                id="yes-no-option",
+            ),
+            pytest.param(
+                "╭─ Provide details ─╮\nType your answer\n╰────────────────────╯",
+                DialogKind.TEXT,
+                id="text-input",
+            ),
+            pytest.param(
+                "1. Fix\n2. Deploy\n3. Test\n\n◉ Working on step 1...",
+                DialogKind.NONE,
+                id="numbered-list-not-dialog",
+            ),
+            pytest.param(
+                "",
+                DialogKind.NONE,
+                id="empty-content",
+            ),
+        ],
+    )
+    def test_kind_detection(self, content: str, expected_kind: DialogKind) -> None:
+        from duo.transport import detect_dialog_kind
+
+        assert detect_dialog_kind(content) == expected_kind
