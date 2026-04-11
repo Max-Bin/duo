@@ -94,6 +94,9 @@ duo merge fix-auth       # fast-forward merge when done
 | `duo think <name> --ask "question"` | Brainstorm with Claude Code before spending PRs |
 | `duo cost` | Show Premium Request consumption across tasks |
 | `duo doctor` | Check that all dependencies are installed |
+| `duo config list` | Show all configuration values |
+| `duo list` | List all tasks and their statuses |
+| `duo diff <task>` | Show git diff for a task's worktree |
 | `duo bench` | Run performance benchmarks |
 
 ## Full Command Reference

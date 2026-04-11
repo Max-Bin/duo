@@ -513,7 +513,7 @@ Duo provides a suite of CEO (Chief Engineering Officer) commands for autonomous 
 duo ceo-now                         # Dashboard: active task, dialog state, session health
 duo ceo-now --json-output           # Machine-readable version
 
-duo ceo-focus set my-task           # Set focus to a specific task
+duo ceo-focus my-task                # Set focus to a specific task
 duo ceo-focus-show                  # Show current focus
 duo ceo-focus-clear                 # Clear focus
 ```
