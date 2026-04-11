@@ -119,8 +119,11 @@ duo --help               # 52 commands in 10 groups
 duo list -q --status running          # one task ID per line — pipe-friendly
 duo list -c --status completed        # print count (for conditionals)
 duo status my-task -q                 # print just the status value (e.g. "running")
+duo cost -q                           # print total PR count only
+duo stats -q                          # print total task count only
 duo cleanup --dry-run --age 7d        # preview stale tasks without deleting
 duo send my-task -f prompt.txt        # read prompt from file
+duo merge my-task --dry-run           # preview merge (commits, files changed)
 ```
 
 ## Examples

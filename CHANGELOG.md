@@ -28,6 +28,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `merge --dry-run` now shows commit count and changed files
 - `export` JSON/text now includes `pr_consumed` count and heartbeat data
 - Similar task name suggestions on not-found errors
+- `cost -q/--quiet` — print only the total PR count for scripting
+- `stats -q/--quiet` — print only the total task count for scripting
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
