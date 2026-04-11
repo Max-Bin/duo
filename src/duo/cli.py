@@ -3472,7 +3472,7 @@ def assert_not_at_main_prompt(label: str) -> None:
 
 
 @main.command("ceo-wait")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--timeout", default=300, type=float, help="Max seconds to wait (default: 300)."
 )
@@ -3512,7 +3512,7 @@ def ceo_wait(task: str, timeout: float, interval: float) -> None:
 
 
 @main.command("ceo-select")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.argument("option", required=False, default=None)
 @click.option(
     "--other",
@@ -3622,7 +3622,7 @@ def ceo_select(
 
 
 @main.command("ceo-approve")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--force-new-session",
     is_flag=True,
@@ -3764,7 +3764,7 @@ def _is_auto_selectable(
 
 
 @main.command("ceo-smart")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option("--verbose", is_flag=True, help="Print decision reasoning.")
 def ceo_smart(task: str, *, verbose: bool) -> None:
     """Auto-decide trivial dialogs, defer complex ones.
@@ -3850,7 +3850,7 @@ def ceo_smart(task: str, *, verbose: bool) -> None:
 
 
 @main.command("ceo-focus")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option("--session", default="", help="CEO session ID to associate.")
 @click.option("--notes", default="", help="Notes about current focus.")
 def ceo_focus_set(task: str, session: str, notes: str) -> None:
@@ -4214,7 +4214,7 @@ def ceo_now(as_json: bool) -> None:
 
 
 @main.command("ceo-status")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--assert-in-dialog",
     is_flag=True,
@@ -4482,7 +4482,7 @@ def _handle_dialog(
 
 
 @main.command("ceo-loop")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--policy",
     "policy_path",
@@ -4600,7 +4600,7 @@ def ceo_loop(
 
 
 @main.command("ceo-resume")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.argument("instruction", default="")
 def ceo_resume(task: str, instruction: str) -> None:
     """Resume a paused ceo-loop for a task.
@@ -4734,7 +4734,7 @@ def ceo_smart_config(*, as_json: bool) -> None:
 
 
 @main.command("ceo-cleanup")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--dry-run", is_flag=True, help="Show what would be killed without acting."
 )
@@ -4827,7 +4827,7 @@ def _find_idle_children(parent_pid: int) -> list[int]:
 
 
 @main.command("ceo-restart")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--timeout",
     default=60,
@@ -4959,7 +4959,7 @@ def ceo_restart(task: str, timeout: float) -> None:
 
 
 @main.command("ceo-dispatch")
-@click.argument("task")
+@click.argument("task", shell_complete=_complete_task_names)
 @click.option(
     "--timeout",
     default=30,
