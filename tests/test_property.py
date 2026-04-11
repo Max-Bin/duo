@@ -1739,7 +1739,11 @@ class TestAtomicWriteTextProperty:
 
     @given(
         content=st.text(
-            alphabet=st.characters(blacklist_characters="\r"), min_size=0, max_size=500
+            alphabet=st.characters(
+                blacklist_characters="\r", blacklist_categories=("Cs",)
+            ),
+            min_size=0,
+            max_size=500,
         )
     )
     @settings(

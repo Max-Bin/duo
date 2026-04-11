@@ -1091,3 +1091,30 @@ class TestAllExportsGuard:
         all_exports = getattr(mod, "__all__", [])
         missing = [name for name in all_exports if not hasattr(mod, name)]
         assert missing == [], f"{module_name}.__all__ has stale entries: {missing}"
+
+
+class TestDuoUserErrorFixGuard:
+    """Guard: every DuoUserError call in production code must include fix=."""
+
+    SRC_FILES = sorted(Path(duo.cli.__file__).resolve().parent.glob("*.py"))
+
+    @pytest.mark.parametrize(
+        "src_file",
+        SRC_FILES,
+        ids=[
+            f.stem for f in sorted(Path(duo.cli.__file__).resolve().parent.glob("*.py"))
+        ],
+    )
+    def test_all_errors_have_fix(self, src_file: Path) -> None:
+        """Every DuoUserError(...) call must include a fix= keyword arg."""
+        import ast
+
+        tree = ast.parse(src_file.read_text(encoding="utf-8"))
+        violations: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == "DuoUserError":
+                    has_fix = any(kw.arg == "fix" for kw in node.keywords)
+                    if not has_fix:
+                        violations.append(f"{src_file.name}:{node.lineno}")
+        assert violations == [], f"DuoUserError without fix= parameter: {violations}"
