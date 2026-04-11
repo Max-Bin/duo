@@ -6404,6 +6404,20 @@ class TestStats:
         assert "session_starting: 1" in result.output
         assert "result_reported: 1" in result.output
 
+    def test_stats_quiet(self, runner: CliRunner):
+        """stats -q prints only the total count."""
+        _make_task("sq-1")
+        _make_task("sq-2")
+        result = runner.invoke(main, ["stats", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+
+    def test_stats_quiet_empty(self, runner: CliRunner):
+        """stats -q with no tasks prints 0."""
+        result = runner.invoke(main, ["stats", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
 
 class TestStartFlags:
     def test_start_with_queue(self, runner: CliRunner, tmp_path: Path):

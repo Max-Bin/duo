@@ -2191,13 +2191,18 @@ def inspect(
 
 @main.command()
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def stats(as_json: bool) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the total task count")
+def stats(*, as_json: bool = False, quiet: bool = False) -> None:
     """Show task statistics summary."""
     from collections import Counter
 
     tasks = list_tasks()
     counts = Counter(t.status.value for t in tasks)
     total = len(tasks)
+
+    if quiet:
+        click.echo(str(total))
+        return
 
     if as_json:
         oldest = min((t.created_at for t in tasks if t.created_at), default=None)
