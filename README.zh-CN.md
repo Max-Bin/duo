@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2363%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2372%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -96,12 +96,30 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 | `duo think <name> --ask "问题"` | 用 Claude Code 在花 PR 之前先头脑风暴 |
 | `duo cost` | 查看各任务的 Premium Request 消耗 |
 | `duo doctor` | 检查所有依赖是否已安装 |
+| `duo config list` | 查看所有配置值 |
+| `duo config set <key> <value>` | 设置配置值 |
+| `duo config edit` | 用 $EDITOR 打开配置文件 |
+| `duo config validate` | 检查配置文件是否有错误 |
+| `duo list` | 列出所有任务及其状态 |
+| `duo list --sort age` | 按年龄、状态或名称排序 |
+| `duo list -q --status running` | 仅输出运行中的任务 ID（方便脚本使用） |
+| `duo list --recent 5` | 只显示最近创建的 5 个任务 |
+| `duo diff <task>` | 查看任务 worktree 的 git diff |
 | `duo bench` | 运行性能基准测试 |
 
 ## 完整命令参考
 
 ```bash
 duo --help               # 10 组共 52 个命令
+```
+
+### 脚本助手
+
+```bash
+duo list -q --status running          # 每行一个任务 ID — 管道友好
+duo list -c --status completed        # 输出数量（用于条件判断）
+duo cleanup --dry-run --age 7d        # 预览过期任务但不删除
+duo send my-task -f prompt.txt        # 从文件读取 prompt
 ```
 
 ## 示例
