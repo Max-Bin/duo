@@ -1122,7 +1122,12 @@ def recover(as_json: bool, quiet: bool) -> None:
 @click.argument("name", shell_complete=_complete_task_names)
 @click.option("--dry-run", is_flag=True, help="Preview merge without executing")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
+@click.option(
+    "-q", "--quiet", is_flag=True, help="Print only merge result for scripting"
+)
+def merge(
+    name: str, dry_run: bool, *, as_json: bool = False, quiet: bool = False
+) -> None:
     """Merge a completed task's worktree to main."""
     task = _load_task_or_fail(name)
 
@@ -1146,6 +1151,9 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
             )
             if r2.returncode == 0 and r2.stdout.strip():
                 files_changed = r2.stdout.strip().splitlines()
+        if quiet:
+            click.echo(str(len(files_changed)))
+            return
         if as_json:
             click.echo(
                 json.dumps(
@@ -1182,18 +1190,18 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
         )
 
     # Fetch and rebase
-    if not as_json:
+    if not as_json and not quiet:
         click.echo("Fetching and rebasing...")
     r = _run_git(["fetch", "origin", "main"], cwd=worktree, check=False)
     if r.returncode != 0:
-        if not as_json:
+        if not as_json and not quiet:
             click.echo("Warning: fetch failed, proceeding with local state", err=True)
 
     r = _run_git(["rebase", "origin/main"], cwd=worktree, check=False)
     if r.returncode != 0:
         abort = _run_git(["rebase", "--abort"], cwd=worktree, check=False)
         if abort.returncode != 0:
-            if not as_json:
+            if not as_json and not quiet:
                 click.echo(
                     f"Warning: could not abort rebase: {abort.stderr.strip()}",
                     err=True,
@@ -1222,7 +1230,7 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
         )
 
     # ff-only merge
-    if not as_json:
+    if not as_json and not quiet:
         click.echo(f"Merging {task.branch} into main...")
     r = _run_git(["merge", task.branch, "--ff-only"], cwd=main_worktree, check=False)
     if r.returncode != 0:
@@ -1232,20 +1240,23 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
         )
 
     # Cleanup
-    if not as_json:
+    if not as_json and not quiet:
         click.echo("Cleaning up worktree and branch...")
     r = _run_git(["worktree", "remove", worktree], cwd=main_worktree, check=False)
     wt_removed = r.returncode == 0
-    if not wt_removed and not as_json:
+    if not wt_removed and not as_json and not quiet:
         click.echo(f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True)
     r = _run_git(["branch", "-d", task.branch], cwd=main_worktree, check=False)
     branch_deleted = r.returncode == 0
-    if not branch_deleted and not as_json:
+    if not branch_deleted and not as_json and not quiet:
         click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
 
     from duo.protocol import append_event
 
     append_event(task, "task_merged", {"branch": task.branch})
+    if quiet:
+        click.echo(task.branch)
+        return
     if as_json:
         click.echo(
             json.dumps(
@@ -1294,7 +1305,16 @@ def _stop_all_tasks(as_json: bool) -> None:
 )
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("--all", "stop_all", is_flag=True, help="Stop all active tasks")
-def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> None:
+@click.option(
+    "-q", "--quiet", is_flag=True, help="Print only stopped count for scripting"
+)
+def stop(
+    name: str | None,
+    *,
+    as_json: bool = False,
+    stop_all: bool = False,
+    quiet: bool = False,
+) -> None:
     """Stop a task gracefully (preserves worktree for resume)."""
     from duo.protocol import append_event, transition
 
@@ -1309,6 +1329,9 @@ def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> 
 
     terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED}
     if task.status in terminal_states:
+        if quiet:
+            click.echo(task.status.value)
+            return
         if as_json:
             click.echo(
                 json.dumps(
@@ -1324,6 +1347,9 @@ def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> 
         return
 
     if task.status == TaskStatus.BLOCKED:
+        if quiet:
+            click.echo("blocked")
+            return
         if as_json:
             click.echo(
                 json.dumps(
@@ -1339,7 +1365,7 @@ def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> 
 
     pane_killed = kill_pane(task.pane_label)
     if not pane_killed:
-        if not as_json:
+        if not as_json and not quiet:
             click.echo("Warning: failed to kill pane", err=True)
 
     cleanup_pane_state(task.pane_label)
@@ -1349,11 +1375,14 @@ def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> 
     if stopped:
         append_event(task, "task_stopped", {"previous_status": previous})
     else:
-        if not as_json:
+        if not as_json and not quiet:
             click.echo(
                 f"Warning: pane killed but could not transition from {previous} to BLOCKED",
                 err=True,
             )
+    if quiet:
+        click.echo("stopped" if stopped else "failed")
+        return
     if as_json:
         click.echo(
             json.dumps(

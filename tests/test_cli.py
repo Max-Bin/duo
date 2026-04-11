@@ -2927,6 +2927,34 @@ class TestStop:
             assert result.exit_code == 0
             assert "stop-all-tf" in result.output
 
+    def test_stop_quiet_success(self, runner: CliRunner):
+        """stop -q prints 'stopped' on success."""
+        t = _make_task("stop-q-ok")
+        t.status = TaskStatus.RUNNING
+        save_task(t)
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["stop", "stop-q-ok", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "stopped"
+
+    def test_stop_quiet_already_terminal(self, runner: CliRunner):
+        """stop -q on completed task prints status value."""
+        t = _make_task("stop-q-done")
+        t.status = TaskStatus.COMPLETED
+        save_task(t)
+        result = runner.invoke(main, ["stop", "stop-q-done", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "completed"
+
+    def test_stop_quiet_already_blocked(self, runner: CliRunner):
+        """stop -q on blocked task prints 'blocked'."""
+        t = _make_task("stop-q-blk")
+        t.status = TaskStatus.BLOCKED
+        save_task(t)
+        result = runner.invoke(main, ["stop", "stop-q-blk", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "blocked"
+
 
 # ---------------------------------------------------------------------------
 
@@ -6286,6 +6314,35 @@ class TestDryRun:
             result = runner.invoke(main, ["merge", "dry-fail", "--dry-run"])
             assert result.exit_code == 0
             assert "Would merge" in result.output
+
+    def test_merge_dry_run_quiet(self, runner: CliRunner):
+        """merge --dry-run -q prints only the changed file count."""
+        task = _make_task("dry-q")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+
+        result = runner.invoke(main, ["merge", "dry-q", "--dry-run", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_merge_quiet(self, runner: CliRunner, tmp_path: Path):
+        """merge -q prints only the branch name."""
+        task = _make_task("merge-q")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "mq_wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout=f"worktree /main\n  branch refs/heads/main\n\nworktree {wt_dir}\n  branch refs/heads/{task.branch}\n",
+                stderr="",
+            )
+            result = runner.invoke(main, ["merge", "merge-q", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == task.branch
 
     def test_merge_json_output(self, runner: CliRunner, tmp_path: Path):
         """merge --json-output returns structured result."""
