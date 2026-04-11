@@ -1567,6 +1567,35 @@ class TestSendOptionOtherMessage:
         down_calls = [c for c in mock_keys.call_args_list if c == call("test", "Down")]
         assert len(down_calls) == 1  # navigate from 1 to 2
 
+    @patch("duo.transport._record_pr")
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.read_pane")
+    @patch("duo.transport.type_text")
+    @patch("duo.transport.send_keys")
+    @patch("duo.transport.is_in_dialog", return_value=True)
+    def test_stale_box_in_scrollback_uses_last_box(
+        self, mock_dialog, mock_keys, mock_type, mock_read, mock_detect, mock_pr
+    ):
+        """When scrollback has an old box, uses the LAST box only."""
+        mock_read.return_value = (
+            "╭─ Old dialog ─╮\n"
+            "  ❯ 1. Stale option A\n"
+            "  2. Stale option B\n"
+            "  3. Stale option C\n"
+            "  4. Stale option D\n"
+            "╰─\n"
+            "Some output\n"
+            "╭─ Current dialog ─╮\n"
+            "  ❯ 1. Run\n"
+            "  2. Other\n"
+            "╰─\n"
+        )
+        result = send_option_other_message("test", "my text")
+        assert result is True
+        # Should navigate from pos 1 to pos 2 (1 Down), NOT from 1 to 4
+        down_calls = [c for c in mock_keys.call_args_list if c == call("test", "Down")]
+        assert len(down_calls) == 1
+
 
 class TestSelectOtherOption:
     """Tests for select_other_option — delegates to send_option_other_message."""

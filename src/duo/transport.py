@@ -1429,7 +1429,7 @@ def send_option_other_message(label: str, text: str) -> bool:
             raise RuntimeError(f"SAFETY: '{label}' not in dialog. REFUSED.")
         _preemptive_dialog_resize(label, content)
 
-        # Count options within dialog box boundaries
+        # Count options within the LAST dialog box (╭─ … ╰─)
         lines = content.strip().split("\n")
         in_box = False
         option_count = 0
@@ -1438,9 +1438,12 @@ def send_option_other_message(label: str, text: str) -> bool:
         for line in lines:
             if "╭─" in line:
                 in_box = True
+                option_count = 0
+                current_pos = 0
                 continue
             if "╰─" in line:
-                break
+                in_box = False
+                continue
             if not in_box:
                 continue
             m = opt_re.match(line)
