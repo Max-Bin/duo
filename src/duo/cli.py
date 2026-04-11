@@ -718,11 +718,14 @@ def list_cmd(as_json: bool, status_filter: str | None) -> None:
                 "id": t.id,
                 "status": t.status.value,
                 "step": t.current_step,
+                "total_steps": len(t.subtasks),
                 "attempt": t.current_attempt,
                 "worktree": t.worktree,
                 "branch": t.branch,
+                "incarnation_id": t.incarnation_id,
                 "created_at": t.created_at,
                 "session_started_at": t.session_started_at,
+                "age": _fmt_age(t.created_at),
             }
             for t in tasks
         ]
@@ -2754,10 +2757,10 @@ def _doctor_auto_fix() -> list[str]:
 
 
 @main.command()
-@click.option("--json-output", is_flag=True, help="Output diagnostics as JSON.")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("--strict", is_flag=True, help="Exit non-zero on warnings too.")
 @click.option("--fix", is_flag=True, help="Auto-fix issues that can be resolved.")
-def doctor(json_output: bool, strict: bool, fix: bool) -> None:
+def doctor(as_json: bool, strict: bool, fix: bool) -> None:
     """Check environment dependencies and configuration."""
     results: list[CheckResult] = [fn() for fn in _DOCTOR_CHECKS]
     results.extend(_doctor_check_copilot_health())
@@ -2772,7 +2775,7 @@ def doctor(json_output: bool, strict: bool, fix: bool) -> None:
         counts[r.status] += 1
     total = len(results)
 
-    if json_output:
+    if as_json:
         payload: dict[str, Any] = {
             "checks": [
                 {
@@ -3792,8 +3795,8 @@ def ceo_focus_set(task: str, session: str, notes: str) -> None:
 
 
 @main.command("ceo-focus-show")
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
-def ceo_focus_show(json_output: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def ceo_focus_show(as_json: bool) -> None:
     """Show the current CEO focus task."""
     from duo.ceo_state import load_ceo_focus
 
@@ -3801,7 +3804,7 @@ def ceo_focus_show(json_output: bool) -> None:
     if focus is None:
         click.echo("No CEO focus set. Use 'duo ceo-focus <task>' to set one.")
         return
-    if json_output:
+    if as_json:
         click.echo(json.dumps(focus, indent=2))
         return
     task_id = focus.get("task_id", "?")
@@ -4033,8 +4036,8 @@ def _gather_session_health(task: Task) -> dict[str, Any] | None:
 
 
 @main.command("ceo-now")
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
-def ceo_now(json_output: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def ceo_now(as_json: bool) -> None:
     """One-screen CEO status dashboard."""
     from duo.ceo_state import load_ceo_focus
 
@@ -4065,7 +4068,7 @@ def ceo_now(json_output: bool) -> None:
     if focus:
         data["recent_decisions"] = _gather_recent_decisions(focus)
 
-    if json_output:
+    if as_json:
         click.echo(json.dumps(data, indent=2))
         return
 
@@ -4567,8 +4570,8 @@ def ceo_session_start() -> None:
 
 
 @main.command("ceo-session-list")
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
-def ceo_session_list(*, json_output: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def ceo_session_list(*, as_json: bool) -> None:
     """List all CEO sessions."""
     import json
 
@@ -4576,12 +4579,12 @@ def ceo_session_list(*, json_output: bool) -> None:
 
     sessions = list_sessions()
     if not sessions:
-        if json_output:
+        if as_json:
             click.echo("[]")
         else:
             click.echo("No CEO sessions found.")
         return
-    if json_output:
+    if as_json:
         click.echo(json.dumps(sessions, indent=2))
     else:
         for s in sessions:
@@ -4611,13 +4614,13 @@ def ceo_session_replay(session_id: str) -> None:
 
 @main.command("ceo-session-stats")
 @click.argument("session_id")
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
-def ceo_session_stats_cmd(session_id: str, *, json_output: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def ceo_session_stats_cmd(session_id: str, *, as_json: bool) -> None:
     """Show stats for a CEO session."""
     from duo.ceo_log import session_stats
 
     stats = session_stats(session_id)
-    if json_output:
+    if as_json:
         click.echo(json.dumps(stats, indent=2))
     else:
         click.echo(f"Session:    {stats['session_id']}")
@@ -4632,8 +4635,8 @@ def ceo_session_stats_cmd(session_id: str, *, json_output: bool) -> None:
 
 
 @main.command("ceo-smart-config")
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
-def ceo_smart_config(*, json_output: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def ceo_smart_config(*, as_json: bool) -> None:
     """Show effective ceo-smart patterns (built-in + user config)."""
     extra_auto, extra_defer = _load_smart_config()
     all_auto = list(_AUTO_SELECT_KEYWORDS) + extra_auto
@@ -4646,7 +4649,7 @@ def ceo_smart_config(*, json_output: bool) -> None:
         "user_defer_patterns": extra_defer,
     }
 
-    if json_output:
+    if as_json:
         click.echo(json.dumps(data, indent=2))
         return
 
@@ -4666,8 +4669,8 @@ def ceo_smart_config(*, json_output: bool) -> None:
 @click.option(
     "--dry-run", is_flag=True, help="Show what would be killed without acting."
 )
-@click.option("--json-output", is_flag=True, help="Output results as JSON.")
-def ceo_cleanup(task: str, *, dry_run: bool, json_output: bool) -> None:
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
+def ceo_cleanup(task: str, *, dry_run: bool, as_json: bool) -> None:
     """Kill idle child bash processes of a Copilot pane to reclaim fds.
 
     Copilot CLI may leak idle bash subshells during long sessions.
@@ -4685,7 +4688,7 @@ def ceo_cleanup(task: str, *, dry_run: bool, json_output: bool) -> None:
 
     children = _find_idle_children(pid)
     if not children:
-        if json_output:
+        if as_json:
             click.echo(json.dumps({"killed": [], "total": 0}))
         else:
             click.echo("No idle child processes found.")
@@ -4702,7 +4705,7 @@ def ceo_cleanup(task: str, *, dry_run: bool, json_output: bool) -> None:
         except OSError:
             pass
 
-    if json_output:
+    if as_json:
         click.echo(
             json.dumps({"killed": killed, "total": len(killed), "dry_run": dry_run})
         )
@@ -5207,7 +5210,7 @@ def _metrics_format_text(
 @click.option(
     "--all", "all_sessions", is_flag=True, default=True, help="All sessions (default)."
 )
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option(
     "--since", default=None, help="ISO datetime filter (e.g. 2025-01-01T00:00:00)."
 )
@@ -5215,7 +5218,7 @@ def ceo_metrics_cmd(
     *,
     session_id: str | None,
     all_sessions: bool,
-    json_output: bool,
+    as_json: bool,
     since: str | None,
 ) -> None:
     """Aggregate analytics across CEO sessions."""
@@ -5223,7 +5226,7 @@ def ceo_metrics_cmd(
     all_events, session_count, durations = _metrics_load_events(session_id, since)
 
     if session_count == 0:
-        if json_output:
+        if as_json:
             click.echo(json.dumps({"error": "No CEO sessions found."}))
         else:
             click.echo("No CEO sessions found.")
@@ -5231,7 +5234,7 @@ def ceo_metrics_cmd(
 
     metrics = _metrics_aggregate(all_events, session_count, durations)
 
-    if json_output:
+    if as_json:
         click.echo(json.dumps(metrics, indent=2))
     else:
         _metrics_format_text(metrics, session_id)
@@ -6036,7 +6039,7 @@ def _print_results(all_results: list[dict[str, Any]]) -> None:
     default="all",
 )
 @click.option("--iterations", "-n", default=1000, help="Number of iterations.")
-@click.option("--json-output", is_flag=True, help="Output as JSON.")
+@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option(
     "--baseline",
     type=click.Path(exists=True),
@@ -6046,7 +6049,7 @@ def _print_results(all_results: list[dict[str, Any]]) -> None:
 def bench(
     suite: str,
     iterations: int,
-    json_output: bool,
+    as_json: bool,
     baseline: str | None,
     save: bool,
 ) -> None:
@@ -6065,7 +6068,7 @@ def bench(
         result: dict[str, Any] = runners[s](iterations)
         all_results.append(result)
 
-    if json_output:
+    if as_json:
         click.echo(json.dumps(all_results, indent=2))
     else:
         _print_results(all_results)
