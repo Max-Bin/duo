@@ -752,6 +752,14 @@ def _print_task(task: Task) -> None:
         click.echo(f"    Age:         {_fmt_age(task.created_at)}")
     if task.session_started_at:
         click.echo(f"    Session:     {task.session_started_at[:19]}")
+    # Show heartbeat info for active tasks
+    from duo.protocol import read_heartbeat
+
+    hb = read_heartbeat(task)
+    if hb and hb.current_file:
+        click.echo(f"    Working on:  {hb.current_file}")
+    if hb and hb.ts:
+        click.echo(f"    Last pulse:  {_fmt_age(hb.ts)}")
 
 
 @main.command("list")

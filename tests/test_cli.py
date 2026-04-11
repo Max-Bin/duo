@@ -272,6 +272,34 @@ class TestStatus:
         assert result.exit_code == 0
         assert "Description:" not in result.output
 
+    def test_status_shows_heartbeat_file(self, runner: CliRunner):
+        """status shows current file from heartbeat."""
+        task = _make_task("hb-task")
+        import json as _json
+
+        hb_data = {
+            "ts": "2025-01-01T12:00:00Z",
+            "incarnation": task.incarnation_id,
+            "step": 1,
+            "status": "working",
+            "current_file": "src/main.py",
+        }
+        task.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        task.heartbeat_path.write_text(_json.dumps(hb_data), encoding="utf-8")
+        result = runner.invoke(main, ["status", "hb-task"])
+        assert result.exit_code == 0
+        assert "Working on:" in result.output
+        assert "src/main.py" in result.output
+        assert "Last pulse:" in result.output
+
+    def test_status_no_heartbeat(self, runner: CliRunner):
+        """status omits heartbeat lines when no heartbeat file."""
+        _make_task("no-hb-task")
+        result = runner.invoke(main, ["status", "no-hb-task"])
+        assert result.exit_code == 0
+        assert "Working on:" not in result.output
+        assert "Last pulse:" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # list command
