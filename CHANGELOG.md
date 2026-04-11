@@ -18,6 +18,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 2 property tests: read_jsonl tail parameter (count + order invariants)
 - 2 property tests: extract_response tail preservation (safe lines + identity)
 - 125 parametrized illegal FSM transition tests (every forbidden state pair)
+- 44 parametrized transport edge tests: ANSI strip, CAPI detection, label validation, dialog boundary
+- 13 parametrized scheduler active_count tests (7 active + 6 non-active statuses)
+- 12 parametrized __all__ exports guard tests (one per module, 155 exports verified)
+- 4 hypothesis property tests: poller age range + ramp/reset sequences
+- 18 parametrized config bool coercion tests (6 truthy + 6 falsy + 6 invalid)
+- 16 parametrized commander tests: normalize_for_restart + model validation
+- 12 parametrized CLI task name validation tests
+- 19 parametrized tests across 4 files: poller age, config fallback, slots guard, unsafe label
+- 6 cross-module integration tests: scheduler+commander, protocol+verifier, config+protocol
+- 29 parametrized thinking module tests: extract_response, wait_for_response, thinking_dir
+- 29 parametrized dashboard tests: event coloring, status text, task rows
+- 56 parametrized FSM transition tests: 44 valid paths + 12 COMPLETED rejections
 - 44 parametrized legal FSM transition tests (every allowed state pair)
 - 14 parametrized secret pattern detection tests (complete DEFAULT_SECRET_PATTERNS coverage)
 - 16 parametrized _match_writable edge cases (extensions, directories, dotfiles, empty)
