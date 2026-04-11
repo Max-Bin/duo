@@ -390,6 +390,137 @@ class TestExtractResponse:
         assert result == "real content"
 
 
+class TestExtractResponseParametrized:
+    """Parametrized extract_response edge cases."""
+
+    @pytest.mark.parametrize(
+        "tool_header",
+        [
+            "● Edit file.py",
+            "● Read src/main.py",
+            "● Bash echo hello",
+            "● Grep pattern",
+        ],
+        ids=["edit", "read", "bash", "grep"],
+    )
+    def test_tool_headers_filtered(self, tool_header: str) -> None:
+        before = "prompt"
+        after = f"prompt\n{tool_header}\nActual response"
+        result = extract_response(before, after, "q")
+        assert result == "Actual response"
+
+    @pytest.mark.parametrize(
+        "noise",
+        ["", "❯", ">", "  "],
+        ids=["empty", "chevron", "gt", "whitespace"],
+    )
+    def test_noise_lines_filtered(self, noise: str) -> None:
+        before = "prompt"
+        after = f"prompt\n{noise}\nGood content"
+        result = extract_response(before, after, "q")
+        assert result == "Good content"
+
+    @pytest.mark.parametrize(
+        "user_msg",
+        ["hello", "  hello  "],
+        ids=["plain", "padded"],
+    )
+    def test_user_echo_filtered(self, user_msg: str) -> None:
+        before = "prompt"
+        after = f"prompt\n{user_msg.strip()}\nResponse"
+        result = extract_response(before, after, user_msg)
+        assert result == "Response"
+
+    @pytest.mark.parametrize(
+        "before,after,expected",
+        [
+            ("", "Response only", "Response only"),
+            ("a\nb", "a\nb", ""),
+            ("x", "x\nline1\nline2\nline3", "line1\nline2\nline3"),
+        ],
+        ids=["empty-before", "identical", "multi-line-response"],
+    )
+    def test_edge_shapes(self, before: str, after: str, expected: str) -> None:
+        result = extract_response(before, after, "q")
+        assert result == expected
+
+
+class TestWaitForResponseStableParametrized:
+    """Parametrized wait_for_response_stable scenarios."""
+
+    @pytest.mark.parametrize(
+        "dialog_kind,expected",
+        [
+            ("OPTION", "dialog"),
+            ("TEXT", "dialog"),
+            ("BULLET", "dialog"),
+        ],
+        ids=["option-dialog", "text-dialog", "bullet-dialog"],
+    )
+    def test_dialog_detected(self, dialog_kind: str, expected: str) -> None:
+        from duo.transport import DialogKind
+
+        kind = DialogKind[dialog_kind]
+        with (
+            patch("duo.transport.read_pane", return_value="content"),
+            patch("duo.transport.detect_dialog_kind", return_value=kind),
+        ):
+            result = wait_for_response_stable("lbl", timeout=1.0)
+            assert result == expected
+
+    @pytest.mark.parametrize(
+        "spinner",
+        ["◉ Working", "◎ Loading", "○ Processing"],
+        ids=["filled", "double", "empty"],
+    )
+    def test_spinner_prevents_idle(self, spinner: str) -> None:
+        from duo.transport import DialogKind
+
+        call_count = 0
+
+        def fake_read(label: str, lines: int) -> str:
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                return f"some output\n{spinner}\n❯"
+            return "final output\n❯"
+
+        with (
+            patch("duo.transport.read_pane", side_effect=fake_read),
+            patch(
+                "duo.transport.detect_dialog_kind",
+                return_value=DialogKind.NONE,
+            ),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.thinking.time.sleep"),
+        ):
+            result = wait_for_response_stable("lbl", timeout=0.01, stable_threshold=0.0)
+            assert result in ("idle", "timeout")
+
+
+class TestThinkingDirParametrized:
+    """Parametrized thinking_dir edge cases."""
+
+    @pytest.mark.parametrize(
+        "name",
+        ["simple", "with-dash", "with_underscore", "CamelCase", "a"],
+        ids=["simple", "dash", "underscore", "camel", "single-char"],
+    )
+    def test_valid_names_produce_paths(self, name: str) -> None:
+        result = thinking_dir(name)
+        assert result.name == name
+        assert result.is_absolute()
+
+    @pytest.mark.parametrize(
+        "name",
+        ["", "has space", "with/slash", "../traversal", ".hidden"],
+        ids=["empty", "space", "slash", "traversal", "hidden"],
+    )
+    def test_invalid_names_rejected(self, name: str) -> None:
+        with pytest.raises(ValueError, match="Invalid thinking session name"):
+            thinking_dir(name)
+
+
 # ---------------------------------------------------------------------------
 # append_session_log
 # ---------------------------------------------------------------------------
