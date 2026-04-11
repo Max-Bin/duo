@@ -5472,6 +5472,16 @@ class TestJsonOutput:
         assert result.exit_code == 0
         assert "normal-task" in result.output
         assert "Status:" in result.output
+        assert "Age:" in result.output
+
+    def test_status_no_created_at(self, runner: CliRunner):
+        """status handles task without created_at."""
+        t = _make_task("no-date-task")
+        t.created_at = ""
+        save_task(t)
+        result = runner.invoke(main, ["status", "no-date-task"])
+        assert result.exit_code == 0
+        assert "Age:" not in result.output
 
 
 class TestStats:

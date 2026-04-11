@@ -686,6 +686,8 @@ def _print_task(task: Task) -> None:
     click.echo(f"    Attempt:     {task.current_attempt}")
     click.echo(f"    Incarnation: {task.incarnation_id}")
     click.echo(f"    Worktree:    {task.worktree}")
+    if task.created_at:
+        click.echo(f"    Age:         {_fmt_age(task.created_at)}")
     if task.session_started_at:
         click.echo(f"    Session:     {task.session_started_at[:19]}")
 
