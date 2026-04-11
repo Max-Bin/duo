@@ -9638,6 +9638,72 @@ class TestEventsCommand:
         lines = [ln for ln in result.output.strip().splitlines() if ln.strip()]
         assert len(lines) == 1
 
+    def test_events_list_quiet(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        from duo.protocol import write_json
+
+        write_json(
+            edir / "e1.json",
+            {"task_id": "t1", "detected_at": "2026-04-08T10:00:00Z"},
+        )
+        result = runner.invoke(main, ["events", "list", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "e1.json"
+
+    def test_events_list_quiet_empty(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        result = runner.invoke(main, ["events", "list", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
+    def test_events_list_quiet_dir_no_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        result = runner.invoke(main, ["events", "list", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
+    def test_events_list_count(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        from duo.protocol import write_json
+
+        write_json(edir / "e1.json", {"task_id": "t1", "detected_at": "x"})
+        write_json(edir / "e2.json", {"task_id": "t2", "detected_at": "x"})
+        result = runner.invoke(main, ["events", "list", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+
+    def test_events_list_count_empty(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        result = runner.invoke(main, ["events", "list", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_events_list_count_dir_no_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        result = runner.invoke(main, ["events", "list", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
     def test_events_show_latest(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

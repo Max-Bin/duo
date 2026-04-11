@@ -3850,9 +3850,18 @@ def events() -> None:
 @events.command("list")
 @click.option("-n", "--limit", default=20, help="Max events to show")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def events_list(limit: int, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print one event filename per line")
+@click.option("-c", "--count", is_flag=True, help="Print only the event count")
+def events_list(
+    limit: int, *, as_json: bool = False, quiet: bool = False, count: bool = False
+) -> None:
     """List recent watch events (newest first)."""
     if not _WATCH_EVENTS_DIR.exists():
+        if count:
+            click.echo("0")
+            return
+        if quiet:
+            return
         if as_json:
             click.echo(json.dumps({"events": [], "total": 0}))
         else:
@@ -3860,10 +3869,22 @@ def events_list(limit: int, *, as_json: bool = False) -> None:
         return
     files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
     if not files:
+        if count:
+            click.echo("0")
+            return
+        if quiet:
+            return
         if as_json:
             click.echo(json.dumps({"events": [], "total": 0}))
         else:
             click.echo("No events.")
+        return
+    if count:
+        click.echo(str(len(files)))
+        return
+    if quiet:
+        for f in files[:limit]:
+            click.echo(f.name)
         return
     items: list[dict[str, str]] = []
     for f in files[:limit]:
