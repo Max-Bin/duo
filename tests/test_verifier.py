@@ -221,6 +221,44 @@ class TestMatchWritable:
         assert _match_writable("docs/readme.md", "src/*") is False
 
 
+class TestMatchWritableParametrized:
+    """Comprehensive parametrized tests for _match_writable edge cases."""
+
+    @pytest.mark.parametrize(
+        ("path", "pattern", "expected"),
+        [
+            # Extension matching
+            ("src/app.py", "*.py", True),
+            ("src/sub/deep.py", "*.py", True),
+            ("readme.md", "*.py", False),
+            ("src/app.pyx", "*.py", False),
+            # Directory-specific patterns
+            ("tests/test_one.py", "tests/*", True),
+            ("tests/sub/test_two.py", "tests/*", True),
+            ("src/tests/fake.py", "tests/*", False),
+            # Double extension
+            ("data/archive.tar.gz", "*.gz", True),
+            ("data/archive.tar.gz", "*.tar.gz", True),
+            # Root-level files
+            ("Makefile", "Makefile", True),
+            ("pyproject.toml", "*.toml", True),
+            ("README.md", "*.md", True),
+            # Dotfiles
+            (".gitignore", ".*", True),
+            (".github/workflows/ci.yml", ".github/*", True),
+            # Catch-all
+            ("anything/at/all.txt", "*", True),
+            # Empty pattern (should not match)
+            ("src/app.py", "", False),
+        ],
+        ids=lambda x: str(x)[:40],
+    )
+    def test_match_writable_cases(
+        self, path: str, pattern: str, expected: bool
+    ) -> None:
+        assert _match_writable(path, pattern) is expected
+
+
 # ---------------------------------------------------------------------------
 # _check_security_scope
 # ---------------------------------------------------------------------------
