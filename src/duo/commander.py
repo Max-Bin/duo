@@ -774,6 +774,177 @@ def normalize_for_restart(task: Task) -> bool:
     return True
 
 
+def _prepare_pane(task: Task, reuse_pane: str) -> tuple[str, bool] | None:
+    """Create or reuse a tmux pane for the session.
+
+    Returns ``(pane_id, created)`` on success, or ``None`` on failure
+    (task is transitioned to FAILED).  *created* is True when a new pane
+    was split — callers must ``kill_pane`` on error only when created.
+    """
+    if reuse_pane:
+        try:
+            name_pane(reuse_pane, task.pane_label)
+        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+            transition(task, TaskStatus.FAILED)
+            append_event(
+                task,
+                "session_start_failed",
+                {"error": f"reuse_pane name: {exc}"},
+            )
+            return None
+        return reuse_pane, False
+
+    session_target = get_tmux_session_target()
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "split-window",
+                "-h",
+                "-P",
+                "-F",
+                "#{pane_id}",
+                "-t",
+                session_target,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        transition(task, TaskStatus.FAILED)
+        append_event(
+            task, "session_start_failed", {"error": "tmux split-window timeout"}
+        )
+        return None
+    if result.returncode != 0:
+        transition(task, TaskStatus.FAILED)
+        append_event(task, "session_start_failed", {"error": result.stderr})
+        return None
+
+    pane_id = result.stdout.strip()
+
+    try:
+        name_pane(pane_id, task.pane_label)
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        kill_pane(pane_id)
+        transition(task, TaskStatus.FAILED)
+        append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
+        return None
+
+    try:
+        _layout = subprocess.run(
+            ["tmux", "select-layout", "-t", pane_id, "tiled"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if _layout.returncode != 0:
+            logger.warning("select-layout failed: %s", _layout.stderr.strip())
+    except subprocess.TimeoutExpired:
+        logger.warning("select-layout timed out for %s", task.id)
+
+    return pane_id, True
+
+
+def _start_and_prime_copilot(task: Task, pane_id: str, *, defer: bool) -> None:
+    """Start Copilot in the pane, wait for idle, and optionally bootstrap.
+
+    Raises on transport errors (caller handles cleanup).
+    Returns without raising on startup health failures (task already FAILED).
+    """
+    copilot_cmd = f"copilot --model {shlex.quote(_get_copilot_model())}"
+    if get_config("bypass_permissions"):
+        copilot_cmd += " --yolo"
+
+    send_shell_command(task.pane_label, f"cd {shlex.quote(str(task.worktree))}")
+    time.sleep(_SESSION_CD_WAIT)
+    send_shell_command(task.pane_label, copilot_cmd)
+
+    append_event(
+        task,
+        "session_started",
+        {
+            "incarnation": task.incarnation_id,
+            "pane": task.pane_label,
+            "pane_id": pane_id,
+        },
+    )
+    task.session_started_at = now_iso()
+    save_task(task)
+
+    click.echo("Waiting for Copilot to start...")
+    if not wait_for_idle(
+        task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0
+    ):
+        logger.warning(
+            "Copilot did not stabilize within %ss for %s",
+            _IDLE_TIMEOUT_START,
+            task.id,
+        )
+        append_event(
+            task,
+            "startup_timeout",
+            {"timeout": _IDLE_TIMEOUT_START, "phase": "copilot_start"},
+        )
+        transition(task, TaskStatus.FAILED)
+        return
+
+    pane_content = read_pane(task.pane_label)
+    if not is_at_main_prompt(pane_content):
+        logger.warning(
+            "Copilot pane stabilized but is not at main prompt for %s",
+            task.id,
+        )
+        append_event(
+            task,
+            "startup_failed",
+            {"reason": "not_at_prompt", "phase": "copilot_start"},
+        )
+        transition(task, TaskStatus.FAILED)
+        return
+
+    if get_config("auto_allow_all"):
+        click.echo("Sending /allow-all...")
+        send_shell_command(task.pane_label, "/allow-all")
+        if not wait_for_idle(
+            task.pane_label,
+            timeout=_IDLE_TIMEOUT_ALLOW_ALL,
+            poll_interval=1.0,
+        ):
+            logger.warning(
+                "/allow-all did not stabilize within %ss for %s",
+                _IDLE_TIMEOUT_ALLOW_ALL,
+                task.id,
+            )
+    else:
+        click.echo("Skipping /allow-all (auto_allow_all=false)")
+
+    if defer:
+        click.echo("Session deferred — Copilot idle, awaiting 'duo send'.")
+    else:
+        bootstrap = build_bootstrap_prompt(task)
+        send_bootstrap(task.pane_label, bootstrap)
+        task.last_prompt_sent_at = now_iso()
+        save_task(task)
+        append_event(
+            task,
+            "pr_consumed",
+            {
+                "action": "bootstrap",
+                "step": task.current_step,
+                "attempt": task.current_attempt,
+            },
+        )
+
+        if not transition(task, TaskStatus.PROMPT_SENT):
+            logger.warning(
+                "Prompt sent but transition to PROMPT_SENT failed for %s (status=%s)",
+                task.id,
+                task.status.value,
+            )
+
+
 def start_session(task: Task, *, defer: bool = False, reuse_pane: str = "") -> None:
     """Start a Copilot session in tmux for this task.
 
@@ -795,181 +966,14 @@ def start_session(task: Task, *, defer: bool = False, reuse_pane: str = "") -> N
             )
             return
 
-    if reuse_pane:
-        # Reuse an existing pane (e.g. from duo go standby)
-        pane_id = reuse_pane
-        try:
-            name_pane(pane_id, task.pane_label)
-        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-            transition(task, TaskStatus.FAILED)
-            append_event(
-                task,
-                "session_start_failed",
-                {"error": f"reuse_pane name: {exc}"},
-            )
-            return
-    else:
-        # Target the caller's session to prevent cross-session pollution
-        session_target = get_tmux_session_target()
+    pane_result = _prepare_pane(task, reuse_pane)
+    if pane_result is None:
+        return
+    pane_id, created = pane_result
 
-        # Create tmux pane and start copilot
-        # Note: tmux must already be running (user starts duo inside tmux)
-        try:
-            result = subprocess.run(
-                [
-                    "tmux",
-                    "split-window",
-                    "-h",
-                    "-P",
-                    "-F",
-                    "#{pane_id}",
-                    "-t",
-                    session_target,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        except subprocess.TimeoutExpired:
-            transition(task, TaskStatus.FAILED)
-            append_event(
-                task, "session_start_failed", {"error": "tmux split-window timeout"}
-            )
-            return
-        if result.returncode != 0:
-            transition(task, TaskStatus.FAILED)
-            append_event(task, "session_start_failed", {"error": result.stderr})
-            return
-
-        pane_id = result.stdout.strip()
-
-        # Label and tile the pane.  If either fails, kill the orphaned pane
-        # to avoid leaks.
-        try:
-            name_pane(pane_id, task.pane_label)
-        except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-            kill_pane(pane_id)
-            transition(task, TaskStatus.FAILED)
-            append_event(task, "session_start_failed", {"error": f"name_pane: {exc}"})
-            return
-
-        # Tile layout — target the new pane to resolve correct window
-        try:
-            _layout = subprocess.run(
-                ["tmux", "select-layout", "-t", pane_id, "tiled"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if _layout.returncode != 0:
-                logger.warning("select-layout failed: %s", _layout.stderr.strip())
-        except subprocess.TimeoutExpired:
-            logger.warning("select-layout timed out for %s", task.id)
-
-    # cd to worktree, start copilot, wait for readiness, and send bootstrap.
-    # All post-pane-creation steps share a single try/except so any failure
-    # (including subprocess.TimeoutExpired from tmux send-keys) cleans up
-    # the orphaned pane and transitions the task to FAILED.
     time.sleep(_SESSION_SPLIT_WAIT)
-    copilot_cmd = f"copilot --model {shlex.quote(_get_copilot_model())}"
-    if get_config("bypass_permissions"):
-        copilot_cmd += " --yolo"
     try:
-        send_shell_command(task.pane_label, f"cd {shlex.quote(str(task.worktree))}")
-        time.sleep(_SESSION_CD_WAIT)
-        send_shell_command(task.pane_label, copilot_cmd)
-
-        append_event(
-            task,
-            "session_started",
-            {
-                "incarnation": task.incarnation_id,
-                "pane": task.pane_label,
-                "pane_id": pane_id,
-            },
-        )
-
-        # Record when the session actually started
-        task.session_started_at = now_iso()
-        save_task(task)
-
-        # Wait for copilot to start (adaptive instead of hardcoded sleep)
-        click.echo("Waiting for Copilot to start...")
-        if not wait_for_idle(
-            task.pane_label, timeout=_IDLE_TIMEOUT_START, poll_interval=2.0
-        ):
-            logger.warning(
-                "Copilot did not stabilize within %ss for %s",
-                _IDLE_TIMEOUT_START,
-                task.id,
-            )
-            append_event(
-                task,
-                "startup_timeout",
-                {"timeout": _IDLE_TIMEOUT_START, "phase": "copilot_start"},
-            )
-            # Do NOT continue to /allow-all or bootstrap — Copilot may not
-            # be ready and we could be typing into a raw shell.
-            transition(task, TaskStatus.FAILED)
-            return
-
-        # Safety check: verify Copilot is actually at its main prompt,
-        # not a crash screen or raw shell that happened to stabilize.
-        pane_content = read_pane(task.pane_label)
-        if not is_at_main_prompt(pane_content):
-            logger.warning(
-                "Copilot pane stabilized but is not at main prompt for %s",
-                task.id,
-            )
-            append_event(
-                task,
-                "startup_failed",
-                {"reason": "not_at_prompt", "phase": "copilot_start"},
-            )
-            transition(task, TaskStatus.FAILED)
-            return
-
-        # Auto-approve all operations to avoid interactive prompts (configurable)
-        if get_config("auto_allow_all"):
-            click.echo("Sending /allow-all...")
-            send_shell_command(task.pane_label, "/allow-all")
-            if not wait_for_idle(
-                task.pane_label,
-                timeout=_IDLE_TIMEOUT_ALLOW_ALL,
-                poll_interval=1.0,
-            ):
-                logger.warning(
-                    "/allow-all did not stabilize within %ss for %s",
-                    _IDLE_TIMEOUT_ALLOW_ALL,
-                    task.id,
-                )
-        else:
-            click.echo("Skipping /allow-all (auto_allow_all=false)")
-
-        # Send bootstrap prompt (this is the first and only ❯ prompt message)
-        if defer:
-            click.echo("Session deferred — Copilot idle, awaiting 'duo send'.")
-        else:
-            bootstrap = build_bootstrap_prompt(task)
-            send_bootstrap(task.pane_label, bootstrap)
-            task.last_prompt_sent_at = now_iso()
-            save_task(task)
-            append_event(
-                task,
-                "pr_consumed",
-                {
-                    "action": "bootstrap",
-                    "step": task.current_step,
-                    "attempt": task.current_attempt,
-                },
-            )
-
-            if not transition(task, TaskStatus.PROMPT_SENT):
-                logger.warning(
-                    "Prompt sent but transition to PROMPT_SENT failed for %s (status=%s)",
-                    task.id,
-                    task.status.value,
-                )
+        _start_and_prime_copilot(task, pane_id, defer=defer)
     except (
         RuntimeError,
         subprocess.CalledProcessError,
