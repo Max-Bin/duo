@@ -5425,6 +5425,9 @@ def _parse_age(age_str: str) -> int:
     help="Clean all finished tasks (completed + failed)",
 )
 @click.option("--force", is_flag=True, help="Skip confirmation")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be cleaned without doing it"
+)
 @click.option("--keep-journal", is_flag=True, help="Keep journal files")
 @click.option(
     "--age",
@@ -5439,6 +5442,7 @@ def _parse_age(age_str: str) -> int:
 def cleanup(
     clean_all: bool,
     force: bool,
+    dry_run: bool,
     keep_journal: bool,
     age: str | None,
     corrupted: bool,
@@ -5503,9 +5507,26 @@ def cleanup(
 
     if not targets:
         if as_json:
-            click.echo(json.dumps({"cleaned": 0, "tasks": []}))
+            click.echo(json.dumps({"cleaned": 0, "tasks": [], "dry_run": dry_run}))
         else:
             click.echo("No tasks to clean up.")
+        return
+
+    if dry_run:
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "cleaned": len(targets),
+                        "tasks": [t.id for t in targets],
+                        "dry_run": True,
+                    }
+                )
+            )
+        else:
+            click.echo(f"Would clean up {len(targets)} task(s):")
+            for t in targets:
+                click.echo(f"  {t.id} ({t.status.value})")
         return
 
     if not as_json:

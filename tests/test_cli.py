@@ -1710,6 +1710,42 @@ class TestCleanupEdgeCases:
         result = runner.invoke(main, ["cleanup", "--force"])
         assert "No tasks to clean up" in result.output
 
+    def test_cleanup_dry_run(self, runner: CliRunner, make_task, monkeypatch):
+        """cleanup --dry-run shows what would be cleaned without acting."""
+        task = make_task("done-dry")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="", stderr=""),
+        )
+        result = runner.invoke(main, ["cleanup", "--dry-run"])
+        assert result.exit_code == 0
+        assert "Would clean up" in result.output
+        assert "done-dry" in result.output
+        assert load_task("done-dry") is not None
+
+    def test_cleanup_dry_run_json(self, runner: CliRunner, make_task, monkeypatch):
+        """cleanup --dry-run --json-output returns JSON with dry_run flag."""
+        task = make_task("done-dry-json")
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        monkeypatch.setattr(
+            "duo.cli.subprocess.run",
+            lambda *a, **kw: MagicMock(returncode=0, stdout="", stderr=""),
+        )
+        result = runner.invoke(main, ["cleanup", "--dry-run", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["dry_run"] is True
+        assert "done-dry-json" in data["tasks"]
+
+    def test_cleanup_dry_run_empty(self, runner: CliRunner):
+        """cleanup --dry-run with no matching tasks."""
+        result = runner.invoke(main, ["cleanup", "--dry-run"])
+        assert result.exit_code == 0
+        assert "No tasks to clean up" in result.output
+
 
 # ---------------------------------------------------------------------------
 # config list edge cases
