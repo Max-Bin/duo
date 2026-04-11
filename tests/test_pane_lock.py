@@ -50,6 +50,16 @@ class TestGetThreadLock:
         b = _get_thread_lock("pane-b")
         assert a is not b
 
+    @pytest.mark.parametrize(
+        "label",
+        ["pane-1", "my.pane", "pane_test", "a", "long-label-name-here"],
+        ids=["dash", "dot", "underscore", "single-char", "long"],
+    )
+    def test_various_labels_work(self, label: str):
+        lock = _get_thread_lock(label)
+        assert lock is not None
+        assert _get_thread_lock(label) is lock
+
 
 class TestPaneLock:
     """Tests for pane_lock context manager."""
