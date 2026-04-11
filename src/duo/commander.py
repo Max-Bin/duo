@@ -377,6 +377,23 @@ Use for: architectural decisions, security code, multi-file changes.
 3. **No parallel same-file edits** — don't let sub-agents edit one file concurrently
 4. **One task at a time** recommended for best results
 
+## Iron Rules
+
+### CI Prohibition
+**NEVER** create `.github/workflows/` directory or any CI/CD workflow files. CI is permanently disabled. Past CI creation flooded the user with thousands of failure emails.
+
+### Value Self-Assessment
+Every progress report **must** include:
+```
+VALUE: HIGH / MEDIUM / LOW
+REASON: one sentence
+```
+- **HIGH**: Fixed a real bug, added user-requested feature, prevented security risk
+- **MEDIUM**: Improved code quality/docs/error messages
+- **LOW**: Added tests without finding bugs, badge updates, duplicated linter checks
+
+If 3 consecutive rounds produce only LOW value, proactively suggest pausing.
+
 {marker_end}
 """
 

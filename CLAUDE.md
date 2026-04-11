@@ -127,3 +127,20 @@ All defined in `protocol.py` as dataclasses:
     ├── ack-attempt-{AA}.json
     └── result-attempt-{AA}.json
 ```
+
+## Iron Rules
+
+### CI Prohibition
+**NEVER** create `.github/workflows/` directory or any CI/CD workflow files. CI is permanently disabled (`.github/workflows.disabled/`). Past CI creation flooded the user with thousands of failure notification emails. Violating this rule is a catastrophic incident.
+
+### Value Self-Assessment
+Every `ask_user` progress report **must** include:
+```
+VALUE: HIGH / MEDIUM / LOW
+REASON: one sentence
+```
+- **HIGH**: Fixed a real bug, added user-requested feature, prevented security risk
+- **MEDIUM**: Improved code quality/docs/error messages
+- **LOW**: Added tests without finding bugs, badge updates, duplicated linter checks
+
+If 3 consecutive rounds produce only LOW value, proactively suggest pausing.
