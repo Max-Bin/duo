@@ -320,47 +320,61 @@ class TestTaskStatusTransitions:
         transition(task, dst)
         assert task.status == dst, f"{src} → {dst} should be valid"
 
-    def test_every_non_terminal_state_can_reach_failed(self):
-        """All non-terminal states must have a path to FAILED."""
-        terminal = {TaskStatus.COMPLETED}
-        for state in TaskStatus:
-            if state in terminal:
+    @pytest.mark.parametrize(
+        "state",
+        [s.value for s in TaskStatus if s != TaskStatus.COMPLETED],
+        ids=[
+            f"{s.value}-reaches-failed" for s in TaskStatus if s != TaskStatus.COMPLETED
+        ],
+    )
+    def test_non_terminal_state_reaches_failed(self, state: str):
+        """Each non-terminal state must have a path to FAILED via BFS."""
+        start = TaskStatus(state)
+        visited: set[TaskStatus] = set()
+        queue = [start]
+        found = False
+        while queue:
+            current = queue.pop(0)
+            if current == TaskStatus.FAILED:
+                found = True
+                break
+            if current in visited:
                 continue
-            # BFS to find FAILED from this state
-            visited: set[TaskStatus] = set()
-            queue = [state]
-            found = False
-            while queue:
-                current = queue.pop(0)
-                if current == TaskStatus.FAILED:
-                    found = True
-                    break
-                if current in visited:
-                    continue
-                visited.add(current)
-                queue.extend(TRANSITIONS.get(current, frozenset()))
-            assert found, f"{state.value} cannot reach FAILED"
+            visited.add(current)
+            queue.extend(TRANSITIONS.get(current, frozenset()))
+        assert found, f"{state} cannot reach FAILED"
 
-    def test_every_non_terminal_state_can_reach_blocked(self):
-        """All active (non-terminal, non-recovery) states allow → BLOCKED."""
-        # COMPLETED is terminal, FAILED is a recovery state (only → SESSION_STARTING),
-        # BLOCKED is already the target state.
-        skip = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.BLOCKED}
-        for state in TaskStatus:
-            if state in skip:
-                continue
-            assert TaskStatus.BLOCKED in TRANSITIONS[state], (
-                f"{state.value} should allow → BLOCKED"
-            )
+    @pytest.mark.parametrize(
+        "state",
+        [
+            s.value
+            for s in TaskStatus
+            if s not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.BLOCKED}
+        ],
+        ids=[
+            f"{s.value}-allows-blocked"
+            for s in TaskStatus
+            if s not in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.BLOCKED}
+        ],
+    )
+    def test_state_allows_blocked(self, state: str):
+        """Active states allow → BLOCKED transition."""
+        assert TaskStatus.BLOCKED in TRANSITIONS[TaskStatus(state)], (
+            f"{state} should allow → BLOCKED"
+        )
 
     def test_completed_has_no_outgoing_transitions(self):
         """COMPLETED is truly terminal — no outgoing edges."""
         assert len(TRANSITIONS[TaskStatus.COMPLETED]) == 0
 
-    def test_every_state_is_in_transitions_dict(self):
+    @pytest.mark.parametrize(
+        "state",
+        [s.value for s in TaskStatus],
+        ids=[f"{s.value}-in-transitions" for s in TaskStatus],
+    )
+    def test_state_in_transitions_dict(self, state: str):
         """Every TaskStatus value has an entry in TRANSITIONS."""
-        for state in TaskStatus:
-            assert state in TRANSITIONS, f"{state.value} missing from TRANSITIONS"
+        assert TaskStatus(state) in TRANSITIONS, f"{state} missing from TRANSITIONS"
 
 
 # ---------------------------------------------------------------------------
