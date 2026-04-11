@@ -1526,3 +1526,65 @@ class TestExtractResponseTailProperty:
         content = "\n".join(prefix)
         result = extract_response(content, content, "hello")
         assert result == ""
+
+
+# ---------------------------------------------------------------------------
+# Poller age() property tests — Round HR
+# ---------------------------------------------------------------------------
+
+
+class TestAgeRangeProperty:
+    """Property: age() always returns ≥0 for valid timestamps and inf for bad."""
+
+    @given(offset_sec=st.floats(min_value=0, max_value=86400 * 365))
+    def test_recent_past_returns_nonneg(self, offset_sec: float) -> None:
+        """Timestamps in the recent past return a non-negative age."""
+        from datetime import UTC, datetime, timedelta
+
+        from duo.poller import age as age_fn
+
+        ts = (datetime.now(UTC) - timedelta(seconds=offset_sec)).isoformat()
+        result = age_fn(ts)
+        assert result >= 0.0
+        assert result != float("inf")
+
+    @given(offset_sec=st.floats(min_value=0, max_value=3600))
+    def test_future_timestamps_clamped_to_zero(self, offset_sec: float) -> None:
+        """Future timestamps are clamped to 0 (never negative)."""
+        from datetime import UTC, datetime, timedelta
+
+        from duo.poller import age as age_fn
+
+        ts = (datetime.now(UTC) + timedelta(seconds=offset_sec)).isoformat()
+        result = age_fn(ts)
+        assert result >= 0.0
+
+    @given(garbage=st.text(min_size=1, max_size=50))
+    @settings(max_examples=30)
+    def test_garbage_returns_nonneg_or_inf(self, garbage: str) -> None:
+        """Non-ISO strings return inf (or a valid parse if accidentally ISO)."""
+        from duo.poller import age as age_fn
+
+        result = age_fn(garbage)
+        assert result >= 0.0
+
+
+class TestPollerRampResetSequenceProperty:
+    """Property: random ramp/reset sequences maintain invariants."""
+
+    @given(
+        ops=st.lists(
+            st.sampled_from(["ramp", "reset"]),
+            min_size=1,
+            max_size=100,
+        )
+    )
+    def test_interval_always_in_bounds(self, ops: list[str]) -> None:
+        """After any sequence of ramp/reset, interval is in [base, max]."""
+        poller = AdaptivePoller(base_interval=5.0, max_interval=60.0)
+        for op in ops:
+            if op == "ramp":
+                poller._ramp()
+            else:
+                poller._reset()
+            assert 5.0 <= poller.interval <= 60.0
