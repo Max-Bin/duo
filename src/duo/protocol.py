@@ -342,10 +342,22 @@ def prompt_hash(prompt: str) -> str:
 
 
 def read_json(path: Path) -> dict[str, Any] | None:
-    """Read a JSON file, return None if missing or invalid."""
+    """Read a JSON file, return None if missing or invalid.
+
+    Missing files return None silently. Parse/encoding errors are logged
+    so corrupt protocol files don't look identical to "not yet written".
+    """
     try:
-        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError):
+        logger.warning("Cannot read %s: file error", path)
+        return None
+    try:
+        data: dict[str, Any] = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("Corrupt JSON in %s — treating as missing", path)
         return None
     else:
         return data

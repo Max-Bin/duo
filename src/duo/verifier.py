@@ -36,10 +36,9 @@ _TEST_SUITE_TIMEOUT = 300  # seconds for acceptance test commands
 def _match_writable(rel_path: str, pattern: str) -> bool:
     """Root-anchored path matching for writable_paths patterns.
 
-    Unlike PurePosixPath.match(), this anchors patterns to the repo root
-    so ``src/*`` only matches files directly under ``src/``, not under
-    ``other/src/``.  Both the path and pattern are NFC-normalized for
-    consistent matching on macOS/Linux.
+    Uses fnmatch where ``*`` matches any character including ``/``,
+    so ``src/*`` matches all files in the ``src/`` tree (including
+    nested subdirectories).  Both path and pattern are NFC-normalized.
     """
     norm_path = unicodedata.normalize("NFC", rel_path)
     norm_pat = unicodedata.normalize("NFC", pattern)
