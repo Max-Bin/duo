@@ -1463,3 +1463,66 @@ class TestReadJsonlTailProperty:
         expected = list(range(expected_start, n_events))
         actual = [r["i"] for r in result]
         assert actual == expected
+
+
+class TestExtractResponseTailProperty:
+    """Property tests for extract_response preserving tail lines."""
+
+    # Python's str.splitlines() splits on many Unicode line separators.
+    # Restrict alphabet to printable ASCII + space to keep lines intact.
+    _safe_chars = st.sampled_from(
+        list(string.ascii_letters + string.digits + string.punctuation + " ")
+    )
+    _line_text = st.text(
+        alphabet=_safe_chars,
+        min_size=1,
+        max_size=80,
+    ).filter(
+        lambda t: (
+            t.strip() not in ("", ">", "\u276f")
+            and not t.strip().startswith(
+                ("\u25cf Edit", "\u25cf Read", "\u25cf Bash", "\u25cf Grep")
+            )
+        )
+    )
+
+    @given(
+        prefix=st.lists(
+            st.text(alphabet=_safe_chars, min_size=0, max_size=50),
+            min_size=0,
+            max_size=10,
+        ),
+        response_lines=st.lists(_line_text, min_size=1, max_size=10),
+    )
+    @settings(max_examples=50)
+    def test_response_lines_preserved(
+        self, prefix: list[str], response_lines: list[str]
+    ) -> None:
+        """Non-noise response lines should appear in extracted output."""
+        from duo.thinking import extract_response
+
+        before = "\n".join(prefix)
+        user_msg = "What do you think?"
+        after = "\n".join(prefix + response_lines)
+        result = extract_response(before, after, user_msg)
+        for line in response_lines:
+            stripped = line.strip()
+            if stripped == user_msg.strip():
+                continue
+            assert stripped in result
+
+    @given(
+        prefix=st.lists(
+            st.text(alphabet=_safe_chars, min_size=1, max_size=30),
+            min_size=1,
+            max_size=5,
+        ),
+    )
+    @settings(max_examples=50)
+    def test_identical_before_after_returns_empty(self, prefix: list[str]) -> None:
+        """When before == after, extract_response returns empty."""
+        from duo.thinking import extract_response
+
+        content = "\n".join(prefix)
+        result = extract_response(content, content, "hello")
+        assert result == ""
