@@ -198,6 +198,28 @@ def _complete_task_names(
     ]
 
 
+def _complete_thinking_names(
+    _ctx: click.Context,
+    _param: click.Parameter,
+    incomplete: str,
+) -> list[click.shell_completion.CompletionItem]:
+    """Tab-complete thinking session names."""
+    try:
+        from click.shell_completion import CompletionItem
+
+        from duo.thinking import THINKING_DIR
+
+        if not THINKING_DIR.exists():
+            return []
+        return [
+            CompletionItem(d.name)
+            for d in sorted(THINKING_DIR.iterdir())
+            if d.is_dir() and d.name.startswith(incomplete)
+        ]
+    except Exception:
+        return []
+
+
 def _safe_join(base: str, name: str) -> str:
     """Join base directory and name, rejecting path traversal."""
     base_path = Path(base).resolve()
@@ -5584,7 +5606,7 @@ def cleanup(
 
 
 @main.command("diff")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option("--stat", "show_stat", is_flag=True, help="Show diffstat summary only")
 @click.option(
     "--name-only", "name_only", is_flag=True, help="List changed file names only"
@@ -5642,7 +5664,7 @@ def diff_cmd(
 
 
 @main.command("think")
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_thinking_names)
 @click.option(
     "--ask", "ask_text", default=None, help="One-shot question (CEO primary path)"
 )

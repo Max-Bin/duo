@@ -1866,6 +1866,55 @@ class TestTaskNameCompletion:
         assert items == []
 
 
+class TestThinkingNameCompletion:
+    def test_thinking_name_completion(self, tmp_path: Path, monkeypatch):
+        """_complete_thinking_names returns matching session names."""
+        from duo.cli import _complete_thinking_names
+
+        tdir = tmp_path / "thinking"
+        tdir.mkdir()
+        (tdir / "alpha-session").mkdir()
+        (tdir / "beta-session").mkdir()
+        monkeypatch.setattr("duo.thinking.THINKING_DIR", tdir)
+        items = _complete_thinking_names(None, None, "alpha")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "alpha-session" in names
+        assert "beta-session" not in names
+
+    def test_thinking_name_completion_empty_prefix(self, tmp_path: Path, monkeypatch):
+        """Empty prefix returns all session names."""
+        from duo.cli import _complete_thinking_names
+
+        tdir = tmp_path / "thinking"
+        tdir.mkdir()
+        (tdir / "first").mkdir()
+        (tdir / "second").mkdir()
+        monkeypatch.setattr("duo.thinking.THINKING_DIR", tdir)
+        items = _complete_thinking_names(None, None, "")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "first" in names
+        assert "second" in names
+
+    def test_thinking_name_completion_no_dir(self, tmp_path: Path, monkeypatch):
+        """Returns empty list when thinking dir doesn't exist."""
+        from duo.cli import _complete_thinking_names
+
+        monkeypatch.setattr("duo.thinking.THINKING_DIR", tmp_path / "nonexistent")
+        items = _complete_thinking_names(None, None, "")  # type: ignore[arg-type]
+        assert items == []
+
+    def test_thinking_name_completion_error(self, monkeypatch: pytest.MonkeyPatch):
+        """Returns empty list on error."""
+        from duo.cli import _complete_thinking_names
+
+        monkeypatch.setattr(
+            "duo.thinking.THINKING_DIR",
+            property(lambda self: (_ for _ in ()).throw(OSError("fail"))),
+        )
+        items = _complete_thinking_names(None, None, "")  # type: ignore[arg-type]
+        assert items == []
+
+
 # ---------------------------------------------------------------------------
 # _safe_join
 # ---------------------------------------------------------------------------
