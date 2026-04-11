@@ -3985,9 +3985,13 @@ def events_tail(limit: int) -> None:
 @events.command("clear")
 @click.option("--force", is_flag=True, help="Skip confirmation")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def events_clear(force: bool, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the cleared count")
+def events_clear(force: bool, *, as_json: bool = False, quiet: bool = False) -> None:
     """Delete all watch-event signal files."""
     if not _WATCH_EVENTS_DIR.exists():
+        if quiet:
+            click.echo("0")
+            return
         if as_json:
             click.echo(json.dumps({"cleared": 0}))
         else:
@@ -3995,15 +3999,21 @@ def events_clear(force: bool, *, as_json: bool = False) -> None:
         return
     files = list(_WATCH_EVENTS_DIR.glob("*.json"))
     if not files:
+        if quiet:
+            click.echo("0")
+            return
         if as_json:
             click.echo(json.dumps({"cleared": 0}))
         else:
             click.echo("No events to clear.")
         return
-    if not force and not as_json:
+    if not force and not as_json and not quiet:
         click.confirm(f"Delete {len(files)} event(s)?", abort=True)
     for f in files:
         f.unlink(missing_ok=True)
+    if quiet:
+        click.echo(str(len(files)))
+        return
     if as_json:
         click.echo(json.dumps({"cleared": len(files)}))
     else:

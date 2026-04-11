@@ -10013,6 +10013,39 @@ class TestEventsCommand:
         data = json.loads(result.output)
         assert data["cleared"] == 0
 
+    def test_events_clear_quiet_no_dir(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        result = runner.invoke(main, ["events", "clear", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_events_clear_quiet_empty_dir(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        result = runner.invoke(main, ["events", "clear", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_events_clear_quiet_with_files(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        edir = tmp_path / "watch-events"
+        edir.mkdir()
+        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        from duo.protocol import write_json
+
+        write_json(edir / "ev1.json", {"task_id": "t1"})
+        write_json(edir / "ev2.json", {"task_id": "t2"})
+        result = runner.invoke(main, ["events", "clear", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+        assert not list(edir.glob("*.json"))
+
 
 # ---------------------------------------------------------------------------
 # CEO Workflow command tests
