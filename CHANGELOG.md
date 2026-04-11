@@ -6,6 +6,21 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- AGE column in `duo list` output showing elapsed time since task creation
+- `--sort` flag for `duo list` (sort by name, status, or age)
+- `--reverse` flag for `duo list` to reverse sort order
+- Shell completion for `config get/set/reset` KEY argument
+- `CONFIG_DESCRIPTIONS` dict with descriptions for all 12 config keys
+- `config list` shows inline descriptions in text and rich JSON objects
+- `version --json-output` includes Python version and platform info
+- All 63 `DuoUserError` instances now have actionable `fix=` suggestions
+- Enriched JSON output for `list` and `status` commands (age, total_steps, incarnation_id)
+
+### Changed
+- Standardized `--json-output` parameter naming to `as_json` across all 36 commands
+- Standardized help text to "Output as JSON" (no trailing period) everywhere
+- Fixed doctor output column width (`:<16` → `:<18`) for proper spacing
+
 - GitHub Actions CI workflow with 3-job pipeline: lint+typecheck+coverage, Python 3.12/3.13 compat matrix, CLI smoke tests
 - GitHub Actions release workflow for automated PyPI publishing + GitHub Releases on tag push
 - Dependabot for automated dependency updates (GitHub Actions + pip)
