@@ -41,6 +41,10 @@ from duo.protocol import (
 
 BENCH_DIR = DUO_DIR / "bench-results"
 
+_TERMINAL_STATES = frozenset(
+    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+)
+
 __all__ = ["main"]
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
@@ -685,8 +689,7 @@ def send(
     task = _load_task_or_fail(name)
 
     # Reject sends to terminal/dead states — give clear guidance
-    _TERMINAL = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
-    if task.status in _TERMINAL:
+    if task.status in _TERMINAL_STATES:
         raise DuoUserError(
             f"task '{name}' is in terminal state '{task.status.value}'",
             fix=f"Use 'duo retry {name}' to retry, or create a new task.",
@@ -3077,13 +3080,12 @@ def _doctor_check_copilot_health() -> list[CheckResult]:
     """
     from duo.transport import get_pane_pid
 
-    terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     try:
         tasks = list_tasks()
     except (FileNotFoundError, OSError, ValueError):
         return []
 
-    active = [t for t in tasks if t.status not in terminal and t.pane_label]
+    active = [t for t in tasks if t.status not in _TERMINAL_STATES and t.pane_label]
     if not active:
         return []
 
@@ -3144,13 +3146,12 @@ def _doctor_check_capi_error() -> list[CheckResult]:
     """
     from duo.protocol import read_jsonl
 
-    terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     try:
         tasks = list_tasks()
     except (FileNotFoundError, OSError, ValueError):
         return []
 
-    active = [t for t in tasks if t.status not in terminal]
+    active = [t for t in tasks if t.status not in _TERMINAL_STATES]
     if not active:
         return []
 
@@ -3429,12 +3430,11 @@ def resume(name: str | None, *, as_json: bool = False, quiet: bool = False) -> N
     from duo.commander import normalize_for_restart, restart_session, start_session
     from duo.transport import cleanup_pane_state, is_process_alive, kill_pane
 
-    TERMINAL_STATES = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
     results: list[dict[str, Any]] = []
 
     if name is not None:
         task = _load_task_or_fail(name)
-        if task.status in TERMINAL_STATES:
+        if task.status in _TERMINAL_STATES:
             if quiet:
                 click.echo("0")
                 return
@@ -3446,8 +3446,8 @@ def resume(name: str | None, *, as_json: bool = False, quiet: bool = False) -> N
         targets = [task]
     else:
         all_tasks = list_tasks()
-        SKIP_STATES = TERMINAL_STATES | {TaskStatus.QUEUED}
-        targets = [t for t in all_tasks if t.status not in SKIP_STATES]
+        _SKIP_STATES = _TERMINAL_STATES | {TaskStatus.QUEUED}
+        targets = [t for t in all_tasks if t.status not in _SKIP_STATES]
         if not targets:
             if quiet:
                 click.echo("0")
