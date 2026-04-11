@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2419%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2424%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -130,6 +130,9 @@ duo recover -q                        # print recovered count only
 duo cleanup --force -q                # print cleaned count only
 duo diff my-task -q                   # print changed file count only
 duo retry my-task -q                  # print new status value only
+duo stop my-task -q                   # print 'stopped' or current status
+duo merge my-task -q                  # print merged branch name only
+duo merge my-task --dry-run -q        # print changed file count only
 duo queue -q                          # print queue length only
 duo config get copilot_model -q       # print raw value (for shell vars)
 duo export my-task -q                 # print event count only

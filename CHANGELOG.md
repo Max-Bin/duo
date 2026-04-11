@@ -44,6 +44,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `export -q/--quiet` — print only the journal event count
 - `list --finished` — show only completed/failed/escalated tasks
 - `status --wait STATUS` — block until task reaches target status (with `--timeout N`)
+- `stop -q/--quiet` — print only 'stopped' or current status for scripting
+- `merge -q/--quiet` — print only branch name (or file count with --dry-run)
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
