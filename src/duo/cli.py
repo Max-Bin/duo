@@ -317,6 +317,30 @@ def _run_git(
     return result
 
 
+def _remove_worktree_and_branch(
+    task: Task, *, cwd: str = ".", warn: bool = True
+) -> tuple[bool, bool]:
+    """Remove a task's git worktree and branch.
+
+    Returns (worktree_removed, branch_deleted).
+    """
+    wt_removed = False
+    if os.path.exists(task.worktree):
+        r = _run_git(
+            ["worktree", "remove", "--force", task.worktree], cwd=cwd, check=False
+        )
+        wt_removed = r.returncode == 0
+        if not wt_removed and warn:
+            click.echo(
+                f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
+            )
+    r = _run_git(["branch", "-D", task.branch], cwd=cwd, check=False)
+    branch_deleted = r.returncode == 0
+    if not branch_deleted and warn:
+        click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
+    return wt_removed, branch_deleted
+
+
 @click.group(cls=_OrderedGroup)
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.version_option(package_name="duo", prog_name="duo")
@@ -1469,16 +1493,7 @@ def _kill_all_tasks(as_json: bool) -> None:
     for task in tasks:
         kill_pane(task.pane_label)
         cleanup_pane_state(task.pane_label)
-        # Remove worktree
-        wt_removed = False
-        if os.path.exists(task.worktree):
-            r = _run_git(
-                ["worktree", "remove", "--force", task.worktree], cwd=".", check=False
-            )
-            wt_removed = r.returncode == 0
-        # Remove branch
-        r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
-        branch_deleted = r.returncode == 0
+        wt_removed, branch_deleted = _remove_worktree_and_branch(task, warn=False)
         append_event(task, "task_killed", {})
         if not transition(task, TaskStatus.FAILED):
             task.status = TaskStatus.FAILED
@@ -1551,23 +1566,10 @@ def kill(
             break
     repo_cwd = main_worktree or "."
 
-    # Remove worktree
-    wt_removed = False
-    if os.path.exists(task.worktree):
-        r = _run_git(
-            ["worktree", "remove", "--force", task.worktree], cwd=repo_cwd, check=False
-        )
-        wt_removed = r.returncode == 0
-        if not wt_removed and not as_json and not quiet:
-            click.echo(
-                f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
-            )
-
-    # Remove branch
-    r = _run_git(["branch", "-D", task.branch], cwd=repo_cwd, check=False)
-    branch_deleted = r.returncode == 0
-    if not branch_deleted and not as_json and not quiet:
-        click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
+    warn = not as_json and not quiet
+    wt_removed, branch_deleted = _remove_worktree_and_branch(
+        task, cwd=repo_cwd, warn=warn
+    )
 
     from duo.protocol import append_event, save_task, transition
 
@@ -6145,21 +6147,9 @@ def cleanup(
 
     cleaned = 0
     cleaned_ids: list[str] = []
+    warn = not as_json and not quiet
     for task in targets:
-        if os.path.exists(task.worktree):
-            r = _run_git(
-                ["worktree", "remove", "--force", task.worktree], cwd=".", check=False
-            )
-            if r.returncode != 0 and not as_json and not quiet:
-                click.echo(
-                    f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
-                )
-
-        r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
-        if r.returncode != 0 and not as_json and not quiet:
-            click.echo(
-                f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True
-            )
+        _remove_worktree_and_branch(task, warn=warn)
 
         if keep_journal:
             for item in task.dir.iterdir():
