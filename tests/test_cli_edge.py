@@ -1028,3 +1028,21 @@ class TestReadmeCommandsGuard:
         assert missing == set(), (
             f"README references non-existent commands: {sorted(missing)}"
         )
+
+
+class TestMakefileTargetsGuard:
+    """Guard: all documented Makefile targets must exist."""
+
+    def test_phony_targets_have_recipes(self) -> None:
+        """All .PHONY targets must have a recipe."""
+        import re
+
+        content = Path("Makefile").read_text()
+        phony_line = [l for l in content.splitlines() if l.startswith(".PHONY:")][0]
+        phony_targets = set(phony_line.split(":")[1].split())
+
+        # Find all target definitions (lines like "target: ...")
+        defined = set(re.findall(r"^([a-zA-Z][\w-]*)\s*:", content, re.MULTILINE))
+
+        missing = phony_targets - defined
+        assert missing == set(), f".PHONY targets without recipes: {sorted(missing)}"
