@@ -173,3 +173,31 @@ class TestIllegalTransitionsRejected:
         save_task(task)
         result = transition(task, TaskStatus(dst))
         assert result is False, f"{src} → {dst} should be illegal but was allowed"
+
+
+class TestLegalTransitionsAccepted:
+    """Parametrized test verifying every legal FSM transition succeeds."""
+
+    @staticmethod
+    def _legal_pairs() -> list[tuple[str, str]]:
+        from duo.protocol import TRANSITIONS
+
+        return [
+            (src.value, dst.value) for src, dsts in TRANSITIONS.items() for dst in dsts
+        ]
+
+    @pytest.mark.parametrize(
+        ("src", "dst"),
+        _legal_pairs.__func__(),  # type: ignore[attr-defined]
+        ids=[f"{s}->{d}" for s, d in _legal_pairs.__func__()],  # type: ignore[attr-defined]
+    )
+    def test_legal_transition_succeeds(self, src: str, dst: str) -> None:
+        """transition() must return True for every legal state pair."""
+        from duo.protocol import TaskStatus, save_task, transition
+
+        task = create_task(f"leg-{src}-{dst}", "d", "/w", "b", "c", [_make_subtask()])
+        task.status = TaskStatus(src)
+        save_task(task)
+        result = transition(task, TaskStatus(dst))
+        assert result is True, f"{src} → {dst} should be legal but was rejected"
+        assert task.status == TaskStatus(dst)
