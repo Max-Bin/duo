@@ -398,6 +398,30 @@ class TestList:
         assert result.exit_code == 0
         assert result.output.strip() == "done-task"
 
+    def test_count_mode(self, runner: CliRunner):
+        """list -c prints the number of tasks."""
+        _make_task("count-a")
+        _make_task("count-b")
+        result = runner.invoke(main, ["list", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+
+    def test_count_with_filter(self, runner: CliRunner):
+        """list -c --status filters then counts."""
+        t = _make_task("done-count")
+        t.status = TaskStatus.COMPLETED
+        save_task(t)
+        _make_task("open-count")
+        result = runner.invoke(main, ["list", "-c", "--status", "completed"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
+    def test_count_empty(self, runner: CliRunner):
+        """list -c with no tasks prints 0."""
+        result = runner.invoke(main, ["list", "-c"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
 
 # ---------------------------------------------------------------------------
 # recover command
