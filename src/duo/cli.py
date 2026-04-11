@@ -772,6 +772,7 @@ def _print_task(task: Task) -> None:
 @click.option("--reverse", is_flag=True, help="Reverse sort order")
 @click.option("-q", "--quiet", is_flag=True, help="Only print task IDs (one per line)")
 @click.option("-c", "--count", is_flag=True, help="Only print the number of tasks")
+@click.option("--no-header", is_flag=True, help="Omit table header")
 def list_cmd(
     as_json: bool,
     status_filter: str | None,
@@ -779,6 +780,7 @@ def list_cmd(
     reverse: bool,
     quiet: bool,
     count: bool,
+    no_header: bool,
 ) -> None:
     """List all tasks."""
     tasks = list_tasks()
@@ -834,8 +836,11 @@ def list_cmd(
         click.echo(json.dumps(output, indent=2))
         return
 
-    click.echo(f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'AGE':<10} {'INCARNATION':<12}")
-    click.echo("-" * 70)
+    if not no_header:
+        click.echo(
+            f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'AGE':<10} {'INCARNATION':<12}"
+        )
+        click.echo("-" * 70)
     for t in tasks:
         step_str = f"{t.current_step}/{len(t.subtasks)}"
         age_str = _fmt_age(t.created_at)

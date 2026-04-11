@@ -445,6 +445,15 @@ class TestList:
         assert result.exit_code == 0
         assert result.output.strip() == "0"
 
+    def test_no_header(self, runner: CliRunner):
+        """list --no-header omits the header row."""
+        _make_task("header-task")
+        result = runner.invoke(main, ["list", "--no-header"])
+        assert result.exit_code == 0
+        assert "ID" not in result.output
+        assert "STATUS" not in result.output
+        assert "header-task" in result.output
+
 
 # ---------------------------------------------------------------------------
 # recover command
