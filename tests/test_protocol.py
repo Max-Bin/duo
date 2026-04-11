@@ -258,46 +258,67 @@ class TestTaskStatusTransitions:
         invalid_events = [e for e in events if e["event"] == "invalid_transition"]
         assert len(invalid_events) == 1
 
-    def test_transition_from_every_terminal_state_raises(self):
-        """COMPLETED rejects all transitions; FAILED and ESCALATED reject invalid ones."""
-        # COMPLETED has empty transition set — truly terminal
-        task_c = create_task("term-completed", "d", "/w", "b", "c", [_make_subtask()])
-        task_c.status = TaskStatus.COMPLETED
-        save_task(task_c)
-        for target in TaskStatus:
-            if target == TaskStatus.COMPLETED:
-                continue
-            transition(task_c, target)
-            assert task_c.status == TaskStatus.COMPLETED
+    @pytest.mark.parametrize(
+        "target",
+        [s.value for s in TaskStatus if s != TaskStatus.COMPLETED],
+        ids=[
+            f"completed-rejects-{s.value}"
+            for s in TaskStatus
+            if s != TaskStatus.COMPLETED
+        ],
+    )
+    def test_completed_rejects_all_transitions(self, target: str):
+        """COMPLETED has empty transition set — truly terminal."""
+        task = create_task(f"term-c-{target}", "d", "/w", "b", "c", [_make_subtask()])
+        task.status = TaskStatus.COMPLETED
+        save_task(task)
+        transition(task, TaskStatus(target))
+        assert task.status == TaskStatus.COMPLETED
 
-        # FAILED rejects everything except SESSION_STARTING
-        task_f = create_task("term-failed", "d", "/w", "b", "c", [_make_subtask()])
-        task_f.status = TaskStatus.FAILED
-        save_task(task_f)
-        transition(task_f, TaskStatus.COMPLETED)
-        assert task_f.status == TaskStatus.FAILED
-        transition(task_f, TaskStatus.RUNNING)
-        assert task_f.status == TaskStatus.FAILED
+    def test_failed_rejects_invalid_transitions(self):
+        """FAILED rejects everything except SESSION_STARTING."""
+        task = create_task("term-failed", "d", "/w", "b", "c", [_make_subtask()])
+        task.status = TaskStatus.FAILED
+        save_task(task)
+        transition(task, TaskStatus.COMPLETED)
+        assert task.status == TaskStatus.FAILED
+        transition(task, TaskStatus.RUNNING)
+        assert task.status == TaskStatus.FAILED
 
-        # ESCALATED rejects everything except PROMPT_SENT and FAILED
-        task_e = create_task("term-escalated", "d", "/w", "b", "c", [_make_subtask()])
-        task_e.status = TaskStatus.ESCALATED
-        save_task(task_e)
-        transition(task_e, TaskStatus.COMPLETED)
-        assert task_e.status == TaskStatus.ESCALATED
-        transition(task_e, TaskStatus.RUNNING)
-        assert task_e.status == TaskStatus.ESCALATED
+    def test_escalated_rejects_invalid_transitions(self):
+        """ESCALATED rejects everything except PROMPT_SENT and FAILED."""
+        task = create_task("term-escalated", "d", "/w", "b", "c", [_make_subtask()])
+        task.status = TaskStatus.ESCALATED
+        save_task(task)
+        transition(task, TaskStatus.COMPLETED)
+        assert task.status == TaskStatus.ESCALATED
+        transition(task, TaskStatus.RUNNING)
+        assert task.status == TaskStatus.ESCALATED
 
-    def test_transition_all_valid_paths(self):
-        """Every transition defined in TRANSITIONS dict succeeds."""
-        for src, dsts in TRANSITIONS.items():
-            for dst in dsts:
-                tid = f"vp-{src.value}-to-{dst.value}"
-                task = create_task(tid, "d", "/w", "b", "c", [_make_subtask()])
-                task.status = src
-                save_task(task)
-                transition(task, dst)
-                assert task.status == dst, f"{src} → {dst} should be valid"
+    @pytest.mark.parametrize(
+        "src_val,dst_val",
+        [
+            (src.value, dst.value)
+            for src, dsts in sorted(TRANSITIONS.items(), key=lambda x: x[0].value)
+            for dst in sorted(dsts, key=lambda x: x.value)
+        ],
+        ids=[
+            f"{src.value}->{dst.value}"
+            for src, dsts in sorted(TRANSITIONS.items(), key=lambda x: x[0].value)
+            for dst in sorted(dsts, key=lambda x: x.value)
+        ],
+    )
+    def test_transition_valid_path(self, src_val: str, dst_val: str):
+        """Each valid transition defined in TRANSITIONS dict succeeds."""
+        src = TaskStatus(src_val)
+        dst = TaskStatus(dst_val)
+        task = create_task(
+            f"vp-{src_val}-to-{dst_val}", "d", "/w", "b", "c", [_make_subtask()]
+        )
+        task.status = src
+        save_task(task)
+        transition(task, dst)
+        assert task.status == dst, f"{src} → {dst} should be valid"
 
     def test_every_non_terminal_state_can_reach_failed(self):
         """All non-terminal states must have a path to FAILED."""
