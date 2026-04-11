@@ -88,7 +88,7 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~6 250 | Click CLI entry point — 52 commands + `config` / `events` subgroups, CEO commands |
+| `cli.py` | ~6 490 | Click CLI entry point — 52 commands + `config` / `events` subgroups, CEO commands |
 | `protocol.py` | ~990 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
 | `commander.py` | ~1 800 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
 | `transport.py` | ~1 700 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
