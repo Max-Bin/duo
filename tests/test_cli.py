@@ -160,6 +160,8 @@ class TestVersion:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "version" in data
+        assert "python" in data
+        assert "platform" in data
 
 
 # ---------------------------------------------------------------------------
