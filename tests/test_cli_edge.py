@@ -926,3 +926,37 @@ class TestExampleFilesGuard:
         for f in sorted(Path("examples").rglob("*.yaml")):
             data = yaml.safe_load(f.read_text())
             assert "tasks" in data, f"{f} missing 'tasks' key"
+
+
+class TestProjectMetadataGuard:
+    """Guard: pyproject.toml must have complete project metadata."""
+
+    REQUIRED_KEYS = {
+        "name",
+        "version",
+        "description",
+        "readme",
+        "license",
+        "requires-python",
+        "authors",
+        "classifiers",
+        "dependencies",
+    }
+
+    def test_pyproject_metadata_complete(self) -> None:
+        import tomllib
+
+        with open("pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        project = data.get("project", {})
+        missing = self.REQUIRED_KEYS - set(project.keys())
+        assert missing == set(), f"pyproject.toml missing: {sorted(missing)}"
+
+    def test_pyproject_has_scripts(self) -> None:
+        """Project must define a CLI entry point."""
+        import tomllib
+
+        with open("pyproject.toml", "rb") as f:
+            data = tomllib.load(f)
+        scripts = data.get("project", {}).get("scripts", {})
+        assert "duo" in scripts, "pyproject.toml missing 'duo' script entry point"
