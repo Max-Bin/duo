@@ -14729,7 +14729,8 @@ class TestDispatchEdgeCases:
                 ["ceo-dispatch", task.id, "--timeout", "1", "--policy", str(policy)],
             )
         assert result.exit_code == 1
-        assert "unknown action" in result.output.lower()
+        assert "unknown" in result.output.lower()
+        assert "explode" in result.output
 
 
 class TestMetricsEdgeCases:

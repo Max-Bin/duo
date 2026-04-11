@@ -2057,6 +2057,10 @@ def cost(
         click.echo(f"{'Total':<16}{grand_total:>5}")
 
     if budget is not None and grand_total > budget:
+        click.echo(
+            f"Error: PR consumption ({grand_total}) exceeds budget ({budget})",
+            err=True,
+        )
         sys.exit(1)
 
 
@@ -3625,7 +3629,9 @@ def config_set(key: str, value: str, *, as_json: bool = False) -> None:
     try:
         result = set_config(key, value)
     except ValueError as exc:
-        raise click.ClickException(str(exc)) from None
+        raise click.ClickException(
+            f"Invalid value for '{key}': {exc}. Run 'duo config list' to see valid keys."
+        ) from None
     if as_json:
         click.echo(json.dumps({key: result}))
     else:
@@ -4411,7 +4417,10 @@ def ceo_smart(task: str, *, verbose: bool) -> None:
                 )
             return
 
-    click.echo(f"Dialog requires manual intervention ({kind.value}):")
+    click.echo(
+        f"Dialog requires manual intervention ({kind.value}). "
+        f"Run 'duo ceo-select {task} OPTION' to respond.",
+    )
     click.echo(content)
     if session_id:
         from duo.ceo_log import log_decision
@@ -5637,7 +5646,7 @@ def ceo_dispatch(
             )
         sys.exit(1)
     else:
-        click.echo(f"Deferred: unknown action '{action}'.")
+        click.echo(f"Error: unknown dispatch action '{action}'.", err=True)
         sys.exit(1)
 
     if session_id and action != "defer":
