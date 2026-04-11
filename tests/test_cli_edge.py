@@ -1002,3 +1002,29 @@ class TestRequiredFilesGuard:
     def test_all_required_files_exist(self) -> None:
         missing = [f for f in sorted(self.REQUIRED) if not Path(f).exists()]
         assert missing == [], f"Missing required files: {missing}"
+
+
+class TestReadmeCommandsGuard:
+    """Guard: README duo command examples must reference real commands."""
+
+    # References to the concept 'duo task' (noun), not a command
+    ALLOWLIST = {"task"}
+
+    def test_readme_commands_exist(self) -> None:
+        import re
+
+        content = Path("README.md").read_text()
+        # Extract 'duo <command>' patterns
+        referenced = set(re.findall(r"duo ([a-z][\w-]*)", content))
+        referenced -= self.ALLOWLIST
+        referenced -= {"--help", "--version"}
+
+        # Get actual commands
+        result = subprocess.run(["duo", "--help"], capture_output=True, text=True)
+        actual = set(re.findall(r"  ([a-z][\w-]+)", result.stdout))
+        actual.add("--help")
+
+        missing = referenced - actual
+        assert missing == set(), (
+            f"README references non-existent commands: {sorted(missing)}"
+        )
