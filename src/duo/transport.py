@@ -1277,25 +1277,8 @@ def approve_permission(label: str) -> None:
             raise RuntimeError(f"SAFETY: '{label}' not in stable dialog. REFUSED.")
         content = read_pane(label, 20)
         _preemptive_dialog_resize(label, content)
-        lines = content.strip().split("\n")
 
-        # Find all numbered options within the LAST dialog box (╭─ … ╰─)
-        # Multiple boxes may exist if scrollback contains an older dialog.
-        in_box = False
-        options: dict[str, str] = {}
-        for line in lines:
-            if "╭─" in line:
-                in_box = True
-                options = {}  # reset: only keep options from the last box
-                continue
-            if "╰─" in line:
-                in_box = False
-                continue
-            if not in_box:
-                continue
-            m = re.search(r"[❯\s]+(\d+)\.\s+(.+)", line)
-            if m:
-                options[m.group(1)] = m.group(2).strip()
+        options, _cursor = _parse_dialog_options(content)
 
         # Strategy: find the best "yes" option
         # Prefer "Yes + approve for session" over plain "Yes"
@@ -1337,6 +1320,54 @@ def approve_permission(label: str) -> None:
             )
 
         select_dialog_option(label, best)
+
+
+def _parse_dialog_options(content: str) -> tuple[dict[str, str], int]:
+    """Extract numbered options and cursor position from the last dialog box.
+
+    Returns (options, cursor_pos) where options maps number-string to text,
+    and cursor_pos is the option number where ❯ is placed (0 if none).
+    """
+    lines = content.strip().split("\n")
+    in_box = False
+    options: dict[str, str] = {}
+    cursor_pos = 0
+    opt_re = re.compile(r"[❯\s]+(\d+)\.\s+(.*)")
+    cursor_re = re.compile(r"\s*[│]?\s*❯\s*(\d+)\.")
+    for line in lines:
+        if "╭─" in line:
+            in_box = True
+            options = {}
+            cursor_pos = 0
+            continue
+        if "╰─" in line:
+            in_box = False
+            continue
+        if not in_box:
+            continue
+        m = opt_re.search(line)
+        if m:
+            options[m.group(1)] = m.group(2).strip()
+        cm = cursor_re.match(line)
+        if cm:
+            cursor_pos = int(cm.group(1))
+    return options, cursor_pos
+
+
+def _retry_enter_until_dismissed(label: str, max_retries: int = 2) -> bool:
+    """Send Enter and verify dialog dismissal, retrying up to max_retries times.
+
+    Returns True if the dialog was dismissed, False if retries exhausted.
+    """
+    for _retry in range(max_retries):
+        content = read_pane(label, 20)
+        if detect_dialog_kind(content) == DialogKind.NONE:
+            return True
+        send_keys(label, "Enter")
+        _time.sleep(0.5)
+    # Final check
+    content = read_pane(label, 20)
+    return detect_dialog_kind(content) == DialogKind.NONE
 
 
 def select_dialog_option(label: str, option: str) -> None:
@@ -1430,28 +1461,8 @@ def send_option_other_message(label: str, text: str) -> bool:
         _preemptive_dialog_resize(label, content)
 
         # Count options within the LAST dialog box (╭─ … ╰─)
-        lines = content.strip().split("\n")
-        in_box = False
-        option_count = 0
-        current_pos = 0
-        opt_re = re.compile(r"^\s*[│]?\s*(❯\s*)?(\d+)\.\s")
-        for line in lines:
-            if "╭─" in line:
-                in_box = True
-                option_count = 0
-                current_pos = 0
-                continue
-            if "╰─" in line:
-                in_box = False
-                continue
-            if not in_box:
-                continue
-            m = opt_re.match(line)
-            if m:
-                n = int(m.group(2))
-                option_count = max(option_count, n)
-                if m.group(1) is not None:
-                    current_pos = n
+        options, current_pos = _parse_dialog_options(content)
+        option_count = max((int(k) for k in options), default=0)
 
         if option_count < 2:
             raise RuntimeError(
@@ -1474,21 +1485,10 @@ def send_option_other_message(label: str, text: str) -> bool:
         _time.sleep(0.5)
 
         # Verify dialog dismissed; retry Enter up to 2 times
-        for _retry in range(2):
-            content = read_pane(label, 20)
-            dialog_kind = detect_dialog_kind(content)
-            if dialog_kind == DialogKind.NONE:
-                _record_pr(label, "dialog_other", text[:80])
-                return True
-            send_keys(label, "Enter")
-            _time.sleep(0.5)
-
-        # Final check
-        content = read_pane(label, 20)
-        if detect_dialog_kind(content) == DialogKind.NONE:
+        dismissed = _retry_enter_until_dismissed(label)
+        if dismissed:
             _record_pr(label, "dialog_other", text[:80])
-            return True
-        return False
+        return dismissed
 
 
 def select_other_option(label: str, text: str) -> None:
@@ -1549,18 +1549,7 @@ def send_text_dialog_message(label: str, text: str) -> bool:
         _time.sleep(0.5)
 
         # Verify dialog was dismissed; retry Enter up to 2 times
-        for _retry in range(2):
-            content = read_pane(label, 20)
-            dialog_kind = detect_dialog_kind(content)
-            if dialog_kind == DialogKind.NONE:
-                return True
-            # Dialog still showing — retry Enter
-            send_keys(label, "Enter")
-            _time.sleep(0.5)
-
-        # Final check
-        content = read_pane(label, 20)
-        return detect_dialog_kind(content) == DialogKind.NONE
+        return _retry_enter_until_dismissed(label)
 
 
 # === Composite operations ===
