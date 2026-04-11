@@ -36,3 +36,6 @@ Thumbs.db
 
 # Hypothesis
 .hypothesis/
+
+# Test reproduction artifacts
+.audit-repro/
