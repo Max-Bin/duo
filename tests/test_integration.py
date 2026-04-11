@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 import duo.protocol
+from duo.commander import verify_and_advance
 from duo.protocol import (
+    StepResult,
     Subtask,
     TaskStatus,
     append_event,
@@ -18,6 +20,7 @@ from duo.protocol import (
     save_task,
     transition,
 )
+from duo.verifier import Pass
 
 
 @pytest.fixture(autouse=True)
@@ -582,3 +585,99 @@ class TestJournalIntegration:
         states = [t["data"]["to"] for t in transitions]
         assert TaskStatus.ESCALATED.value in states
         assert TaskStatus.BLOCKED.value in states
+
+    def test_verify_and_advance_blocked_result(self, tmp_path: Path) -> None:
+        """verify_and_advance transitions to BLOCKED when result.status is 'blocked'."""
+        task = create_task(
+            task_id="blocked-result",
+            description="will block",
+            worktree=str(tmp_path),
+            branch="main",
+            base_commit="abc123",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="do something",
+                    target_files=["app.py"],
+                    writable_paths=["*.py"],
+                ),
+            ],
+        )
+        task.current_step = 1
+        task.current_attempt = 1
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        result = StepResult(
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="blocked",
+            files_changed=[],
+            summary="Cannot proceed",
+            reason="Missing dependency",
+        )
+        verify_and_advance(task, result)
+
+        assert task.status == TaskStatus.BLOCKED
+        events = read_jsonl(task.journal_path)
+        blocked = [e for e in events if e.get("event") == "agent_blocked"]
+        assert len(blocked) >= 1
+        assert blocked[-1]["data"]["reason"] == "Missing dependency"
+
+    def test_verify_and_advance_completes_single_step_task(
+        self, tmp_path: Path
+    ) -> None:
+        """verify_and_advance completes task when all steps pass."""
+        task = create_task(
+            task_id="single-step-complete",
+            description="one step task",
+            worktree=str(tmp_path),
+            branch="main",
+            base_commit="abc123",
+            subtasks=[
+                Subtask(
+                    step_id=1,
+                    description="do it",
+                    target_files=["hello.txt"],
+                    writable_paths=["*.txt"],
+                ),
+            ],
+        )
+        task.current_step = 1
+        task.current_attempt = 1
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+
+        result = StepResult(
+            step=1,
+            attempt=1,
+            incarnation=task.incarnation_id,
+            status="done",
+            files_changed=["hello.txt"],
+            summary="Done",
+        )
+
+        # Mock verify_step to return Pass and send_task_prompt
+        import duo.commander as cmd
+
+        original_verify = cmd.verify_step
+        original_send = cmd.send_task_prompt
+        cmd.verify_step = lambda t, r: Pass()  # type: ignore[assignment]
+        cmd.send_task_prompt = lambda t, p: None  # type: ignore[assignment]
+        try:
+            verify_and_advance(task, result)
+        finally:
+            cmd.verify_step = original_verify  # type: ignore[assignment]
+            cmd.send_task_prompt = original_send  # type: ignore[assignment]
+
+        assert task.status == TaskStatus.COMPLETED
+        events = read_jsonl(task.journal_path)
+        completed = [e for e in events if e.get("event") == "task_completed"]
+        assert len(completed) >= 1
