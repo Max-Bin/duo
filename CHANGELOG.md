@@ -6,6 +6,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- `config edit` command — opens config file in `$EDITOR` / `$VISUAL` / `vi`
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
 - `--reverse` flag for `duo list` to reverse sort order

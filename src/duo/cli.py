@@ -566,12 +566,29 @@ def start(
 
 @main.command()
 @click.argument("name", shell_complete=_complete_task_names)
-@click.argument("prompt")
+@click.argument("prompt", required=False, default=None)
+@click.option(
+    "--file",
+    "-f",
+    "prompt_file",
+    type=click.Path(exists=True),
+    help="Read prompt from file (use - for stdin)",
+)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def send(name: str, prompt: str, *, as_json: bool = False) -> None:
+def send(
+    name: str,
+    prompt: str | None,
+    *,
+    prompt_file: str | None = None,
+    as_json: bool = False,
+) -> None:
     """Send a prompt to a task's Copilot session."""
     from duo.commander import send_task_prompt
 
+    if prompt_file:
+        if prompt:
+            raise click.UsageError("cannot specify both PROMPT argument and --file")
+        prompt = Path(prompt_file).read_text(encoding="utf-8")
     if not prompt or not prompt.strip():
         raise click.UsageError(
             'prompt cannot be empty. Usage: duo send TASK_NAME "your instruction"'

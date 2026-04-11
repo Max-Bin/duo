@@ -531,6 +531,34 @@ class TestSend:
             assert result.exit_code != 0, f"{status.value} should be rejected"
             assert expected_msg in result.output
 
+    def test_send_from_file(self, runner: CliRunner, tmp_path: Path):
+        """send --file reads prompt from a file."""
+        _make_task("file-prompt")
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello from file", encoding="utf-8")
+        result = runner.invoke(
+            main, ["send", "file-prompt", "--file", str(prompt_file)]
+        )
+        # Will fail at transport layer but should get past prompt parsing
+        assert "empty" not in result.output.lower()
+
+    def test_send_file_and_prompt_conflict(self, runner: CliRunner, tmp_path: Path):
+        """send rejects both PROMPT argument and --file."""
+        _make_task("conflict-prompt")
+        prompt_file = tmp_path / "prompt.txt"
+        prompt_file.write_text("hello", encoding="utf-8")
+        result = runner.invoke(
+            main, ["send", "conflict-prompt", "inline", "--file", str(prompt_file)]
+        )
+        assert result.exit_code != 0
+        assert "cannot specify both" in result.output.lower()
+
+    def test_send_no_prompt_no_file(self, runner: CliRunner):
+        """send with neither prompt nor --file shows usage error."""
+        _make_task("no-prompt")
+        result = runner.invoke(main, ["send", "no-prompt"])
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # start command (error case)
