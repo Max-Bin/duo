@@ -218,6 +218,20 @@ def set_config(key: str, value: str) -> bool | int | float | str:
     if key not in DEFAULTS:
         logger.warning("Unknown config key: '%s'", key)
     config[key] = coerced
+    # Cross-key invariant: poll_max_interval >= poll_base_interval
+    if key in ("poll_base_interval", "poll_max_interval"):
+        base = config.get("poll_base_interval", DEFAULTS["poll_base_interval"])
+        mx = config.get("poll_max_interval", DEFAULTS["poll_max_interval"])
+        if (
+            isinstance(base, (int, float))
+            and isinstance(mx, (int, float))
+            and mx < base
+        ):
+            config["poll_max_interval"] = base
+            logger.info(
+                "Auto-adjusted poll_max_interval to %.1f to maintain invariant (>= poll_base_interval)",
+                base,
+            )
     save_config(config)
     return coerced
 

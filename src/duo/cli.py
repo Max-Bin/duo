@@ -2602,11 +2602,17 @@ def _doctor_check_orphan_worktrees() -> CheckResult:
     )
 
     orphans: list[str] = []
+    worktree_base = str(Path(str(get_config("worktree_base_path"))).resolve())
     for line in r.stdout.splitlines():
         if line.startswith("worktree "):
             wt_path = line[len("worktree ") :]
+            wt_resolved = str(Path(wt_path).resolve())
             wt_name = Path(wt_path).name
-            if wt_name.startswith("duo-") and wt_name[4:] not in known_ids:
+            is_duo_worktree = wt_resolved.startswith(
+                worktree_base + "/"
+            ) or wt_name.startswith("duo-")
+            task_id = wt_name.removeprefix("duo-")
+            if is_duo_worktree and task_id not in known_ids:
                 orphans.append(wt_name)
 
     if not orphans:
@@ -2689,11 +2695,17 @@ def _doctor_auto_fix() -> list[str]:
             if TASKS_DIR.exists()
             else set()
         )
+        worktree_base = str(Path(str(get_config("worktree_base_path"))).resolve())
         for line in r.stdout.splitlines():
             if line.startswith("worktree "):
                 wt_path = line[len("worktree ") :]
+                wt_resolved = str(Path(wt_path).resolve())
                 wt_name = Path(wt_path).name
-                if wt_name.startswith("duo-") and wt_name[4:] not in known_ids:
+                is_duo_worktree = wt_resolved.startswith(
+                    worktree_base + "/"
+                ) or wt_name.startswith("duo-")
+                task_id = wt_name.removeprefix("duo-")
+                if is_duo_worktree and task_id not in known_ids:
                     rm = subprocess.run(
                         ["git", "worktree", "remove", "--force", wt_path],
                         capture_output=True,
