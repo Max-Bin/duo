@@ -1423,6 +1423,36 @@ class TestAudit:
         assert data["pr_consumed"] == 1
         assert isinstance(data["events"], list)
 
+    def test_audit_quiet_single_task(self, runner: CliRunner, make_task):
+        from duo.protocol import append_event
+
+        task = make_task("q-audit")
+        save_task(task)
+        append_event(
+            task, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1}
+        )
+        result = runner.invoke(main, ["audit", "q-audit", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "1"
+
+    def test_audit_quiet_all_tasks(self, runner: CliRunner, make_task):
+        from duo.protocol import append_event
+
+        t = make_task("qa-task")
+        save_task(t)
+        append_event(t, "pr_consumed", {"action": "bootstrap", "step": 1, "attempt": 1})
+        append_event(
+            t, "pr_consumed", {"action": "task_prompt", "step": 1, "attempt": 1}
+        )
+        result = runner.invoke(main, ["audit", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "2"
+
+    def test_audit_quiet_no_tasks(self, runner: CliRunner):
+        result = runner.invoke(main, ["audit", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
 
 # ---------------------------------------------------------------------------
 # cost
@@ -5413,6 +5443,31 @@ class TestDoctor:
         assert cr.status == "pass"
         assert cr.message == "ok"
         assert cr.fix == ""
+
+    def test_doctor_quiet_all_pass(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--quiet with all pass prints nothing."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+        result = runner.invoke(main, ["doctor", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
+    def test_doctor_quiet_with_failure(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """--quiet with failures shows only failure lines."""
+        self._setup_all_pass(monkeypatch, tmp_path)
+
+        def fake_which(name: str) -> str | None:
+            if name == "tmux":
+                return None
+            return f"/usr/bin/{name}"
+
+        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        result = runner.invoke(main, ["doctor", "-q"])
+        assert result.exit_code != 0
+        assert "tmux" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------

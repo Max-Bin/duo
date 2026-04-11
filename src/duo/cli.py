@@ -1685,7 +1685,10 @@ def queue(as_json: bool) -> None:
 @main.command()
 @click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def audit(name: str | None = None, *, as_json: bool = False) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only the total PR count")
+def audit(
+    name: str | None = None, *, as_json: bool = False, quiet: bool = False
+) -> None:
     """Show Premium Request consumption audit."""
     from duo.protocol import read_jsonl
     from duo.transport import get_pr_log
@@ -1695,6 +1698,10 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         task = _load_task_or_fail(name)
         events = read_jsonl(task.journal_path)
         pr_events = [ev for ev in events if ev.get("event") == "pr_consumed"]
+
+        if quiet:
+            click.echo(str(len(pr_events)))
+            return
 
         if as_json:
             click.echo(
@@ -1725,6 +1732,9 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
         # All tasks audit
         tasks = list_tasks()
         if not tasks:
+            if quiet:
+                click.echo("0")
+                return
             click.echo("No tasks.")
             return
 
@@ -1737,6 +1747,10 @@ def audit(name: str | None = None, *, as_json: bool = False) -> None:
             task_rows.append(
                 {"task": t.id, "status": t.status.value, "pr_count": pr_count}
             )
+
+        if quiet:
+            click.echo(str(total_pr))
+            return
 
         if as_json:
             pr_log = get_pr_log()
@@ -3115,7 +3129,8 @@ def _doctor_auto_fix() -> list[str]:
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option("--strict", is_flag=True, help="Exit non-zero on warnings too.")
 @click.option("--fix", is_flag=True, help="Auto-fix issues that can be resolved.")
-def doctor(as_json: bool, strict: bool, fix: bool) -> None:
+@click.option("-q", "--quiet", is_flag=True, help="Print only failures (one per line)")
+def doctor(as_json: bool, strict: bool, fix: bool, quiet: bool) -> None:
     """Check environment dependencies and configuration."""
     results: list[CheckResult] = [fn() for fn in _DOCTOR_CHECKS]
     results.extend(_doctor_check_copilot_health())
@@ -3129,6 +3144,16 @@ def doctor(as_json: bool, strict: bool, fix: bool) -> None:
     for r in results:
         counts[r.status] += 1
     total = len(results)
+
+    if quiet:
+        for r in results:
+            if r.status == "fail":
+                click.echo(f"{r.name}: {r.message}")
+        has_fail = counts["fail"] > 0
+        has_warn = counts["warn"] > 0
+        if has_fail or (strict and has_warn):
+            raise SystemExit(1)
+        return
 
     if as_json:
         payload: dict[str, Any] = {
