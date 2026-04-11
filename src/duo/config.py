@@ -78,45 +78,20 @@ def load_config() -> dict[str, Any]:
                 if key not in DEFAULTS:
                     config[key] = value
                     continue
+                type_error = _check_value_type(key, value)
+                if type_error:
+                    logger.warning(
+                        "Config key '%s' %s — using default", key, type_error
+                    )
+                    continue
                 expected = type(DEFAULTS[key])
-                if expected is bool:
-                    if not isinstance(value, bool):
+                if expected is int:
+                    try:
+                        value = int(value)
+                    except (ValueError, OverflowError):
                         logger.warning(
-                            "Config key '%s' expected bool, got %s — using default",
+                            "Config key '%s' cannot be converted to int — using default",
                             key,
-                            type(value).__name__,
-                        )
-                        continue
-                elif expected in (int, float):
-                    if not isinstance(value, (int, float)):
-                        logger.warning(
-                            "Config key '%s' expected number, got %s — using default",
-                            key,
-                            type(value).__name__,
-                        )
-                        continue
-                    if isinstance(value, float) and not math.isfinite(value):
-                        logger.warning(
-                            "Config key '%s' has non-finite value %r — using default",
-                            key,
-                            value,
-                        )
-                        continue
-                    if expected is int:
-                        try:
-                            value = int(value)
-                        except (ValueError, OverflowError):
-                            logger.warning(
-                                "Config key '%s' cannot be converted to int — using default",
-                                key,
-                            )
-                            continue
-                elif expected is str:
-                    if not isinstance(value, str):
-                        logger.warning(
-                            "Config key '%s' expected str, got %s — using default",
-                            key,
-                            type(value).__name__,
                         )
                         continue
                 config[key] = value
@@ -172,6 +147,46 @@ _FLOAT_MAXIMUMS: dict[str, float] = {
 }
 
 
+def _check_value_type(key: str, value: Any) -> str | None:
+    """Check value matches expected type for key. Returns error or None."""
+    if key not in DEFAULTS:
+        return None  # pragma: no cover — callers filter unknown keys before calling
+    expected = type(DEFAULTS[key])
+    if expected is bool:
+        if not isinstance(value, bool):
+            return f"expected bool, got {type(value).__name__}"
+    elif expected in (int, float):
+        if not isinstance(value, (int, float)):
+            return f"expected number, got {type(value).__name__}"
+        if isinstance(value, float) and not math.isfinite(value):
+            return f"non-finite value {value!r}"
+    elif expected is str:
+        if not isinstance(value, str):
+            return f"expected str, got {type(value).__name__}"
+    return None
+
+
+def _check_range(key: str, value: int | float) -> str | None:
+    """Check numeric range constraints. Returns error or None."""
+    if key in _INT_MINIMUMS:
+        minimum = _INT_MINIMUMS[key]
+        if not isinstance(value, int) or value < minimum:
+            return f"must be an integer >= {minimum}, got {value!r}"
+    if key in _INT_MAXIMUMS:
+        maximum = _INT_MAXIMUMS[key]
+        if not isinstance(value, int) or value > maximum:
+            return f"must be an integer <= {maximum}, got {value!r}"
+    if key in _FLOAT_MINIMUMS:
+        minimum_f = _FLOAT_MINIMUMS[key]
+        if not isinstance(value, (int, float)) or value <= minimum_f:
+            return f"must be a number > {minimum_f}, got {value!r}"
+    if key in _FLOAT_MAXIMUMS:
+        maximum_f = _FLOAT_MAXIMUMS[key]
+        if not isinstance(value, (int, float)) or value > maximum_f:
+            return f"must be a number <= {maximum_f}, got {value!r}"
+    return None
+
+
 def set_config(key: str, value: str) -> bool | int | float | str:
     """Set a config value with type coercion based on defaults."""
     config = load_config()
@@ -207,30 +222,10 @@ def set_config(key: str, value: str) -> bool | int | float | str:
             if not math.isfinite(coerced):
                 raise ValueError(f"'{key}' must be a finite number, got {coerced!r}")
         # Validate numeric ranges
-        if key in _INT_MINIMUMS:
-            minimum = _INT_MINIMUMS[key]
-            if not isinstance(coerced, int) or coerced < minimum:
-                raise ValueError(
-                    f"'{key}' must be an integer >= {minimum}, got {coerced!r}"
-                )
-        if key in _INT_MAXIMUMS:
-            maximum = _INT_MAXIMUMS[key]
-            if not isinstance(coerced, int) or coerced > maximum:
-                raise ValueError(
-                    f"'{key}' must be an integer <= {maximum}, got {coerced!r}"
-                )
-        if key in _FLOAT_MINIMUMS:
-            minimum_f = _FLOAT_MINIMUMS[key]
-            if not isinstance(coerced, (int, float)) or coerced <= minimum_f:
-                raise ValueError(
-                    f"'{key}' must be a number > {minimum_f}, got {coerced!r}"
-                )
-        if key in _FLOAT_MAXIMUMS:
-            maximum_f = _FLOAT_MAXIMUMS[key]
-            if not isinstance(coerced, (int, float)) or coerced > maximum_f:
-                raise ValueError(
-                    f"'{key}' must be a number <= {maximum_f}, got {coerced!r}"
-                )
+        if isinstance(coerced, (int, float)) and not isinstance(coerced, bool):
+            range_error = _check_range(key, coerced)
+            if range_error:
+                raise ValueError(f"'{key}' {range_error}")
     if key not in DEFAULTS:
         logger.warning("Unknown config key: '%s'", key)
     config[key] = coerced
@@ -296,36 +291,13 @@ def validate_config() -> list[str]:
     for key, value in stored.items():
         if key not in DEFAULTS:
             continue
-        expected = type(DEFAULTS[key])
-        if expected is bool:
-            if not isinstance(value, bool):
-                issues.append(f"'{key}': expected bool, got {type(value).__name__}")
-        elif expected in (int, float):
-            if not isinstance(value, (int, float)):
-                issues.append(f"'{key}': expected number, got {type(value).__name__}")
-                continue
-            if isinstance(value, float) and not math.isfinite(value):
-                issues.append(f"'{key}': non-finite value {value!r}")
-                continue
-            if key in _INT_MINIMUMS and value < _INT_MINIMUMS[key]:
-                issues.append(
-                    f"'{key}': value {value} below minimum {_INT_MINIMUMS[key]}"
-                )
-            if key in _INT_MAXIMUMS and value > _INT_MAXIMUMS[key]:
-                issues.append(
-                    f"'{key}': value {value} above maximum {_INT_MAXIMUMS[key]}"
-                )
-            if key in _FLOAT_MINIMUMS and value <= _FLOAT_MINIMUMS[key]:
-                issues.append(
-                    f"'{key}': value {value} must be > {_FLOAT_MINIMUMS[key]}"
-                )
-            if key in _FLOAT_MAXIMUMS and value > _FLOAT_MAXIMUMS[key]:
-                issues.append(
-                    f"'{key}': value {value} above maximum {_FLOAT_MAXIMUMS[key]}"
-                )
-        elif expected is str:  # pragma: no branch — all DEFAULTS are bool/int/float/str
-            if not isinstance(value, str):
-                issues.append(f"'{key}': expected str, got {type(value).__name__}")
+        type_error = _check_value_type(key, value)
+        if type_error:
+            issues.append(f"'{key}': {type_error}")
+            continue
+        range_error = _check_range(key, value)
+        if range_error:
+            issues.append(f"'{key}': {range_error}")
 
     # Cross-key invariants
     base = stored.get("poll_base_interval", DEFAULTS["poll_base_interval"])

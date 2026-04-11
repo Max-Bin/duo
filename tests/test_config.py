@@ -667,19 +667,19 @@ class TestValidateConfig:
         config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config_mod.CONFIG_PATH.write_text('{"max_corrections": 0}', encoding="utf-8")
         issues = config_mod.validate_config()
-        assert any("below minimum" in i for i in issues)
+        assert any(">=" in i for i in issues)
 
     def test_value_above_maximum(self) -> None:
         config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config_mod.CONFIG_PATH.write_text('{"max_corrections": 999}', encoding="utf-8")
         issues = config_mod.validate_config()
-        assert any("above maximum" in i for i in issues)
+        assert any("<=" in i for i in issues)
 
     def test_float_below_minimum(self) -> None:
         config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         config_mod.CONFIG_PATH.write_text('{"poll_base_interval": 0}', encoding="utf-8")
         issues = config_mod.validate_config()
-        assert any("must be >" in i for i in issues)
+        assert any("must be" in i and ">" in i for i in issues)
 
     def test_float_above_maximum(self) -> None:
         config_mod.CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -687,7 +687,7 @@ class TestValidateConfig:
             '{"poll_base_interval": 999.0}', encoding="utf-8"
         )
         issues = config_mod.validate_config()
-        assert any("above maximum" in i for i in issues)
+        assert any("<=" in i for i in issues)
 
     def test_read_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         unreadable = tmp_path / "unreadable.json"
