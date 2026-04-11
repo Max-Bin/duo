@@ -1767,11 +1767,15 @@ def _inspect_build_json(task: Task, include_files: bool) -> dict[str, Any]:
         "description": task.description,
         "status": task.status.value,
         "step": task.current_step,
+        "total_steps": len(task.subtasks),
         "attempt": task.current_attempt,
+        "incarnation_id": task.incarnation_id,
         "worktree": task.worktree,
         "branch": task.branch,
         "base_commit": task.base_commit,
         "created_at": task.created_at,
+        "session_started_at": task.session_started_at,
+        "age": _fmt_age(task.created_at),
         "subtasks": [
             {
                 "step_id": s.step_id,

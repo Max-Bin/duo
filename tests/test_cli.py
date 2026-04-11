@@ -6220,11 +6220,15 @@ class TestInspectEdgeCases:
             "description",
             "status",
             "step",
+            "total_steps",
             "attempt",
+            "incarnation_id",
             "worktree",
             "branch",
             "base_commit",
             "created_at",
+            "session_started_at",
+            "age",
             "subtasks",
         }
         assert expected_keys.issubset(data.keys())
