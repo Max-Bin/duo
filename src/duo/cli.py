@@ -2484,7 +2484,10 @@ def stats(*, as_json: bool = False, quiet: bool = False) -> None:
 @main.command()
 @click.option("--repo", default=".", help="Git repository path to initialize")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def init(repo: str, *, as_json: bool = False) -> None:
+@click.option(
+    "-q", "--quiet", is_flag=True, help="Print only the number of items created"
+)
+def init(repo: str, *, as_json: bool = False, quiet: bool = False) -> None:
     """Initialize a project for Duo (creates .duo config and instructions)."""
     from duo.config import load_config, save_config
 
@@ -2493,6 +2496,9 @@ def init(repo: str, *, as_json: bool = False) -> None:
 
     # Already initialized?
     if project_duo.exists():
+        if quiet:
+            click.echo("0")
+            return
         if as_json:
             click.echo(json.dumps({"status": "already_initialized", "created": []}))
         else:
@@ -2570,6 +2576,9 @@ def init(repo: str, *, as_json: bool = False) -> None:
             os.fsync(f.fileno())
         created.append(str(gitignore) + " (updated)")
 
+    if quiet:
+        click.echo(str(len(created)))
+        return
     if as_json:
         click.echo(json.dumps({"status": "initialized", "created": created}))
     else:

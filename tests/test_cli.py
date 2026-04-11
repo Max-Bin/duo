@@ -5234,6 +5234,32 @@ class TestInit:
         assert data["status"] == "already_initialized"
         assert data["created"] == []
 
+    def test_init_quiet_already_initialized(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        (repo / ".duo").mkdir()
+        result = runner.invoke(main, ["init", "--repo", str(repo), "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "0"
+
+    def test_init_quiet_success(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path / ".duo")
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path / ".duo")
+        monkeypatch.setattr(duo.protocol, "TASKS_DIR", tmp_path / ".duo" / "tasks")
+        monkeypatch.setattr(duo.cli, "TASKS_DIR", tmp_path / ".duo" / "tasks")
+        result = runner.invoke(main, ["init", "--repo", str(repo), "-q"])
+        assert result.exit_code == 0
+        count = int(result.output.strip())
+        assert count > 0
+
 
 # ---------------------------------------------------------------------------
 # doctor command
