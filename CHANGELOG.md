@@ -17,6 +17,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - 2 integration tests: verify_and_advance blocked result + single-step completion
 - 2 property tests: read_jsonl tail parameter (count + order invariants)
 - 2 property tests: extract_response tail preservation (safe lines + identity)
+- 125 parametrized illegal FSM transition tests (every forbidden state pair)
+- 44 parametrized legal FSM transition tests (every allowed state pair)
+- 14 parametrized secret pattern detection tests (complete DEFAULT_SECRET_PATTERNS coverage)
+- 16 parametrized _match_writable edge cases (extensions, directories, dotfiles, empty)
+- 52 parametrized --help smoke tests (every CLI command)
+- 24 parametrized config key round-trip tests (12 keys × get + reset)
+- 13 parametrized TaskStatus persistence round-trip tests
+- 12 parametrized _safe_join traversal + valid name tests
 - `make guard` target — runs all guard/meta tests in ~5s
 - 8 new Hypothesis property tests: strip_ansi, incarnation IDs, FSM transitions
 - 11 new property tests: label path safety, glob matching, config defaults consistency, _fmt_ts fuzz
