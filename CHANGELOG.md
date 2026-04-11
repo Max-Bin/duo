@@ -10,6 +10,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Aliases shown in `duo --help` under "Aliases" section
 - `version -q` — print only the version number
 - `batch -q` — print only the created task count (or count in dry-run)
+- `init -q` — print only the count of created items
+- `events list -q` / `-c` — print filenames or count
+- `events clear -q` — print only the cleared count
 - `config edit` command — opens config file in `$EDITOR` / `$VISUAL` / `vi`
 - `config validate` command — check config file for errors (types, ranges, unknown keys)
 - `send --file` option — read prompt from a file instead of inline text
@@ -67,6 +70,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Enriched JSON output for `list` and `status` commands (age, total_steps, incarnation_id)
 
 ### Changed
+- Improved error messages: `cost --budget` shows consumption vs budget, `config set` shows key name in error, `ceo-dispatch` identifies unknown actions, `ceo-smart` suggests `ceo-select` fix
 - Standardized `--json-output` parameter naming to `as_json` across all 36 commands
 - Standardized help text to "Output as JSON" (no trailing period) everywhere
 - Fixed doctor output column width (`:<16` → `:<18`) for proper spacing
