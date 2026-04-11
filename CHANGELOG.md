@@ -13,6 +13,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `list --no-header` option — omit table header for cleaner scripting output
 - `cleanup --dry-run` option — preview what would be cleaned without acting
 - `stop --all` flag — stop all active tasks in one command
+- `kill --all` flag — terminate all tasks and clean up resources
+- `list --recent N` option — show only the N most recently created tasks
+- `config validate` integration with `duo doctor` for automatic config health checks
+- Heartbeat info in `duo status` output (current file + last pulse)
 - Shell completion for thinking session names (`duo think <TAB>`)
 - Shell completion for `duo diff` task names
 - `status` now shows Branch and Description fields

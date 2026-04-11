@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2352%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2363%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **An orchestration runtime that treats Premium Requests as a scarce resource.**
@@ -103,6 +103,7 @@ duo merge fix-auth       # fast-forward merge when done
 | `duo list` | List all tasks and their statuses |
 | `duo list --sort age` | Sort tasks by age, status, or name |
 | `duo list -q --status running` | Print only running task IDs (for scripting) |
+| `duo list --recent 5` | Show only the 5 most recently created tasks |
 | `duo diff <task>` | Show git diff for a task's worktree |
 | `duo bench` | Run performance benchmarks |
 
