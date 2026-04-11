@@ -1092,12 +1092,49 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
         click.echo(f"Merged {name}. Remember to `git push` when ready.")
 
 
+def _stop_all_tasks(as_json: bool) -> None:
+    """Stop all active (non-terminal) tasks."""
+    from duo.protocol import append_event, list_tasks, transition
+    from duo.transport import cleanup_pane_state, kill_pane
+
+    terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.BLOCKED}
+    tasks = [t for t in list_tasks() if t.status not in terminal]
+    results: list[dict[str, object]] = []
+    for task in tasks:
+        prev = task.status.value
+        kill_pane(task.pane_label)
+        cleanup_pane_state(task.pane_label)
+        stopped = transition(task, TaskStatus.BLOCKED)
+        if stopped:
+            append_event(task, "task_stopped", {"previous_status": prev})
+        results.append({"id": task.id, "stopped": stopped, "previous_status": prev})
+    if as_json:
+        click.echo(json.dumps({"stopped_count": len(results), "tasks": results}))
+    else:
+        if not results:
+            click.echo("No active tasks to stop.")
+        else:
+            for r in results:
+                click.echo(f"Stopped '{r['id']}' (was {r['previous_status']})")
+            click.echo(f"\n{len(results)} task(s) stopped.")
+
+
 @main.command()
-@click.argument("name", shell_complete=_complete_task_names)
+@click.argument(
+    "name", required=False, default=None, shell_complete=_complete_task_names
+)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def stop(name: str, *, as_json: bool = False) -> None:
+@click.option("--all", "stop_all", is_flag=True, help="Stop all active tasks")
+def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> None:
     """Stop a task gracefully (preserves worktree for resume)."""
     from duo.protocol import append_event, transition
+
+    if stop_all:
+        _stop_all_tasks(as_json)
+        return
+
+    if name is None:
+        raise click.UsageError("Provide a task NAME or use --all")
 
     task = _load_task_or_fail(name)
 

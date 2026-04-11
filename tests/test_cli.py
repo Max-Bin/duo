@@ -2514,6 +2514,66 @@ class TestStop:
             assert reloaded is not None
             assert reloaded.status == TaskStatus.BLOCKED
 
+    def test_stop_all_stops_active_tasks(self, runner: CliRunner):
+        """stop --all stops all non-terminal tasks."""
+        t1 = _make_task("stop-all-1")
+        t1.status = TaskStatus.RUNNING
+        save_task(t1)
+        t2 = _make_task("stop-all-2")
+        t2.status = TaskStatus.ACKED
+        save_task(t2)
+        # completed task should be skipped
+        t3 = _make_task("stop-all-3")
+        t3.status = TaskStatus.COMPLETED
+        save_task(t3)
+
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["stop", "--all"])
+            assert result.exit_code == 0
+            assert "stop-all-1" in result.output
+            assert "stop-all-2" in result.output
+            assert "stop-all-3" not in result.output
+            assert "2 task(s) stopped" in result.output
+
+    def test_stop_all_no_active(self, runner: CliRunner):
+        """stop --all with no active tasks prints message."""
+        result = runner.invoke(main, ["stop", "--all"])
+        assert result.exit_code == 0
+        assert "No active tasks" in result.output
+
+    def test_stop_all_json(self, runner: CliRunner):
+        """stop --all --json-output returns structured JSON."""
+        t = _make_task("stop-all-j")
+        t.status = TaskStatus.RUNNING
+        save_task(t)
+
+        with patch("duo.cli.subprocess.run"):
+            result = runner.invoke(main, ["stop", "--all", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["stopped_count"] == 1
+            assert len(data["tasks"]) == 1
+
+    def test_stop_no_name_no_all(self, runner: CliRunner):
+        """stop without name or --all shows error."""
+        result = runner.invoke(main, ["stop"])
+        assert result.exit_code != 0
+        assert "Provide a task NAME or use --all" in result.output
+
+    def test_stop_all_transition_failure(self, runner: CliRunner):
+        """stop --all handles tasks where transition fails."""
+        t = _make_task("stop-all-tf")
+        t.status = TaskStatus.RUNNING
+        save_task(t)
+
+        with (
+            patch("duo.cli.subprocess.run"),
+            patch("duo.protocol.transition", return_value=False),
+        ):
+            result = runner.invoke(main, ["stop", "--all"])
+            assert result.exit_code == 0
+            assert "stop-all-tf" in result.output
+
 
 # ---------------------------------------------------------------------------
 
