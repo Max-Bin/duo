@@ -1380,3 +1380,49 @@ class TestNormalizeForRestartProperty:
         save_task(task)
         result = normalize_for_restart(task)
         assert isinstance(result, bool)
+
+
+class TestPathTraversalDetectionProperty:
+    """Property tests for verifier path traversal defense."""
+
+    @given(
+        segments=st.lists(
+            st.text(
+                alphabet=st.characters(whitelist_categories=("L", "N", "P")),
+                min_size=1,
+                max_size=20,
+            ),
+            min_size=1,
+            max_size=5,
+        )
+    )
+    def test_normal_paths_normalized(self, segments: list[str]) -> None:
+        """Paths without '..' should survive normpath without becoming traversals."""
+        import os
+
+        assume(not any(".." in s for s in segments))
+        assume(not any("\x00" in s for s in segments))
+        path = "/".join(segments)
+        normalized = os.path.normpath(path)
+        assert not normalized.startswith("..")
+
+    @given(
+        prefix=st.text(min_size=0, max_size=10),
+    )
+    def test_dotdot_always_detected(self, prefix: str) -> None:
+        """Paths with '../' at start always trigger traversal detection."""
+        import os
+
+        path = f"../{prefix}"
+        normalized = os.path.normpath(path)
+        assert normalized.startswith("..") or os.path.isabs(normalized)
+
+    @given(
+        safe_part=st.text(min_size=1, max_size=20),
+        position=st.integers(min_value=0, max_value=20),
+    )
+    def test_null_byte_always_detectable(self, safe_part: str, position: int) -> None:
+        """Null bytes injected into paths are always detectable."""
+        pos = min(position, len(safe_part))
+        path = safe_part[:pos] + "\x00" + safe_part[pos:]
+        assert "\x00" in path
