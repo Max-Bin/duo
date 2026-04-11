@@ -9,6 +9,7 @@ import re
 import string
 import subprocess
 import time
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -6270,6 +6271,69 @@ class TestFmtTs:
     def test_short_time_part(self):
         """Time portion shorter than 8 chars returns what's available."""
         assert _fmt_ts("2025-01-15T14:30") == "14:30"
+
+
+class TestFmtAge:
+    """Tests for the _fmt_age elapsed-time formatting helper."""
+
+    def test_seconds(self):
+        from datetime import datetime, timedelta
+
+        from duo.cli import _fmt_age
+
+        ts = (datetime.now(UTC) - timedelta(seconds=30)).isoformat()
+        assert _fmt_age(ts) == "30s"
+
+    def test_future_timestamp(self):
+        from datetime import datetime, timedelta
+
+        from duo.cli import _fmt_age
+
+        ts = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        assert _fmt_age(ts) == "0s"
+
+    def test_naive_timestamp(self):
+        from datetime import datetime, timedelta
+
+        from duo.cli import _fmt_age
+
+        naive = datetime.now(UTC) - timedelta(minutes=10)
+        ts = naive.strftime("%Y-%m-%dT%H:%M:%S")
+        assert _fmt_age(ts) == "10m"
+
+    def test_minutes(self):
+        from datetime import datetime, timedelta
+
+        from duo.cli import _fmt_age
+
+        ts = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+        assert _fmt_age(ts) == "5m"
+
+    def test_hours(self):
+        from datetime import datetime, timedelta
+
+        from duo.cli import _fmt_age
+
+        ts = (datetime.now(UTC) - timedelta(hours=2, minutes=30)).isoformat()
+        assert _fmt_age(ts) == "2h 30m"
+
+    def test_days(self):
+        from datetime import datetime, timedelta
+
+        from duo.cli import _fmt_age
+
+        ts = (datetime.now(UTC) - timedelta(days=3, hours=5)).isoformat()
+        assert _fmt_age(ts) == "3d 5h"
+
+    def test_invalid_input(self):
+        from duo.cli import _fmt_age
+
+        assert _fmt_age("not-a-timestamp") == "?"
+
+    def test_none_input(self):
+        from duo.cli import _fmt_age
+
+        assert _fmt_age(None) == "?"  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

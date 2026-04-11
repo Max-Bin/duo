@@ -150,6 +150,29 @@ def _fmt_ts(ts: str) -> str:
         return "?"
 
 
+def _fmt_age(created_at: str) -> str:
+    """Format elapsed time since created_at as human-readable string."""
+    try:
+        from datetime import UTC, datetime
+
+        created = datetime.fromisoformat(created_at)
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        delta = datetime.now(UTC) - created
+        total_seconds = int(delta.total_seconds())
+        if total_seconds < 0:
+            return "0s"
+        if total_seconds < 60:
+            return f"{total_seconds}s"
+        if total_seconds < 3600:
+            return f"{total_seconds // 60}m"
+        if total_seconds < 86400:
+            return f"{total_seconds // 3600}h {(total_seconds % 3600) // 60}m"
+        return f"{total_seconds // 86400}d {(total_seconds % 86400) // 3600}h"
+    except (ValueError, TypeError, AttributeError):
+        return "?"
+
+
 _GIT_TIMEOUT = 30  # seconds for git subprocess calls
 _TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
 _MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
@@ -706,12 +729,13 @@ def list_cmd(as_json: bool, status_filter: str | None) -> None:
         click.echo(json.dumps(output, indent=2))
         return
 
-    click.echo(f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'INCARNATION':<12}")
-    click.echo("-" * 60)
+    click.echo(f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'AGE':<10} {'INCARNATION':<12}")
+    click.echo("-" * 70)
     for t in tasks:
         step_str = f"{t.current_step}/{len(t.subtasks)}"
+        age_str = _fmt_age(t.created_at)
         click.echo(
-            f"{t.id:<20} {t.status.value:<18} {step_str:<8} {t.incarnation_id:<12}"
+            f"{t.id:<20} {t.status.value:<18} {step_str:<8} {age_str:<10} {t.incarnation_id:<12}"
         )
 
 
