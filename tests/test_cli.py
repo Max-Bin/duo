@@ -1631,26 +1631,34 @@ class TestSafeJoin:
         result = _safe_join(str(tmp_path), "my-task")
         assert result == str(tmp_path / "my-task")
 
-    def test_safe_join_traversal_rejected(self, tmp_path: Path) -> None:
-        """Path traversal via '..' is rejected."""
+    @pytest.mark.parametrize(
+        "malicious",
+        [
+            "../../../etc",
+            "/etc/passwd",
+            "foo/../../../etc",
+            "foo/../../bar",
+            "../",
+            "..",
+            "a/../b/../../../etc",
+        ],
+        ids=lambda x: x[:30],
+    )
+    def test_safe_join_traversal_rejected(self, tmp_path: Path, malicious: str) -> None:
+        """Various path traversal attempts are rejected."""
         import click
 
         with pytest.raises(click.BadParameter, match="traversal"):
-            _safe_join(str(tmp_path), "../../../etc")
+            _safe_join(str(tmp_path), malicious)
 
-    def test_safe_join_absolute_path_rejected(self, tmp_path: Path) -> None:
-        """Absolute path names are rejected."""
-        import click
-
-        with pytest.raises(click.BadParameter, match="traversal"):
-            _safe_join(str(tmp_path), "/etc/passwd")
-
-    def test_safe_join_dot_dot_embedded(self, tmp_path: Path) -> None:
-        """Embedded .. traversal is rejected."""
-        import click
-
-        with pytest.raises(click.BadParameter, match="traversal"):
-            _safe_join(str(tmp_path), "foo/../../../etc")
+    @pytest.mark.parametrize(
+        "safe_name",
+        ["my-task", "task_123", "FooBar", "a", "x-y-z_0"],
+    )
+    def test_safe_join_valid_names(self, tmp_path: Path, safe_name: str) -> None:
+        """Valid task names are joined correctly."""
+        result = _safe_join(str(tmp_path), safe_name)
+        assert result == str(tmp_path / safe_name)
 
 
 # ---------------------------------------------------------------------------
