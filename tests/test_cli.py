@@ -6331,6 +6331,21 @@ class TestJsonOutput:
         assert "STATUS" in result.output
         assert "table-task" in result.output
 
+    def test_list_wide_shows_description(self, runner: CliRunner):
+        """list --wide includes DESCRIPTION column."""
+        _make_task("wide-task", "Fix the login bug")
+        result = runner.invoke(main, ["list", "--wide"])
+        assert result.exit_code == 0
+        assert "DESCRIPTION" in result.output
+        assert "Fix the login bug" in result.output
+
+    def test_list_wide_truncates_long_desc(self, runner: CliRunner):
+        """list --wide truncates descriptions longer than 30 chars."""
+        _make_task("long-desc", "A" * 50)
+        result = runner.invoke(main, ["list", "--wide"])
+        assert result.exit_code == 0
+        assert "..." in result.output
+
     def test_status_without_json_flag(self, runner: CliRunner):
         """status without --json-output returns normal format."""
         _make_task("normal-task", "Normal task")

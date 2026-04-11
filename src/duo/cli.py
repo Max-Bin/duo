@@ -813,6 +813,9 @@ def _print_task(task: Task) -> None:
 @click.option("--no-header", is_flag=True, help="Omit table header")
 @click.option("--active", is_flag=True, help="Show only running/active tasks")
 @click.option(
+    "--wide", "-w", is_flag=True, help="Show description column in table output"
+)
+@click.option(
     "--recent",
     type=int,
     default=None,
@@ -827,6 +830,7 @@ def list_cmd(
     count: bool,
     no_header: bool,
     active: bool,
+    wide: bool,
     recent: int | None,
 ) -> None:
     """List all tasks."""
@@ -901,16 +905,25 @@ def list_cmd(
         return
 
     if not no_header:
-        click.echo(
+        header = (
             f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'AGE':<10} {'INCARNATION':<12}"
         )
-        click.echo("-" * 70)
+        if wide:
+            header += f" {'DESCRIPTION'}"
+        click.echo(header)
+        click.echo("-" * (70 if not wide else 100))
     for t in tasks:
         step_str = f"{t.current_step}/{len(t.subtasks)}"
         age_str = _fmt_age(t.created_at)
-        click.echo(
-            f"{t.id:<20} {t.status.value:<18} {step_str:<8} {age_str:<10} {t.incarnation_id:<12}"
-        )
+        line = f"{t.id:<20} {t.status.value:<18} {step_str:<8} {age_str:<10} {t.incarnation_id:<12}"
+        if wide:
+            desc = (
+                (t.description[:28] + "...")
+                if len(t.description) > 30
+                else t.description
+            )
+            line += f" {desc}"
+        click.echo(line)
 
 
 @main.command()
