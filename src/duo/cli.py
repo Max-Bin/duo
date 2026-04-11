@@ -2540,7 +2540,7 @@ def _doctor_check_duo_dir() -> CheckResult:
 
 
 def _doctor_check_config() -> CheckResult:
-    """Check config.json exists and is valid JSON."""
+    """Check config.json exists, is valid JSON, and passes validation."""
     config_path = DUO_DIR / "config.json"
     if not config_path.exists():
         return CheckResult(
@@ -2551,7 +2551,6 @@ def _doctor_check_config() -> CheckResult:
         )
     try:
         json.loads(config_path.read_text())
-        return CheckResult("config.json", "pass", "valid", "")
     except (json.JSONDecodeError, OSError):
         return CheckResult(
             "config.json",
@@ -2559,6 +2558,17 @@ def _doctor_check_config() -> CheckResult:
             "invalid JSON",
             "Run: duo config reset",
         )
+    from duo.config import validate_config
+
+    issues = validate_config()
+    if issues:
+        return CheckResult(
+            "config.json",
+            "warn",
+            f"{len(issues)} issue(s)",
+            "Run: duo config validate",
+        )
+    return CheckResult("config.json", "pass", "valid", "")
 
 
 def _doctor_check_tmux_session() -> CheckResult:

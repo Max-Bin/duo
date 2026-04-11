@@ -4848,8 +4848,11 @@ class TestDoctor:
 
     def test_check_config_pass(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """Valid config.json → pass."""
+        import duo.config as config_mod
+
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-        (tmp_path / "config.json").write_text('{"key": "value"}')
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
+        (tmp_path / "config.json").write_text('{"max_corrections": 5}')
         r = _doctor_check_config()
         assert r.status == "pass"
         assert r.message == "valid"
@@ -4872,6 +4875,20 @@ class TestDoctor:
         r = _doctor_check_config()
         assert r.status == "warn"
         assert "invalid" in r.message.lower()
+
+    def test_check_config_validation_issues(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Config with validation issues → warn with issue count."""
+        import duo.config as config_mod
+
+        monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
+        (tmp_path / "config.json").write_text('{"unknown_key": true}')
+        r = _doctor_check_config()
+        assert r.status == "warn"
+        assert "issue" in r.message
+        assert "duo config validate" in r.fix
 
     def test_check_tmux_session_pass(self, monkeypatch: pytest.MonkeyPatch):
         """Active tmux session → pass."""
