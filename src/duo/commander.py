@@ -1153,6 +1153,121 @@ def resend_last_prompt(task: Task) -> None:
 # === Verify and Advance ===
 
 
+def _handle_pass_verdict(task: Task, step: int, attempt: int) -> None:
+    """Advance task after a passing verification verdict.
+
+    Last step → COMPLETED.  Otherwise advance step, send continuation,
+    rollback to BLOCKED on send failure.
+    """
+    if step >= len(task.subtasks):
+        if transition(task, TaskStatus.COMPLETED):
+            append_event(task, "task_completed", {"id": task.id})
+        return
+
+    # Next step — create dir before save so it exists when task.json references it
+    next_step_dir = task.step_dir(step + 1)
+    next_step_dir.mkdir(parents=True, exist_ok=True)
+    task.current_step = step + 1
+    task.current_attempt = 1
+    save_task(task)
+
+    try:
+        prompt = build_continue_prompt(task)
+        send_task_prompt(task, prompt)
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
+        logger.warning(
+            "Failed to send continuation for '%s': %s — rolling back",
+            task.id,
+            exc,
+        )
+        task.current_step = step
+        task.current_attempt = attempt
+        save_task(task)
+        transition(task, TaskStatus.BLOCKED)
+        append_event(
+            task,
+            "continuation_send_failed",
+            {"step": step + 1, "error": str(exc)},
+        )
+
+
+def _handle_correction_verdict(
+    task: Task, step: int, attempt: int, reason: str
+) -> None:
+    """Send a correction after a failing verification verdict.
+
+    Checks correction budget, bumps attempt, transitions to CORRECTING,
+    sends correction prompt.  Rollback to FAILED on send failure.
+    ``correction_sent`` event is appended only after successful send.
+    """
+    correction_count = _count_corrections(task, step)
+    max_corrections = int(get_config("max_corrections") or 3)
+    if correction_count >= max_corrections:
+        if transition(task, TaskStatus.ESCALATED):
+            append_event(
+                task,
+                "escalated_to_human",
+                {
+                    "step": step,
+                    "reason": f"{max_corrections} corrections exhausted: {reason}",
+                },
+            )
+        return
+
+    task.current_attempt = attempt + 1
+    save_task(task)
+    task.step_dir(step).mkdir(parents=True, exist_ok=True)
+
+    if not transition(task, TaskStatus.CORRECTING):
+        logger.warning(
+            "Transition to CORRECTING failed for %s — rolling back attempt bump",
+            task.id,
+        )
+        task.current_attempt = attempt
+        save_task(task)
+        return
+
+    try:
+        prompt = build_correction_prompt(task, reason)
+        send_task_prompt(task, prompt)
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
+        logger.warning(
+            "Failed to send correction for '%s': %s — rolling back",
+            task.id,
+            exc,
+        )
+        task.current_attempt = attempt
+        save_task(task)
+        transition(task, TaskStatus.FAILED)
+        append_event(
+            task,
+            "correction_send_failed",
+            {"step": step, "attempt": attempt + 1, "error": str(exc)},
+        )
+        return
+
+    append_event(
+        task,
+        "correction_sent",
+        {
+            "step": step,
+            "attempt": task.current_attempt,
+            "incarnation": task.incarnation_id,
+            "reason": reason,
+        },
+    )
+
+
 def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
     """Verify the current step result and advance or correct."""
     step = task.current_step
@@ -1199,107 +1314,9 @@ def verify_and_advance(task: Task, result: StepResult | None = None) -> None:
         return
 
     if isinstance(verdict, Pass):
-        # Advance to next step
-        if step >= len(task.subtasks):
-            # All done!
-            if transition(task, TaskStatus.COMPLETED):
-                append_event(task, "task_completed", {"id": task.id})
-        else:
-            # Next step — create dir before save so it exists when task.json references it
-            next_step_dir = task.step_dir(step + 1)
-            next_step_dir.mkdir(parents=True, exist_ok=True)
-            task.current_step = step + 1
-            task.current_attempt = 1
-            save_task(task)
-
-            # Send continuation prompt — rollback on failure
-            try:
-                prompt = build_continue_prompt(task)
-                send_task_prompt(task, prompt)
-            except (
-                RuntimeError,
-                subprocess.CalledProcessError,
-                subprocess.TimeoutExpired,
-                OSError,
-            ) as exc:
-                logger.warning(
-                    "Failed to send continuation for '%s': %s — rolling back",
-                    task.id,
-                    exc,
-                )
-                task.current_step = step
-                task.current_attempt = attempt
-                save_task(task)
-                transition(task, TaskStatus.BLOCKED)
-                append_event(
-                    task,
-                    "continuation_send_failed",
-                    {"step": step + 1, "error": str(exc)},
-                )
-
+        _handle_pass_verdict(task, step, attempt)
     elif isinstance(verdict, Correction):
-        # Check correction count
-        correction_count = _count_corrections(task, step)
-        max_corrections = int(get_config("max_corrections") or 3)
-        if correction_count >= max_corrections:
-            if transition(task, TaskStatus.ESCALATED):
-                append_event(
-                    task,
-                    "escalated_to_human",
-                    {
-                        "step": step,
-                        "reason": f"{max_corrections} corrections exhausted: {verdict.reason}",
-                    },
-                )
-            return
-
-        # Send correction — rollback on failure
-        task.current_attempt = attempt + 1
-        save_task(task)
-        task.step_dir(step).mkdir(parents=True, exist_ok=True)
-
-        if not transition(task, TaskStatus.CORRECTING):
-            logger.warning(
-                "Transition to CORRECTING failed for %s — rolling back attempt bump",
-                task.id,
-            )
-            task.current_attempt = attempt
-            save_task(task)
-            return
-        try:
-            prompt = build_correction_prompt(task, verdict.reason)
-            send_task_prompt(task, prompt)
-        except (
-            RuntimeError,
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-            OSError,
-        ) as exc:
-            logger.warning(
-                "Failed to send correction for '%s': %s — rolling back",
-                task.id,
-                exc,
-            )
-            task.current_attempt = attempt
-            save_task(task)
-            transition(task, TaskStatus.FAILED)
-            append_event(
-                task,
-                "correction_send_failed",
-                {"step": step, "attempt": attempt + 1, "error": str(exc)},
-            )
-            return
-
-        append_event(
-            task,
-            "correction_sent",
-            {
-                "step": step,
-                "attempt": task.current_attempt,
-                "incarnation": task.incarnation_id,
-                "reason": verdict.reason,
-            },
-        )
+        _handle_correction_verdict(task, step, attempt, verdict.reason)
 
 
 def _count_corrections(task: Task, step: int) -> int:
