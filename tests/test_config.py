@@ -75,20 +75,32 @@ class TestSetConfig:
         assert result == "gpt-4o"
         assert config_mod.get_config("copilot_model") == "gpt-4o"
 
-    def test_coerces_bool_true(self):
-        for truthy in ("true", "True", "1", "yes"):
-            result = config_mod.set_config("auto_allow_all", truthy)
-            assert result is True
+    @pytest.mark.parametrize(
+        "value",
+        ["true", "True", "TRUE", "1", "yes", "Yes"],
+        ids=lambda v: f"truthy-{v}",
+    )
+    def test_coerces_bool_true(self, value: str):
+        result = config_mod.set_config("auto_allow_all", value)
+        assert result is True
 
-    def test_coerces_bool_false(self):
-        for falsy in ("false", "0", "no"):
-            result = config_mod.set_config("auto_allow_all", falsy)
-            assert result is False
+    @pytest.mark.parametrize(
+        "value",
+        ["false", "False", "FALSE", "0", "no", "No"],
+        ids=lambda v: f"falsy-{v}",
+    )
+    def test_coerces_bool_false(self, value: str):
+        result = config_mod.set_config("auto_allow_all", value)
+        assert result is False
 
-    def test_rejects_invalid_bool(self):
-        for invalid in ("maybe", "yep", "nah", "2", "tru"):
-            with pytest.raises(ValueError, match="Cannot convert"):
-                config_mod.set_config("auto_allow_all", invalid)
+    @pytest.mark.parametrize(
+        "value",
+        ["maybe", "yep", "nah", "2", "tru", ""],
+        ids=lambda v: f"invalid-{v or 'empty'}",
+    )
+    def test_rejects_invalid_bool(self, value: str):
+        with pytest.raises(ValueError, match="Cannot convert"):
+            config_mod.set_config("auto_allow_all", value)
 
     def test_coerces_int(self):
         result = config_mod.set_config("max_corrections", "7")
