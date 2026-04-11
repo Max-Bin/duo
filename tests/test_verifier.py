@@ -222,41 +222,31 @@ class TestMatchWritable:
 
 
 class TestMatchWritableParametrized:
-    """Comprehensive parametrized tests for _match_writable edge cases."""
+    """Comprehensive tests for _match_writable edge cases."""
 
-    @pytest.mark.parametrize(
-        ("path", "pattern", "expected"),
-        [
-            # Extension matching
+    def test_match_writable_cases(self) -> None:
+        cases = [
             ("src/app.py", "*.py", True),
             ("src/sub/deep.py", "*.py", True),
             ("readme.md", "*.py", False),
             ("src/app.pyx", "*.py", False),
-            # Directory-specific patterns
             ("tests/test_one.py", "tests/*", True),
             ("tests/sub/test_two.py", "tests/*", True),
             ("src/tests/fake.py", "tests/*", False),
-            # Double extension
             ("data/archive.tar.gz", "*.gz", True),
             ("data/archive.tar.gz", "*.tar.gz", True),
-            # Root-level files
             ("Makefile", "Makefile", True),
             ("pyproject.toml", "*.toml", True),
             ("README.md", "*.md", True),
-            # Dotfiles
             (".gitignore", ".*", True),
             (".github/workflows/ci.yml", ".github/*", True),
-            # Catch-all
             ("anything/at/all.txt", "*", True),
-            # Empty pattern (should not match)
             ("src/app.py", "", False),
-        ],
-        ids=lambda x: str(x)[:40],
-    )
-    def test_match_writable_cases(
-        self, path: str, pattern: str, expected: bool
-    ) -> None:
-        assert _match_writable(path, pattern) is expected
+        ]
+        for path, pattern, expected in cases:
+            assert _match_writable(path, pattern) is expected, (
+                f"_match_writable({path!r}, {pattern!r}) should be {expected}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -513,9 +503,8 @@ class TestCheckSecretLeak:
         task = _make_task()
         assert _check_secret_leak(task, "", ["API_KEY="]) is None
 
-    @pytest.mark.parametrize(
-        "pattern,sample",
-        [
+    def test_modern_token_patterns(self):
+        patterns_and_samples = [
             ("github_pat_", "+GITHUB_TOKEN=github_pat_abc123xyz"),
             ("ghp_", "+TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
             ("gho_", "+OAUTH=gho_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
@@ -529,22 +518,10 @@ class TestCheckSecretLeak:
             ("sk_test_", "+STRIPE_TEST=sk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
             ("xoxb-", "+SLACK_BOT=xoxb-xxxxxxxxxxxx-xxxxxxxxxxxx"),
             ("xoxp-", "+SLACK_USER=xoxp-xxxxxxxxxxxx-xxxxxxxxxxxx"),
-            (
-                "-----BEGIN RSA PRIVATE KEY",
-                "+-----BEGIN RSA PRIVATE KEY-----",
-            ),
-            (
-                "-----BEGIN EC PRIVATE KEY",
-                "+-----BEGIN EC PRIVATE KEY-----",
-            ),
-            (
-                "-----BEGIN OPENSSH PRIVATE KEY",
-                "+-----BEGIN OPENSSH PRIVATE KEY-----",
-            ),
-            (
-                "-----BEGIN PRIVATE KEY",
-                "+-----BEGIN PRIVATE KEY-----",
-            ),
+            ("-----BEGIN RSA PRIVATE KEY", "+-----BEGIN RSA PRIVATE KEY-----"),
+            ("-----BEGIN EC PRIVATE KEY", "+-----BEGIN EC PRIVATE KEY-----"),
+            ("-----BEGIN OPENSSH PRIVATE KEY", "+-----BEGIN OPENSSH PRIVATE KEY-----"),
+            ("-----BEGIN PRIVATE KEY", "+-----BEGIN PRIVATE KEY-----"),
             ("glpat-", "+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx"),
             ("pypi-AgEIcHlwaS", "+PYPI_TOKEN=pypi-AgEIcHlwaSOmeLongToken"),
             ("npm_", "+NPM_TOKEN=npm_xxxxxxxxxxxxxxxxxxxx"),
@@ -566,14 +543,13 @@ class TestCheckSecretLeak:
             ("SG.", "+SENDGRID_KEY=SG.xxxxxxxxxxxx"),
             ("sq0csp-", "+SQUARE_SECRET=sq0csp-xxxxxxxxxxxx"),
             ("sq0atp-", "+SQUARE_TOKEN=sq0atp-xxxxxxxxxxxx"),
-        ],
-    )
-    def test_modern_token_patterns(self, pattern, sample):
+        ]
         task = _make_task()
-        diff = sample + "\n"
-        result = _check_secret_leak(task, diff, [pattern])
-        assert isinstance(result, Correction)
-        assert pattern in result.reason
+        for pattern, sample in patterns_and_samples:
+            diff = sample + "\n"
+            result = _check_secret_leak(task, diff, [pattern])
+            assert isinstance(result, Correction), f"pattern {pattern!r} not detected"
+            assert pattern in result.reason
 
     def test_whitespace_around_equals_detected(self):
         """Patterns ending with '=' also match 'KEY = value' with spaces."""
@@ -974,31 +950,29 @@ class TestJwtAndAwsSecretDetection:
 class TestAiPlatformSecretDetection:
     """AI platform API key patterns are detected in diffs."""
 
-    @pytest.mark.parametrize(
-        "pattern,diff_line",
-        [
+    def test_ai_platform_keys_detected(self) -> None:
+        patterns_and_diffs = [
             ("ANTHROPIC_API_KEY", "+ANTHROPIC_API_KEY=sk-ant-api03-xxxx"),
             ("OPENAI_API_KEY", "+OPENAI_API_KEY=sk-proj-xxxx"),
             ("OPENAI_ORG_ID", "+OPENAI_ORG_ID=org-abc123"),
             ("HF_TOKEN", "+HF_TOKEN=hf_xxxxxxxxxxxx"),
             ("HUGGING_FACE_HUB_TOKEN", "+HUGGING_FACE_HUB_TOKEN=hf_yy"),
             ("REPLICATE_API_TOKEN", "+REPLICATE_API_TOKEN=r8_zzzzz"),
-        ],
-    )
-    def test_ai_platform_key_detected(self, pattern: str, diff_line: str) -> None:
-        task = _make_task()
+        ]
         from duo.protocol import DEFAULT_SECRET_PATTERNS
 
-        result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
-        assert isinstance(result, Correction), f"{pattern} not detected"
+        task = _make_task()
+        for pattern, diff_line in patterns_and_diffs:
+            result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
+            assert isinstance(result, Correction), f"{pattern} not detected"
 
 
 class TestRemainingSecretPatterns:
     """Ensure every DEFAULT_SECRET_PATTERN triggers detection."""
 
-    @pytest.mark.parametrize(
-        ("pattern", "diff_line"),
-        [
+    def test_patterns_detected(self) -> None:
+        """Each secret pattern must trigger a Correction."""
+        patterns_and_diffs = [
             ("apikey=", "+apikey=super_secret_key_12345"),
             ("secret=", "+secret=my_app_secret_value"),
             ("PRIVATE_KEY", "+PRIVATE_KEY=-----BEGIN PRIVATE-----"),
@@ -1013,12 +987,10 @@ class TestRemainingSecretPatterns:
             ("AWS_SECRET_ACCESS_KEY=", "+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG"),
             ("aws_secret_access_key=", "+aws_secret_access_key=wJalrXUtnFEMI/K7MDENG"),
             ("GH_TOKEN=", "+GH_TOKEN=ghp_abcdefghijk1234567890"),
-        ],
-    )
-    def test_pattern_detected(self, pattern: str, diff_line: str) -> None:
-        """Each secret pattern must trigger a Correction."""
-        task = _make_task()
+        ]
         from duo.protocol import DEFAULT_SECRET_PATTERNS
 
-        result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
-        assert isinstance(result, Correction), f"{pattern} not detected in diff"
+        task = _make_task()
+        for pattern, diff_line in patterns_and_diffs:
+            result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
+            assert isinstance(result, Correction), f"{pattern} not detected in diff"

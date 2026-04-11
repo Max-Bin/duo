@@ -1876,40 +1876,32 @@ class TestGetCopilotModel:
         monkeypatch.setattr("duo.commander.get_config", lambda k: "custom-model")
         assert _get_copilot_model() == "custom-model"
 
-    @pytest.mark.parametrize(
-        "bad_model",
-        [
-            pytest.param("x; curl evil.com", id="semicolon"),
-            pytest.param("model$(whoami)", id="command-sub"),
-            pytest.param("a b c", id="spaces"),
-            pytest.param("x|y", id="pipe"),
-            pytest.param("a" * 65, id="too-long-65"),
-            pytest.param("x&rm -rf /", id="ampersand"),
-        ],
-    )
-    def test_env_var_invalid_rejected(
-        self, monkeypatch: pytest.MonkeyPatch, bad_model: str
-    ):
+    def test_env_var_invalid_rejected(self, monkeypatch: pytest.MonkeyPatch):
         """Env var with unsafe chars or excessive length falls back to config."""
-        monkeypatch.setenv("DUO_COPILOT_MODEL", bad_model)
+        bad_models = [
+            "x; curl evil.com",
+            "model$(whoami)",
+            "a b c",
+            "x|y",
+            "a" * 65,
+            "x&rm -rf /",
+        ]
         monkeypatch.setattr("duo.commander.get_config", lambda k: "safe-model")
-        assert _get_copilot_model() == "safe-model"
+        for bad_model in bad_models:
+            monkeypatch.setenv("DUO_COPILOT_MODEL", bad_model)
+            assert _get_copilot_model() == "safe-model", f"should reject: {bad_model!r}"
 
-    @pytest.mark.parametrize(
-        "good_model",
-        [
-            pytest.param("claude-opus-4.6", id="default"),
-            pytest.param("gpt-4o", id="gpt"),
-            pytest.param("a" * 64, id="exact-64-chars"),
-            pytest.param("claude.sonnet-3.5_v2", id="dots-underscores"),
-        ],
-    )
-    def test_env_var_valid_accepted(
-        self, monkeypatch: pytest.MonkeyPatch, good_model: str
-    ):
+    def test_env_var_valid_accepted(self, monkeypatch: pytest.MonkeyPatch):
         """Valid model names from env var are accepted."""
-        monkeypatch.setenv("DUO_COPILOT_MODEL", good_model)
-        assert _get_copilot_model() == good_model
+        good_models = [
+            "claude-opus-4.6",
+            "gpt-4o",
+            "a" * 64,
+            "claude.sonnet-3.5_v2",
+        ]
+        for good_model in good_models:
+            monkeypatch.setenv("DUO_COPILOT_MODEL", good_model)
+            assert _get_copilot_model() == good_model, f"should accept: {good_model!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -2398,28 +2390,24 @@ class TestPollTask:
         mock_restart.assert_not_called()
         assert result == PollResult.HEARTBEAT_TIMEOUT
 
-    @pytest.mark.parametrize(
-        "terminal_status",
-        [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED],
-    )
     @patch("duo.commander.restart_session")
     @patch("duo.commander.is_process_alive", return_value=False)
     def test_poll_heartbeat_skips_restart_for_terminal_states(
-        self, mock_alive, mock_restart, terminal_status
+        self, mock_alive, mock_restart
     ):
         """HEARTBEAT_TIMEOUT skips restart for any terminal on-disk state."""
-        task = _make_task()
-        _advance_to_prompt_sent(task)
-        poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
-
-        # Force task to terminal state on disk (bypass FSM for test)
-        task.status = terminal_status
-        save_task(task)
-
-        result = poll_task(task, poller)
-
-        mock_restart.assert_not_called()
-        assert result == PollResult.HEARTBEAT_TIMEOUT
+        for i, terminal_status in enumerate(
+            [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED]
+        ):
+            task = _make_task(f"term-{i}")
+            _advance_to_prompt_sent(task)
+            poller = self._make_poller(PollResult.HEARTBEAT_TIMEOUT)
+            task.status = terminal_status
+            save_task(task)
+            result = poll_task(task, poller)
+            mock_restart.assert_not_called()
+            assert result == PollResult.HEARTBEAT_TIMEOUT
+            mock_restart.reset_mock()
 
     @patch("duo.commander.restart_session")
     @patch("duo.commander.is_process_alive", return_value=False)
@@ -4308,41 +4296,41 @@ class TestTransitionReturnValueGuards:
 class TestNormalizeForRestart:
     """normalize_for_restart() transitions active states to FAILED for restart."""
 
-    @pytest.mark.parametrize(
-        "status_name",
-        ["created", "queued", "blocked", "failed", "session_starting"],
-    )
-    def test_directly_restartable_states_return_true(self, status_name: str):
+    def test_directly_restartable_states_return_true(self):
         """States already legal for SESSION_STARTING need no normalization."""
         from duo.commander import normalize_for_restart
 
-        task = _make_task(f"norm-{status_name}")
-        task.status = TaskStatus(status_name)
-        save_task(task)
-        assert normalize_for_restart(task) is True
-        assert task.status == TaskStatus(status_name)
+        for status_name in [
+            "created",
+            "queued",
+            "blocked",
+            "failed",
+            "session_starting",
+        ]:
+            task = _make_task(f"norm-{status_name}")
+            task.status = TaskStatus(status_name)
+            save_task(task)
+            assert normalize_for_restart(task) is True
+            assert task.status == TaskStatus(status_name)
 
-    @pytest.mark.parametrize(
-        "status",
-        [
+    def test_active_state_normalized_to_failed(self):
+        """Active states are moved to FAILED before restart."""
+        from duo.commander import normalize_for_restart
+
+        active_states = [
             TaskStatus.PROMPT_SENT,
             TaskStatus.ACKED,
             TaskStatus.RUNNING,
             TaskStatus.RESULT_REPORTED,
             TaskStatus.VERIFYING,
             TaskStatus.CORRECTING,
-        ],
-        ids=lambda s: s.value,
-    )
-    def test_active_state_normalized_to_failed(self, status: TaskStatus):
-        """Active states are moved to FAILED before restart."""
-        from duo.commander import normalize_for_restart
-
-        task = _make_task(f"norm-{status.value}")
-        task.status = status
-        save_task(task)
-        assert normalize_for_restart(task) is True
-        assert task.status == TaskStatus.FAILED
+        ]
+        for status in active_states:
+            task = _make_task(f"norm-{status.value}")
+            task.status = status
+            save_task(task)
+            assert normalize_for_restart(task) is True
+            assert task.status == TaskStatus.FAILED
 
     def test_normalize_failure_returns_false(self):
         """If transition to FAILED is rejected, returns False."""

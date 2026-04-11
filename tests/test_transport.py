@@ -591,35 +591,18 @@ class TestDiagnosePane:
 
 
 class TestIsProcessAlive:
-    @pytest.mark.parametrize(
-        "process_line,expected",
-        [
-            ("HEADER\n%1 main:0 80x24 zsh agent /home\n", False),
-            ("HEADER\n%1 main:0 80x24 -zsh agent /home\n", False),
-            ("HEADER\n%1 main:0 80x24 bash agent /home\n", False),
-            ("HEADER\n%1 main:0 80x24 -bash agent /home\n", False),
-            ("HEADER\n%1 main:0 80x24 sh agent /home\n", False),
-            ("HEADER\n%1 main:0 80x24 fish agent /home\n", False),
-            ("HEADER\n%1 main:0 80x24 copilot agent /home\n", True),
-            ("HEADER\n%1 main:0 80x24 python agent /home\n", True),
-            ("HEADER\n%1 main:0 80x24 claude agent /home\n", True),
-        ],
-        ids=[
-            "zsh-dead",
-            "dash-zsh-dead",
-            "bash-dead",
-            "dash-bash-dead",
-            "sh-dead",
-            "fish-dead",
-            "copilot-alive",
-            "python-alive",
-            "claude-alive",
-        ],
-    )
     @patch("subprocess.run")
-    def test_process_detection(self, mock_run, process_line, expected):
-        mock_run.return_value = _ok(process_line)
-        assert is_process_alive("agent") is expected
+    def test_process_detection(self, mock_run):
+        dead_shells = ["zsh", "-zsh", "bash", "-bash", "sh", "fish"]
+        alive_procs = ["copilot", "python", "claude"]
+        for shell in dead_shells:
+            mock_run.return_value = _ok(
+                f"HEADER\n%1 main:0 80x24 {shell} agent /home\n"
+            )
+            assert is_process_alive("agent") is False, f"{shell} should be dead"
+        for proc in alive_procs:
+            mock_run.return_value = _ok(f"HEADER\n%1 main:0 80x24 {proc} agent /home\n")
+            assert is_process_alive("agent") is True, f"{proc} should be alive"
 
     @patch("subprocess.run")
     def test_unknown_label_returns_false(self, mock_run):
@@ -1142,14 +1125,11 @@ class TestLabelValidation:
             result = resolve_label("task-fix.auth_01")
         assert result == "%42"
 
-    @pytest.mark.parametrize(
-        "bad_label",
-        ["lab;rm -rf /", "pane$(whoami)", "a b", "foo&bar", "x|y"],
-    )
-    def test_resolve_label_unsafe_rejected(self, bad_label: str):
-        """Label with shell metacharacters is rejected before reaching tmux."""
-        with pytest.raises(ValueError, match="Unsafe pane label"):
-            resolve_label(bad_label)
+    def test_resolve_label_unsafe_rejected(self):
+        """Labels with shell metacharacters are rejected before reaching tmux."""
+        for bad_label in ["lab;rm -rf /", "pane$(whoami)", "a b", "foo&bar", "x|y"]:
+            with pytest.raises(ValueError, match="Unsafe pane label"):
+                resolve_label(bad_label)
 
 
 # ── Bridge timeout ───────────────────────────────────────────────────
@@ -1207,15 +1187,11 @@ class TestIsAtMainPromptEdgeCases:
         content = "◉ Processing...\n❯ Type @ to mention files"
         assert is_at_main_prompt(content) is False
 
-    @pytest.mark.parametrize(
-        "marker",
-        ["◉ ", "◎ ", "○ "],
-        ids=["filled-spinner", "double-spinner", "empty-spinner"],
-    )
-    def test_spinner_variants(self, marker: str) -> None:
+    def test_spinner_variants(self) -> None:
         """All spinner markers suppress the prompt."""
-        content = f"{marker}Thinking\n❯ Type @ to mention files"
-        assert is_at_main_prompt(content) is False
+        for marker in ["◉ ", "◎ ", "○ "]:
+            content = f"{marker}Thinking\n❯ Type @ to mention files"
+            assert is_at_main_prompt(content) is False, f"marker {marker!r}"
 
     def test_shift_tab_skipped(self) -> None:
         """shift+tab line is skipped when scanning for prompt."""
@@ -1242,31 +1218,29 @@ class TestIsAtMainPromptEdgeCases:
 
 
 class TestIsPermissionDialog:
-    @pytest.mark.parametrize(
-        "content,expected",
-        [
-            ("╭──\n  Do you want to run this command?\n  1. Yes\n╰──", True),
-            ("Allow directory access\n  1. Allow\n  2. Deny", True),
-            ("Do you want to edit file.py?", True),
-            ("Do you want to allow access?", True),
-            ("What would you like to do?\n  1. Option A\n  2. Option B", False),
-            ("", False),
-            ("normal output\nwithout dialog", False),
-        ],
-        ids=[
-            "run-command",
-            "allow-directory",
-            "edit-permission",
-            "allow-permission",
-            "regular-dialog",
-            "empty",
-            "normal-output",
-        ],
-    )
     @patch("duo.transport.read_pane")
-    def test_permission_detection(self, mock_read, content, expected):
-        mock_read.return_value = content
-        assert is_permission_dialog("test") is expected
+    def test_permission_detection(self, mock_read):
+        positives = [
+            "╭──\n  Do you want to run this command?\n  1. Yes\n╰──",
+            "Allow directory access\n  1. Allow\n  2. Deny",
+            "Do you want to edit file.py?",
+            "Do you want to allow access?",
+        ]
+        negatives = [
+            "What would you like to do?\n  1. Option A\n  2. Option B",
+            "",
+            "normal output\nwithout dialog",
+        ]
+        for content in positives:
+            mock_read.return_value = content
+            assert is_permission_dialog("test") is True, (
+                f"should be permission: {content[:40]}"
+            )
+        for content in negatives:
+            mock_read.return_value = content
+            assert is_permission_dialog("test") is False, (
+                f"false positive: {content[:40]}"
+            )
 
 
 # ── approve_permission ────────────────────────────────────────────────
