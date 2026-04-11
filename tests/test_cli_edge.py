@@ -982,3 +982,23 @@ class TestScriptExecutabilityGuard:
             f.name for f in scripts if not f.read_text().split("\n")[0].startswith("#!")
         ]
         assert bad == [], f"Scripts missing shebang: {bad}"
+
+
+class TestRequiredFilesGuard:
+    """Guard: project must contain all expected top-level files."""
+
+    REQUIRED = {
+        "README.md",
+        "LICENSE",
+        "pyproject.toml",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "CODE_OF_CONDUCT.md",
+        "SECURITY.md",
+        "Makefile",
+        "install.sh",
+    }
+
+    def test_all_required_files_exist(self) -> None:
+        missing = [f for f in sorted(self.REQUIRED) if not Path(f).exists()]
+        assert missing == [], f"Missing required files: {missing}"
