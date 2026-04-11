@@ -2762,7 +2762,7 @@ def doctor(json_output: bool, strict: bool, fix: bool) -> None:
             suffix = ""
             if r.fix:
                 suffix = f" — {r.fix}"
-            line = f"  {icon}  {r.name:<16}{r.message}{suffix}"
+            line = f"  {icon}  {r.name:<18}{r.message}{suffix}"
             click.echo(click.style(line, fg=color))
         parts: list[str] = []
         parts.append(f"{counts['pass']}/{total} checks passed")
