@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Max-Bin/duo)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-2324%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-2352%20passed-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)]()
 
 **把 Premium Request 当稀缺资源管理的 AI Agent 编排运行时。**
@@ -87,6 +87,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 | `duo send <task> "指令"` | 给运行中的任务发送后续 prompt |
 | `duo send <task> -f prompt.txt` | 从文件读取 prompt |
 | `duo stop <task>` | 优雅停止任务及其 pane |
+| `duo stop --all` | 一次停止所有活跃任务 |
 | `duo status [task]` | 查看单个或全部任务的 FSM 状态 |
 | `duo merge <task>` | 将 worktree fast-forward 合并到目标分支 |
 | `duo watch` | 阻塞等待弹窗出现，打印后退出 |

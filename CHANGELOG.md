@@ -7,9 +7,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - `config edit` command — opens config file in `$EDITOR` / `$VISUAL` / `vi`
+- `config validate` command — check config file for errors (types, ranges, unknown keys)
 - `send --file` option — read prompt from a file instead of inline text
 - `list --count` option — print just the number of matching tasks
+- `list --no-header` option — omit table header for cleaner scripting output
 - `cleanup --dry-run` option — preview what would be cleaned without acting
+- `stop --all` flag — stop all active tasks in one command
 - Shell completion for thinking session names (`duo think <TAB>`)
 - Shell completion for `duo diff` task names
 - `status` now shows Branch and Description fields
