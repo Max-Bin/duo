@@ -155,6 +155,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `SecurityPolicy` patterns now merged with defaults on `load_task()` (older tasks get new patterns)
 - `verify_and_advance()` accepts pre-read result, eliminating double I/O in poll→verify path
 - `DUO_COPILOT_MODEL` env var length bounded to 64 chars
+- Path traversal protection: `_validate_task_name()` + `is_relative_to()` defense-in-depth on all task name inputs
+- Lock file cleanup age-gated to 1 hour — prevents deletion of live locks
+- `cleanup --all` restricted to terminal states (COMPLETED/FAILED) — no longer removes BLOCKED/ESCALATED tasks
+- `ceo_restart` respects `bypass_permissions` config + `shlex.quote()` model name
+- `approve_permission()` uses last dialog box, not first — prevents stale scrollback from influencing permission approvals
+- `send_option_other_message()` same last-box fix — consistent dialog parsing across all handlers
+- Protocol readers (`read_heartbeat`, `read_ack_for_step`, `read_result_for_step`) type-guard against non-dict JSON
+- `replay_state()` skips non-dict JSONL entries — prevents crash on malformed journal
 
 ### Changed
 - Cleaned 4 unused `noqa` directives; remaining 3 SIM115 noqas annotated with rationale
@@ -163,6 +171,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - All remaining docs audited for accuracy: release.md, send-keys-resilience-audit.md, design-duo-think.md, plan-duo-go.md, performance-baseline.md
 - Python 3.13 classifier added to pyproject.toml
 - Removed redundant `uv pip install -e .` from Makefile install target
+- Decomposed `start_session()` (218 lines) into `_prepare_pane()` + `_start_and_prime_copilot()` + thin orchestrator
+- Decomposed `verify_and_advance()` (149 lines) into `_handle_pass_verdict()` + `_handle_correction_verdict()` + thin orchestrator
+- Config auto-normalizes `poll_max_interval` when `poll_base_interval` set above max
+- Orphan worktree detection uses `worktree_base_path` for accurate matching
 - `__all__` exports sorted alphabetically in `__init__`, `poller`, `transport` (RUF022)
 - Smoke test `duo doctor` uses `run_test_allow_fail` (expected to exit non-zero without tmux-bridge in CI)
 - CI smoke job installs tmux for `duo doctor` checks
