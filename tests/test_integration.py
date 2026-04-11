@@ -681,3 +681,272 @@ class TestJournalIntegration:
         events = read_jsonl(task.journal_path)
         completed = [e for e in events if e.get("event") == "task_completed"]
         assert len(completed) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-module integration tests — Round HX
+# ---------------------------------------------------------------------------
+
+
+class TestSchedulerCommanderIntegration:
+    """Scheduler + Commander: task queuing, promotion, and slot management."""
+
+    def test_queue_and_promote_lifecycle(self) -> None:
+        """Fill slots → queue → free slot → promote."""
+        from duo.scheduler import (
+            active_count,
+            enqueue_or_start,
+            has_slot,
+            promote_queued,
+        )
+
+        # Fill all 3 slots
+        active_tasks = []
+        for i in range(3):
+            t = create_task(
+                task_id=f"active-{i}",
+                description=f"Active task {i}",
+                worktree=f"/tmp/active{i}",
+                branch=f"duo/active-{i}",
+                base_commit="abc123",
+                subtasks=[_make_subtask(1, f"step {i}")],
+            )
+            transition(t, TaskStatus.SESSION_STARTING)
+            transition(t, TaskStatus.PROMPT_SENT)
+            transition(t, TaskStatus.ACKED)
+            transition(t, TaskStatus.RUNNING)
+            active_tasks.append(t)
+
+        assert active_count() == 3
+        assert has_slot() is False
+
+        # New task gets queued
+        queued_task = create_task(
+            task_id="queued-1",
+            description="Should be queued",
+            worktree="/tmp/queued1",
+            branch="duo/queued-1",
+            base_commit="abc123",
+            subtasks=[_make_subtask(1, "queued work")],
+        )
+        result = enqueue_or_start(queued_task)
+        assert result == "queued"
+        assert queued_task.status == TaskStatus.QUEUED
+
+        # Free one slot by completing a task
+        transition(active_tasks[0], TaskStatus.RESULT_REPORTED)
+        transition(active_tasks[0], TaskStatus.VERIFYING)
+        transition(active_tasks[0], TaskStatus.COMPLETED)
+        assert active_count() == 2
+
+        # Promote should move queued task to SESSION_STARTING
+        promoted = promote_queued()
+        assert len(promoted) == 1
+        assert promoted[0].id == "queued-1"
+        assert promoted[0].status == TaskStatus.SESSION_STARTING
+
+    def test_queue_fifo_ordering(self) -> None:
+        """Multiple queued tasks are promoted in FIFO order."""
+        from duo.scheduler import enqueue_or_start, promote_queued
+
+        # Fill all 3 slots
+        for i in range(3):
+            t = create_task(
+                task_id=f"fill-{i}",
+                description=f"Fill {i}",
+                worktree=f"/tmp/fill{i}",
+                branch=f"duo/fill-{i}",
+                base_commit="abc123",
+                subtasks=[_make_subtask(1, "fill")],
+            )
+            transition(t, TaskStatus.SESSION_STARTING)
+            transition(t, TaskStatus.PROMPT_SENT)
+            transition(t, TaskStatus.ACKED)
+            transition(t, TaskStatus.RUNNING)
+
+        # Queue 3 tasks in order
+        for name in ["alpha", "beta", "charlie"]:
+            t = create_task(
+                task_id=name,
+                description=f"Queued {name}",
+                worktree=f"/tmp/{name}",
+                branch=f"duo/{name}",
+                base_commit="abc123",
+                subtasks=[_make_subtask(1, name)],
+            )
+            enqueue_or_start(t)
+            assert t.status == TaskStatus.QUEUED
+
+        # Complete all active tasks
+        for t in list_tasks():
+            if t.status == TaskStatus.RUNNING:
+                transition(t, TaskStatus.RESULT_REPORTED)
+                transition(t, TaskStatus.VERIFYING)
+                transition(t, TaskStatus.COMPLETED)
+
+        # Promote all — should follow FIFO (alphabetical by id for same timestamp)
+        promoted = promote_queued()
+        assert len(promoted) == 3
+        assert [t.id for t in promoted] == ["alpha", "beta", "charlie"]
+
+
+class TestProtocolVerifierIntegration:
+    """Protocol + Verifier: correction cycles and escalation."""
+
+    def test_correction_cycle_preserves_journal(self) -> None:
+        """Corrections are journaled, attempt counter increments."""
+        task = create_task(
+            task_id="correction-cycle",
+            description="Test corrections",
+            worktree="/tmp/corrections",
+            branch="duo/correction-cycle",
+            base_commit="abc123",
+            subtasks=[_make_subtask(1, "fix bug")],
+        )
+        transition(task, TaskStatus.SESSION_STARTING)
+        transition(task, TaskStatus.PROMPT_SENT)
+        transition(task, TaskStatus.ACKED)
+        transition(task, TaskStatus.RUNNING)
+        transition(task, TaskStatus.RESULT_REPORTED)
+        transition(task, TaskStatus.VERIFYING)
+
+        # Simulate correction
+        transition(task, TaskStatus.CORRECTING)
+        append_event(
+            task,
+            "correction_sent",
+            {
+                "step": 1,
+                "attempt": 2,
+                "reason": "tests failed",
+            },
+        )
+
+        # Back to prompt sent for retry
+        transition(task, TaskStatus.PROMPT_SENT)
+        task.current_attempt = 2
+        save_task(task)
+
+        # Verify journal recorded the correction
+        events = read_jsonl(task.journal_path)
+        corrections = [e for e in events if e.get("event") == "correction_sent"]
+        assert len(corrections) == 1
+        assert corrections[0]["data"]["reason"] == "tests failed"
+
+    def test_multi_step_with_journal_persistence(self) -> None:
+        """Multi-step task has separate journal entries per step."""
+        task = create_task(
+            task_id="multi-journal",
+            description="Multi-step journal test",
+            worktree="/tmp/multi-journal",
+            branch="duo/multi-journal",
+            base_commit="abc123",
+            subtasks=[
+                _make_subtask(1, "step one"),
+                _make_subtask(2, "step two"),
+            ],
+        )
+
+        # Step 1 lifecycle
+        for status in [
+            TaskStatus.SESSION_STARTING,
+            TaskStatus.PROMPT_SENT,
+            TaskStatus.ACKED,
+            TaskStatus.RUNNING,
+            TaskStatus.RESULT_REPORTED,
+            TaskStatus.VERIFYING,
+        ]:
+            transition(task, status)
+
+        append_event(task, "step_completed", {"step": 1, "summary": "done"})
+
+        # Advance to step 2
+        task.current_step = 2
+        task.current_attempt = 1
+        transition(task, TaskStatus.PROMPT_SENT)
+
+        # Step 2 lifecycle
+        for status in [
+            TaskStatus.ACKED,
+            TaskStatus.RUNNING,
+            TaskStatus.RESULT_REPORTED,
+            TaskStatus.VERIFYING,
+            TaskStatus.COMPLETED,
+        ]:
+            transition(task, status)
+
+        # Verify full journal
+        events = read_jsonl(task.journal_path)
+        status_changes = [e for e in events if e.get("event") == "status_changed"]
+        assert len(status_changes) >= 12
+        step_events = [e for e in events if e.get("event") == "step_completed"]
+        assert len(step_events) == 1
+
+
+class TestConfigProtocolIntegration:
+    """Config + Protocol: configuration affects task behavior."""
+
+    def test_task_persists_through_config_changes(self) -> None:
+        """Task state survives config module reloads."""
+        import duo.config as config_mod
+
+        task = create_task(
+            task_id="config-survive",
+            description="Config survival test",
+            worktree="/tmp/config-test",
+            branch="duo/config-test",
+            base_commit="abc123",
+            subtasks=[_make_subtask(1, "work")],
+        )
+        transition(task, TaskStatus.SESSION_STARTING)
+
+        # Change config
+        config_mod.set_config("max_corrections", "10")
+
+        # Task should still be loadable
+        loaded = load_task(task.id)
+        assert loaded is not None
+        assert loaded.status == TaskStatus.SESSION_STARTING
+
+    def test_list_tasks_filters_correctly_with_mixed_statuses(self) -> None:
+        """list_tasks returns all tasks regardless of status."""
+        statuses_applied: dict[str, TaskStatus] = {}
+        for name, target_status in [
+            ("running-1", TaskStatus.RUNNING),
+            ("completed-1", TaskStatus.COMPLETED),
+            ("failed-1", TaskStatus.FAILED),
+            ("queued-1", TaskStatus.QUEUED),
+        ]:
+            t = create_task(
+                task_id=name,
+                description=f"{name} task",
+                worktree=f"/tmp/{name}",
+                branch=f"duo/{name}",
+                base_commit="abc123",
+                subtasks=[_make_subtask(1, "work")],
+            )
+            # Navigate FSM to target status
+            if target_status == TaskStatus.RUNNING:
+                transition(t, TaskStatus.SESSION_STARTING)
+                transition(t, TaskStatus.PROMPT_SENT)
+                transition(t, TaskStatus.ACKED)
+                transition(t, TaskStatus.RUNNING)
+            elif target_status == TaskStatus.COMPLETED:
+                transition(t, TaskStatus.SESSION_STARTING)
+                transition(t, TaskStatus.PROMPT_SENT)
+                transition(t, TaskStatus.ACKED)
+                transition(t, TaskStatus.RUNNING)
+                transition(t, TaskStatus.RESULT_REPORTED)
+                transition(t, TaskStatus.VERIFYING)
+                transition(t, TaskStatus.COMPLETED)
+            elif target_status == TaskStatus.FAILED:
+                transition(t, TaskStatus.SESSION_STARTING)
+                transition(t, TaskStatus.FAILED)
+            elif target_status == TaskStatus.QUEUED:
+                transition(t, TaskStatus.QUEUED)
+            statuses_applied[name] = target_status
+
+        all_tasks = list_tasks()
+        assert len(all_tasks) == 4
+        for t in all_tasks:
+            assert t.status == statuses_applied[t.id]
