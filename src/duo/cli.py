@@ -698,7 +698,20 @@ def _print_task(task: Task) -> None:
     default=None,
     help="Filter by task status (e.g. running, completed, created)",
 )
-def list_cmd(as_json: bool, status_filter: str | None) -> None:
+@click.option(
+    "--sort",
+    "sort_by",
+    type=click.Choice(["name", "status", "age"], case_sensitive=False),
+    default=None,
+    help="Sort tasks by field",
+)
+@click.option("--reverse", is_flag=True, help="Reverse sort order")
+def list_cmd(
+    as_json: bool,
+    status_filter: str | None,
+    sort_by: str | None,
+    reverse: bool,
+) -> None:
     """List all tasks."""
     tasks = list_tasks()
 
@@ -710,6 +723,13 @@ def list_cmd(as_json: bool, status_filter: str | None) -> None:
                 fix=f"Valid statuses: {', '.join(sorted(valid_statuses))}",
             )
         tasks = [t for t in tasks if t.status.value == status_filter]
+
+    if sort_by == "name":
+        tasks.sort(key=lambda t: t.id, reverse=reverse)
+    elif sort_by == "status":
+        tasks.sort(key=lambda t: t.status.value, reverse=reverse)
+    elif sort_by == "age":
+        tasks.sort(key=lambda t: t.created_at or "", reverse=not reverse)
 
     if not tasks:
         click.echo("No tasks.")

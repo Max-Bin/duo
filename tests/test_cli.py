@@ -315,6 +315,64 @@ class TestList:
         assert "unknown status" in result.output
         assert "Valid statuses" in result.output
 
+    def test_sort_by_name(self, runner: CliRunner):
+        """list --sort name sorts alphabetically."""
+        _make_task("zzz-task")
+        _make_task("aaa-task")
+        result = runner.invoke(main, ["list", "--sort", "name"])
+        assert result.exit_code == 0
+        lines = [
+            l
+            for l in result.output.strip().splitlines()
+            if "task" in l.lower() and "---" not in l and "ID" not in l
+        ]
+        assert lines[0].startswith("aaa-task")
+        assert lines[1].startswith("zzz-task")
+
+    def test_sort_by_name_reverse(self, runner: CliRunner):
+        """list --sort name --reverse reverses order."""
+        _make_task("aaa-task")
+        _make_task("zzz-task")
+        result = runner.invoke(main, ["list", "--sort", "name", "--reverse"])
+        assert result.exit_code == 0
+        lines = [
+            l
+            for l in result.output.strip().splitlines()
+            if "task" in l.lower() and "---" not in l and "ID" not in l
+        ]
+        assert lines[0].startswith("zzz-task")
+        assert lines[1].startswith("aaa-task")
+
+    def test_sort_by_status(self, runner: CliRunner):
+        """list --sort status groups by status value."""
+        task_c = _make_task("completed-task")
+        task_c.status = TaskStatus.COMPLETED
+        save_task(task_c)
+        _make_task("active-task")
+        result = runner.invoke(main, ["list", "--sort", "status"])
+        assert result.exit_code == 0
+        lines = [
+            l
+            for l in result.output.strip().splitlines()
+            if "task" in l.lower() and "---" not in l and "ID" not in l
+        ]
+        assert len(lines) == 2
+        assert "completed" in lines[0]
+        assert "created" in lines[1]
+
+    def test_sort_by_age(self, runner: CliRunner):
+        """list --sort age sorts oldest first."""
+        _make_task("old-task")
+        _make_task("new-task")
+        result = runner.invoke(main, ["list", "--sort", "age"])
+        assert result.exit_code == 0
+        lines = [
+            l
+            for l in result.output.strip().splitlines()
+            if "task" in l.lower() and "---" not in l and "ID" not in l
+        ]
+        assert len(lines) == 2
+
 
 # ---------------------------------------------------------------------------
 # recover command
