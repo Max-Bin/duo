@@ -1554,25 +1554,8 @@ class TestBatchEdgeCases:
 # ---------------------------------------------------------------------------
 
 
-class TestExportEdgeCases:
-    def test_export_nonexistent_task(self, runner: CliRunner):
-        """export with unknown task name shows error."""
-        result = runner.invoke(main, ["export", "does-not-exist"])
-        assert result.exit_code != 0
-        assert "not found" in result.output
-
-
-# ---------------------------------------------------------------------------
-# audit edge cases
-# ---------------------------------------------------------------------------
-
-
-class TestAuditEdgeCases:
-    def test_audit_no_tasks(self, runner: CliRunner):
-        """audit with no tasks shows empty output."""
-        result = runner.invoke(main, ["audit"])
-        assert result.exit_code == 0
-        assert "No tasks" in result.output
+# TestExportEdgeCases — deleted: duplicate of TestExport.test_task_not_found
+# TestAuditEdgeCases — deleted: duplicate of TestAudit.test_audit_no_tasks
 
 
 # ---------------------------------------------------------------------------
@@ -6252,15 +6235,7 @@ class TestBatchInvalidName:
 # ---------------------------------------------------------------------------
 
 
-class TestBatchCorruptedJson:
-    def test_batch_corrupted_json(self, runner: CliRunner, tmp_path: Path):
-        """batch with corrupted JSON content shows a friendly error."""
-        bad = tmp_path / "corrupt.json"
-        bad.write_text("{bad json")
-        result = runner.invoke(main, ["batch", str(bad), "--repo", "."])
-        assert result.exit_code != 0
-        out = result.output.lower() + (result.stderr or "").lower()
-        assert "invalid json" in out or "error" in out
+# TestBatchCorruptedJson — deleted: duplicate of TestBatchEdgeCases.test_batch_invalid_json_file
 
 
 class TestBatchCorruptedYaml:
@@ -6275,13 +6250,7 @@ class TestBatchCorruptedYaml:
         assert "Error" in out or "invalid" in out.lower() or "error" in out.lower()
 
 
-class TestBatchFileNotFound:
-    def test_batch_file_not_found(self, runner: CliRunner):
-        """batch with a nonexistent file shows a friendly error."""
-        result = runner.invoke(main, ["batch", "/nonexistent/file.json", "--repo", "."])
-        assert result.exit_code != 0
-        out = result.output + (result.stderr or "")
-        assert "Error" in out or "No such file" in out or "error" in out.lower()
+# TestBatchFileNotFound — deleted: duplicate of TestBatchValidation.test_batch_nonexistent_file
 
 
 class TestRunGitNotInstalled:
