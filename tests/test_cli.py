@@ -373,6 +373,31 @@ class TestList:
         ]
         assert len(lines) == 2
 
+    def test_quiet_mode(self, runner: CliRunner):
+        """list -q prints only task IDs."""
+        _make_task("alpha")
+        _make_task("beta")
+        result = runner.invoke(main, ["list", "-q"])
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        assert sorted(lines) == ["alpha", "beta"]
+
+    def test_quiet_mode_empty(self, runner: CliRunner):
+        """list -q with no tasks produces no output."""
+        result = runner.invoke(main, ["list", "-q"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""
+
+    def test_quiet_with_status_filter(self, runner: CliRunner):
+        """list -q --status filters and prints only IDs."""
+        t = _make_task("done-task")
+        t.status = TaskStatus.COMPLETED
+        save_task(t)
+        _make_task("open-task")
+        result = runner.invoke(main, ["list", "-q", "--status", "completed"])
+        assert result.exit_code == 0
+        assert result.output.strip() == "done-task"
+
 
 # ---------------------------------------------------------------------------
 # recover command

@@ -708,11 +708,13 @@ def _print_task(task: Task) -> None:
     help="Sort tasks by field",
 )
 @click.option("--reverse", is_flag=True, help="Reverse sort order")
+@click.option("-q", "--quiet", is_flag=True, help="Only print task IDs (one per line)")
 def list_cmd(
     as_json: bool,
     status_filter: str | None,
     sort_by: str | None,
     reverse: bool,
+    quiet: bool,
 ) -> None:
     """List all tasks."""
     tasks = list_tasks()
@@ -734,7 +736,13 @@ def list_cmd(
         tasks.sort(key=lambda t: t.created_at or "", reverse=not reverse)
 
     if not tasks:
-        click.echo("No tasks.")
+        if not quiet:
+            click.echo("No tasks.")
+        return
+
+    if quiet:
+        for t in tasks:
+            click.echo(t.id)
         return
 
     if as_json:
