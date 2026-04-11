@@ -1279,15 +1279,18 @@ def approve_permission(label: str) -> None:
         _preemptive_dialog_resize(label, content)
         lines = content.strip().split("\n")
 
-        # Find all numbered options within dialog box boundaries (╭─ … ╰─)
+        # Find all numbered options within the LAST dialog box (╭─ … ╰─)
+        # Multiple boxes may exist if scrollback contains an older dialog.
         in_box = False
         options: dict[str, str] = {}
         for line in lines:
             if "╭─" in line:
                 in_box = True
+                options = {}  # reset: only keep options from the last box
                 continue
             if "╰─" in line:
-                break
+                in_box = False
+                continue
             if not in_box:
                 continue
             m = re.search(r"[❯\s]+(\d+)\.\s+(.+)", line)

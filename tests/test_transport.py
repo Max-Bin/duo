@@ -1362,6 +1362,24 @@ class TestApprovePermission:
 
     @patch("duo.transport.select_dialog_option")
     @patch("duo.transport.read_pane")
+    def test_stale_dialog_in_scrollback_uses_last_box(self, mock_read, mock_select):
+        """When scrollback has an old dialog box, uses the LAST box only."""
+        mock_read.return_value = (
+            "╭──\n"
+            "  1. No\n"
+            "  2. Cancel\n"
+            "╰──\n"
+            "Some output between dialogs\n"
+            "╭──\n"
+            "  1. Yes, approve for session\n"
+            "  2. No\n"
+            "╰──"
+        )
+        approve_permission("test")
+        mock_select.assert_called_once_with("test", "1")
+
+    @patch("duo.transport.select_dialog_option")
+    @patch("duo.transport.read_pane")
     def test_no_bottom_border_parses_all_options(self, mock_read, mock_select):
         """1182->1196: dialog without ╰─ — for loop exhausts all lines."""
         mock_read.return_value = "╭──\n  1. Yes\n  2. No\n"
