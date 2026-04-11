@@ -60,26 +60,18 @@ class TestActiveCount:
         TaskStatus.ESCALATED,
     }
 
-    @pytest.mark.parametrize(
-        "status",
-        sorted(ACTIVE_STATUSES, key=lambda s: s.value),
-        ids=lambda s: s.value,
-    )
-    def test_active_status_counted(self, status: TaskStatus) -> None:
+    def test_active_status_counted(self) -> None:
         """Each ACTIVE_STATUSES member increments active_count."""
-        t = _make_task("t1")
-        _force_status(t, status)
-        assert active_count() == 1
+        for i, status in enumerate(sorted(ACTIVE_STATUSES, key=lambda s: s.value)):
+            t = _make_task(f"t1-{i}")
+            _force_status(t, status)
+            assert active_count() == i + 1, f"status={status}"
 
-    @pytest.mark.parametrize(
-        "status",
-        sorted(NON_ACTIVE, key=lambda s: s.value),
-        ids=lambda s: s.value,
-    )
-    def test_non_active_status_not_counted(self, status: TaskStatus) -> None:
+    def test_non_active_status_not_counted(self) -> None:
         """Non-active statuses do NOT increment active_count."""
-        t = _make_task("t1")
-        _force_status(t, status)
+        for i, status in enumerate(sorted(self.NON_ACTIVE, key=lambda s: s.value)):
+            t = _make_task(f"t1-{i}")
+            _force_status(t, status)
         assert active_count() == 0
 
     def test_no_tasks(self) -> None:

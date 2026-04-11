@@ -143,32 +143,24 @@ class TestBuildEventsPanel:
 
 
 class TestStatusText:
-    @pytest.mark.parametrize(
-        "status",
-        list(TaskStatus),
-        ids=[s.value for s in TaskStatus],
-    )
-    def test_status_text(self, status: TaskStatus):
+    def test_status_text(self):
         from duo.dashboard import _status_text
 
-        text = _status_text(status)
-        assert str(text) == status.value
+        for status in list(TaskStatus):
+            text = _status_text(status)
+            assert str(text) == status.value, f"status={status}"
 
 
 class TestTaskRowStatuses:
-    @pytest.mark.parametrize(
-        "status",
-        list(TaskStatus),
-        ids=[s.value for s in TaskStatus],
-    )
-    def test_task_row_per_status(self, status: TaskStatus):
+    def test_task_row_per_status(self):
         """Build table row for each TaskStatus without error."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task(f"st-{status.value}", f"Task {status.value}")
-        task.status = status
-        table = _build_tasks_table([task])
-        assert table.row_count == 1
+        for status in list(TaskStatus):
+            task = _make_task(f"st-{status.value}", f"Task {status.value}")
+            task.status = status
+            table = _build_tasks_table([task])
+            assert table.row_count == 1, f"status={status}"
 
 
 def _write_heartbeat(task, seconds_ago):
@@ -232,9 +224,10 @@ class TestTasksTableHeartbeat:
 
 
 class TestEventsPanelColoring:
-    @pytest.mark.parametrize(
-        "event_name,expected_color",
-        [
+    def test_event_coloring(self):
+        from duo.dashboard import _build_events_panel
+
+        cases = [
             ("step_error", "red"),
             ("task_failed", "red"),
             ("execution_error", "red"),
@@ -243,26 +236,15 @@ class TestEventsPanelColoring:
             ("step_completed", "green"),
             ("status_changed", "white"),
             ("heartbeat", "white"),
-        ],
-        ids=[
-            "error-red",
-            "failed-red",
-            "exec-error-red",
-            "completed-green",
-            "passed-green",
-            "step-done-green",
-            "status-white",
-            "heartbeat-white",
-        ],
-    )
-    def test_event_coloring(self, event_name: str, expected_color: str):
-        from duo.dashboard import _build_events_panel
-
-        task = _make_task(f"color-{event_name}")
-        append_event(task, event_name)
-        panel = _build_events_panel([task])
-        content = panel.renderable
-        assert f"[{expected_color}]{event_name}[/]" in content
+        ]
+        for event_name, expected_color in cases:
+            task = _make_task(f"color-{event_name}")
+            append_event(task, event_name)
+            panel = _build_events_panel([task])
+            content = panel.renderable
+            assert f"[{expected_color}]{event_name}[/]" in content, (
+                f"event={event_name}, expected_color={expected_color}"
+            )
 
     def test_events_panel_missing_journal(self):
         """Panel gracefully handles tasks with missing journal files."""

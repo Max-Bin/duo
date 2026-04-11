@@ -393,132 +393,102 @@ class TestExtractResponse:
 class TestExtractResponseParametrized:
     """Parametrized extract_response edge cases."""
 
-    @pytest.mark.parametrize(
-        "tool_header",
-        [
+    def test_tool_headers_filtered(self) -> None:
+        for tool_header in [
             "● Edit file.py",
             "● Read src/main.py",
             "● Bash echo hello",
             "● Grep pattern",
-        ],
-        ids=["edit", "read", "bash", "grep"],
-    )
-    def test_tool_headers_filtered(self, tool_header: str) -> None:
-        before = "prompt"
-        after = f"prompt\n{tool_header}\nActual response"
-        result = extract_response(before, after, "q")
-        assert result == "Actual response"
+        ]:
+            before = "prompt"
+            after = f"prompt\n{tool_header}\nActual response"
+            result = extract_response(before, after, "q")
+            assert result == "Actual response", f"failed for {tool_header!r}"
 
-    @pytest.mark.parametrize(
-        "noise",
-        ["", "❯", ">", "  "],
-        ids=["empty", "chevron", "gt", "whitespace"],
-    )
-    def test_noise_lines_filtered(self, noise: str) -> None:
-        before = "prompt"
-        after = f"prompt\n{noise}\nGood content"
-        result = extract_response(before, after, "q")
-        assert result == "Good content"
+    def test_noise_lines_filtered(self) -> None:
+        for noise in ["", "❯", ">", "  "]:
+            before = "prompt"
+            after = f"prompt\n{noise}\nGood content"
+            result = extract_response(before, after, "q")
+            assert result == "Good content", f"failed for {noise!r}"
 
-    @pytest.mark.parametrize(
-        "user_msg",
-        ["hello", "  hello  "],
-        ids=["plain", "padded"],
-    )
-    def test_user_echo_filtered(self, user_msg: str) -> None:
-        before = "prompt"
-        after = f"prompt\n{user_msg.strip()}\nResponse"
-        result = extract_response(before, after, user_msg)
-        assert result == "Response"
+    def test_user_echo_filtered(self) -> None:
+        for user_msg in ["hello", "  hello  "]:
+            before = "prompt"
+            after = f"prompt\n{user_msg.strip()}\nResponse"
+            result = extract_response(before, after, user_msg)
+            assert result == "Response", f"failed for {user_msg!r}"
 
-    @pytest.mark.parametrize(
-        "before,after,expected",
-        [
+    def test_edge_shapes(self) -> None:
+        for before, after, expected in [
             ("", "Response only", "Response only"),
             ("a\nb", "a\nb", ""),
             ("x", "x\nline1\nline2\nline3", "line1\nline2\nline3"),
-        ],
-        ids=["empty-before", "identical", "multi-line-response"],
-    )
-    def test_edge_shapes(self, before: str, after: str, expected: str) -> None:
-        result = extract_response(before, after, "q")
-        assert result == expected
+        ]:
+            result = extract_response(before, after, "q")
+            assert result == expected, f"failed for {before!r}, {after!r}"
 
 
 class TestWaitForResponseStableParametrized:
     """Parametrized wait_for_response_stable scenarios."""
 
-    @pytest.mark.parametrize(
-        "dialog_kind,expected",
-        [
+    def test_dialog_detected(self) -> None:
+        from duo.transport import DialogKind
+
+        for dialog_kind, expected in [
             ("OPTION", "dialog"),
             ("TEXT", "dialog"),
             ("BULLET", "dialog"),
-        ],
-        ids=["option-dialog", "text-dialog", "bullet-dialog"],
-    )
-    def test_dialog_detected(self, dialog_kind: str, expected: str) -> None:
+        ]:
+            kind = DialogKind[dialog_kind]
+            with (
+                patch("duo.transport.read_pane", return_value="content"),
+                patch("duo.transport.detect_dialog_kind", return_value=kind),
+            ):
+                result = wait_for_response_stable("lbl", timeout=1.0)
+                assert result == expected, f"failed for {dialog_kind!r}"
+
+    def test_spinner_prevents_idle(self) -> None:
         from duo.transport import DialogKind
 
-        kind = DialogKind[dialog_kind]
-        with (
-            patch("duo.transport.read_pane", return_value="content"),
-            patch("duo.transport.detect_dialog_kind", return_value=kind),
-        ):
-            result = wait_for_response_stable("lbl", timeout=1.0)
-            assert result == expected
+        for spinner in ["◉ Working", "◎ Loading", "○ Processing"]:
+            call_count = 0
 
-    @pytest.mark.parametrize(
-        "spinner",
-        ["◉ Working", "◎ Loading", "○ Processing"],
-        ids=["filled", "double", "empty"],
-    )
-    def test_spinner_prevents_idle(self, spinner: str) -> None:
-        from duo.transport import DialogKind
+            def fake_read(label: str, lines: int, _s: str = spinner) -> str:
+                nonlocal call_count
+                call_count += 1
+                if call_count <= 2:
+                    return f"some output\n{_s}\n❯"
+                return "final output\n❯"
 
-        call_count = 0
-
-        def fake_read(label: str, lines: int) -> str:
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:
-                return f"some output\n{spinner}\n❯"
-            return "final output\n❯"
-
-        with (
-            patch("duo.transport.read_pane", side_effect=fake_read),
-            patch(
-                "duo.transport.detect_dialog_kind",
-                return_value=DialogKind.NONE,
-            ),
-            patch("duo.transport.is_at_main_prompt", return_value=True),
-            patch("duo.thinking.time.sleep"),
-        ):
-            result = wait_for_response_stable("lbl", timeout=0.01, stable_threshold=0.0)
-            assert result in ("idle", "timeout")
+            with (
+                patch("duo.transport.read_pane", side_effect=fake_read),
+                patch(
+                    "duo.transport.detect_dialog_kind",
+                    return_value=DialogKind.NONE,
+                ),
+                patch("duo.transport.is_at_main_prompt", return_value=True),
+                patch("duo.thinking.time.sleep"),
+            ):
+                result = wait_for_response_stable(
+                    "lbl", timeout=0.01, stable_threshold=0.0
+                )
+                assert result in ("idle", "timeout"), f"failed for {spinner!r}"
 
 
 class TestThinkingDirParametrized:
     """Parametrized thinking_dir edge cases."""
 
-    @pytest.mark.parametrize(
-        "name",
-        ["simple", "with-dash", "with_underscore", "CamelCase", "a"],
-        ids=["simple", "dash", "underscore", "camel", "single-char"],
-    )
-    def test_valid_names_produce_paths(self, name: str) -> None:
-        result = thinking_dir(name)
-        assert result.name == name
-        assert result.is_absolute()
+    def test_valid_names_produce_paths(self) -> None:
+        for name in ["simple", "with-dash", "with_underscore", "CamelCase", "a"]:
+            result = thinking_dir(name)
+            assert result.name == name, f"failed for {name!r}"
+            assert result.is_absolute(), f"not absolute for {name!r}"
 
-    @pytest.mark.parametrize(
-        "name",
-        ["", "has space", "with/slash", "../traversal", ".hidden"],
-        ids=["empty", "space", "slash", "traversal", "hidden"],
-    )
-    def test_invalid_names_rejected(self, name: str) -> None:
-        with pytest.raises(ValueError, match="Invalid thinking session name"):
-            thinking_dir(name)
+    def test_invalid_names_rejected(self) -> None:
+        for name in ["", "has space", "with/slash", "../traversal", ".hidden"]:
+            with pytest.raises(ValueError, match="Invalid thinking session name"):
+                thinking_dir(name)
 
 
 # ---------------------------------------------------------------------------
@@ -637,9 +607,8 @@ class TestClosePane:
 class TestNameValidation:
     """Defence-in-depth: thinking_dir rejects unsafe names."""
 
-    @pytest.mark.parametrize(
-        "bad_name",
-        [
+    def test_rejects_unsafe_names(self) -> None:
+        for bad_name in [
             "..",
             "../evil",
             "../../etc",
@@ -650,16 +619,14 @@ class TestNameValidation:
             "",
             "-starts-dash",
             "_starts-under",
-        ],
-    )
-    def test_rejects_unsafe_names(self, bad_name: str) -> None:
-        with pytest.raises(ValueError, match="Invalid thinking session name"):
-            thinking_dir(bad_name)
+        ]:
+            with pytest.raises(ValueError, match="Invalid thinking session name"):
+                thinking_dir(bad_name)
 
-    @pytest.mark.parametrize("good_name", ["myapp", "my-app", "app2", "A_b-C3"])
-    def test_accepts_safe_names(self, good_name: str) -> None:
-        d = thinking_dir(good_name)
-        assert d.name == good_name
+    def test_accepts_safe_names(self) -> None:
+        for good_name in ["myapp", "my-app", "app2", "A_b-C3"]:
+            d = thinking_dir(good_name)
+            assert d.name == good_name, f"failed for {good_name!r}"
 
 
 class TestNamePaneFailureCleanup:

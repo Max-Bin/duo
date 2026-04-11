@@ -209,18 +209,15 @@ class TestReadJsonl:
 
 
 class TestTaskStatusTransitions:
-    @pytest.mark.parametrize(
-        "src, dst",
-        [
+    def test_representative_allowed_transitions(self):
+        for src, dst in [
             (TaskStatus.CREATED, TaskStatus.SESSION_STARTING),
             (TaskStatus.PROMPT_SENT, TaskStatus.VERIFYING),
             (TaskStatus.PROMPT_SENT, TaskStatus.BLOCKED),
             (TaskStatus.VERIFYING, TaskStatus.COMPLETED),
             (TaskStatus.FAILED, TaskStatus.SESSION_STARTING),
-        ],
-    )
-    def test_representative_allowed_transitions(self, src, dst):
-        assert dst in TRANSITIONS[src]
+        ]:
+            assert dst in TRANSITIONS[src], f"failed for {src!r} -> {dst!r}"
 
     def test_completed_is_terminal(self):
         assert TRANSITIONS[TaskStatus.COMPLETED] == frozenset()
@@ -229,17 +226,14 @@ class TestTaskStatusTransitions:
         with pytest.raises(TypeError):
             TRANSITIONS[TaskStatus.COMPLETED] = frozenset({TaskStatus.CREATED})  # type: ignore[index]
 
-    @pytest.mark.parametrize(
-        "src, dst",
-        [
+    def test_representative_rejected_transitions(self):
+        for src, dst in [
             (TaskStatus.COMPLETED, TaskStatus.CREATED),
             (TaskStatus.COMPLETED, TaskStatus.RUNNING),
             (TaskStatus.CREATED, TaskStatus.COMPLETED),
             (TaskStatus.RUNNING, TaskStatus.CREATED),
-        ],
-    )
-    def test_representative_rejected_transitions(self, src, dst):
-        assert dst not in TRANSITIONS[src]
+        ]:
+            assert dst not in TRANSITIONS[src], f"failed for {src!r} -> {dst!r}"
 
     def test_transition_function_applies_valid(self, tmp_path: Path):
         task = create_task("fsm-ok", "desc", "/w", "b", "abc", [_make_subtask()])
@@ -583,41 +577,41 @@ class TestTaskCRUD:
         )
         assert load_task("bad-stat") is None
 
-    @pytest.mark.parametrize("field", ["id", "description", "worktree", "branch"])
-    def test_load_task_invalid_string_fields(self, field: str):
+    def test_load_task_invalid_string_fields(self):
         """Non-string value for required string fields is rejected."""
-        import duo.protocol
-
-        tid = f"bad-{field}"
-        task_dir = duo.protocol.TASKS_DIR / tid
-        task_dir.mkdir(parents=True, exist_ok=True)
-        base = {
-            "id": tid,
-            "description": "x",
-            "worktree": "/w",
-            "base_commit": "c",
-            "branch": "b",
-            "status": "created",
-            "current_step": 1,
-            "current_attempt": 1,
-            "subtasks": [
-                {
-                    "step_id": 1,
-                    "description": "s",
-                    "target_files": [],
-                    "writable_paths": [],
-                }
-            ],
-            "created_at": "2025-01-01T00:00:00",
-            "incarnation_id": "abc",
-            "pane_label": "p",
-            "security_policy": {},
-        }
-        base[field] = 999
         import json
 
-        (task_dir / "task.json").write_text(json.dumps(base))
-        assert load_task(tid) is None
+        import duo.protocol
+
+        for field in ["id", "description", "worktree", "branch"]:
+            tid = f"bad-{field}"
+            task_dir = duo.protocol.TASKS_DIR / tid
+            task_dir.mkdir(parents=True, exist_ok=True)
+            base = {
+                "id": tid,
+                "description": "x",
+                "worktree": "/w",
+                "base_commit": "c",
+                "branch": "b",
+                "status": "created",
+                "current_step": 1,
+                "current_attempt": 1,
+                "subtasks": [
+                    {
+                        "step_id": 1,
+                        "description": "s",
+                        "target_files": [],
+                        "writable_paths": [],
+                    }
+                ],
+                "created_at": "2025-01-01T00:00:00",
+                "incarnation_id": "abc",
+                "pane_label": "p",
+                "security_policy": {},
+            }
+            base[field] = 999
+            (task_dir / "task.json").write_text(json.dumps(base))
+            assert load_task(tid) is None, f"failed for field={field!r}"
 
 
 class TestLoadTaskAttemptValidation:

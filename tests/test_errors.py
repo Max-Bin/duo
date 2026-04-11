@@ -121,57 +121,42 @@ class TestDuoDataError:
         assert err.path == ""
 
 
-import pytest
-
-
 class TestErrorHierarchyParametrized:
     """Parametrized error hierarchy checks."""
 
-    @pytest.mark.parametrize(
-        "cls,base",
-        [
+    def test_inheritance(self) -> None:
+        for cls, base in [
             (DuoError, Exception),
             (DuoSystemError, DuoError),
             (DuoDataError, DuoError),
             (DuoUserError, click.ClickException),
-        ],
-        ids=[
-            "DuoError-Exception",
-            "System-DuoError",
-            "Data-DuoError",
-            "User-ClickException",
-        ],
-    )
-    def test_inheritance(self, cls: type, base: type) -> None:
-        assert issubclass(cls, base)
+        ]:
+            assert issubclass(cls, base), (
+                f"{cls.__name__} should subclass {base.__name__}"
+            )
 
-    @pytest.mark.parametrize(
-        "msg,fix,expected_has_fix",
-        [
+    def test_user_error_format(self) -> None:
+        for msg, fix, expected_has_fix in [
             ("simple error", "", False),
             ("with fix", "try this", True),
             ("empty fix", "", False),
             ("long msg " * 10, "short fix", True),
-        ],
-        ids=["no-fix", "with-fix", "empty-fix", "long-msg"],
-    )
-    def test_user_error_format(
-        self, msg: str, fix: str, expected_has_fix: bool
-    ) -> None:
-        err = DuoUserError(msg, fix=fix)
-        result = err.format_message()
-        assert msg in result
-        if expected_has_fix:
-            assert "Fix:" in result
-            assert fix in result
-        else:
-            assert "Fix:" not in result
+        ]:
+            err = DuoUserError(msg, fix=fix)
+            result = err.format_message()
+            assert msg in result, f"msg={msg!r}"
+            if expected_has_fix:
+                assert "Fix:" in result
+                assert fix in result
+            else:
+                assert "Fix:" not in result
 
-    @pytest.mark.parametrize(
-        "path",
-        ["", "/tmp/test.json", "/home/user/.duo/tasks/x/task.json", "relative/path"],
-        ids=["empty", "tmp", "duo-task", "relative"],
-    )
-    def test_data_error_path(self, path: str) -> None:
-        err = DuoDataError("test error", path=path)
-        assert err.path == path
+    def test_data_error_path(self) -> None:
+        for path in [
+            "",
+            "/tmp/test.json",
+            "/home/user/.duo/tasks/x/task.json",
+            "relative/path",
+        ]:
+            err = DuoDataError("test error", path=path)
+            assert err.path == path, f"path={path!r}"

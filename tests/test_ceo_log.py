@@ -227,9 +227,8 @@ class TestSessionStatsEdgeCases:
 class TestSessionIdValidation:
     """Defence-in-depth: reject unsafe session IDs."""
 
-    @pytest.mark.parametrize(
-        "bad_id",
-        [
+    def test_replay_rejects_unsafe_id(self) -> None:
+        for bad_id in [
             "..",
             "../evil",
             "../../etc",
@@ -238,19 +237,14 @@ class TestSessionIdValidation:
             "has;semi",
             "",
             "-starts-dash",
-        ],
-    )
-    def test_replay_rejects_unsafe_id(self, bad_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid CEO session ID"):
-            replay_session(bad_id)
+        ]:
+            with pytest.raises(ValueError, match="Invalid CEO session ID"):
+                replay_session(bad_id)
 
-    @pytest.mark.parametrize(
-        "bad_id",
-        ["..", "../x", "a b", ""],
-    )
-    def test_session_stats_rejects_unsafe_id(self, bad_id: str) -> None:
-        with pytest.raises(ValueError, match="Invalid CEO session ID"):
-            session_stats(bad_id)
+    def test_session_stats_rejects_unsafe_id(self) -> None:
+        for bad_id in ["..", "../x", "a b", ""]:
+            with pytest.raises(ValueError, match="Invalid CEO session ID"):
+                session_stats(bad_id)
 
     def test_start_session_produces_valid_id(self) -> None:
         """IDs from start_ceo_session always pass validation."""

@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-
 from duo import protocol
 from duo.poller import (
     BASE_INTERVAL,
@@ -318,20 +316,25 @@ class TestPoll:
 class TestAgePropertyBased:
     """Property-based tests for age() using hypothesis."""
 
-    @pytest.mark.parametrize("offset_seconds", [0, 1, 60, 3600, 86400])
-    def test_age_monotonically_nonnegative(self, offset_seconds):
+    def test_age_monotonically_nonnegative(self):
         """age() always returns >= 0 for past timestamps."""
-        ts = (datetime.now(UTC) - timedelta(seconds=offset_seconds)).isoformat()
-        result = age(ts)
-        assert result >= 0.0
+        for offset_seconds in [0, 1, 60, 3600, 86400]:
+            ts = (datetime.now(UTC) - timedelta(seconds=offset_seconds)).isoformat()
+            result = age(ts)
+            assert result >= 0.0, f"offset_seconds={offset_seconds}"
 
-    @pytest.mark.parametrize(
-        "garbage",
-        ["not-a-date", "", "12345", "T", "2025-99-99T00:00:00", "abc def", "null"],
-    )
-    def test_age_with_garbage_returns_inf(self, garbage: str):
+    def test_age_with_garbage_returns_inf(self):
         """age() returns inf for unparseable strings."""
-        assert age(garbage) == float("inf")
+        for garbage in [
+            "not-a-date",
+            "",
+            "12345",
+            "T",
+            "2025-99-99T00:00:00",
+            "abc def",
+            "null",
+        ]:
+            assert age(garbage) == float("inf"), f"garbage={garbage!r}"
 
     def test_age_with_none_returns_inf(self):
         """age(None) returns inf."""

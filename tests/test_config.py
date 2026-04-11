@@ -75,36 +75,23 @@ class TestSetConfig:
         assert result == "gpt-4o"
         assert config_mod.get_config("copilot_model") == "gpt-4o"
 
-    @pytest.mark.parametrize(
-        "value",
-        ["true", "True", "TRUE", "1", "yes", "Yes"],
-        ids=lambda v: f"truthy-{v}",
-    )
-    def test_coerces_bool_true(self, value: str):
-        result = config_mod.set_config("auto_allow_all", value)
-        assert result is True
+    def test_coerces_bool_true(self):
+        for value in ["true", "True", "TRUE", "1", "yes", "Yes"]:
+            result = config_mod.set_config("auto_allow_all", value)
+            assert result is True, f"Expected True for {value!r}"
 
-    @pytest.mark.parametrize(
-        "value",
-        ["false", "False", "FALSE", "0", "no", "No"],
-        ids=lambda v: f"falsy-{v}",
-    )
-    def test_coerces_bool_false(self, value: str):
-        result = config_mod.set_config("auto_allow_all", value)
-        assert result is False
+    def test_coerces_bool_false(self):
+        for value in ["false", "False", "FALSE", "0", "no", "No"]:
+            result = config_mod.set_config("auto_allow_all", value)
+            assert result is False, f"Expected False for {value!r}"
 
-    @pytest.mark.parametrize(
-        "value",
-        ["maybe", "yep", "nah", "2", "tru", ""],
-        ids=lambda v: f"invalid-{v or 'empty'}",
-    )
-    def test_rejects_invalid_bool(self, value: str):
-        with pytest.raises(ValueError, match="Cannot convert"):
-            config_mod.set_config("auto_allow_all", value)
+    def test_rejects_invalid_bool(self):
+        for value in ["maybe", "yep", "nah", "2", "tru", ""]:
+            with pytest.raises(ValueError, match="Cannot convert"):
+                config_mod.set_config("auto_allow_all", value)
 
-    @pytest.mark.parametrize(
-        "key,value,expected_type",
-        [
+    def test_coerces_numeric(self):
+        for key, value, expected_type in [
             ("max_corrections", "7", int),
             ("max_corrections", "1", int),
             ("max_corrections", "100", int),
@@ -113,25 +100,15 @@ class TestSetConfig:
             ("poll_base_interval", "2.5", float),
             ("poll_base_interval", "1.0", float),
             ("poll_base_interval", "0.1", float),
-        ],
-        ids=[
-            "corrections-7",
-            "corrections-1",
-            "corrections-100",
-            "pr-budget-10",
-            "pr-budget-1",
-            "poll-2.5",
-            "poll-1.0",
-            "poll-0.1",
-        ],
-    )
-    def test_coerces_numeric(self, key: str, value: str, expected_type: type):
-        result = config_mod.set_config(key, value)
-        assert isinstance(result, expected_type)
-        if expected_type is int:
-            assert result == int(value)
-        else:
-            assert result == float(value)
+        ]:
+            result = config_mod.set_config(key, value)
+            assert isinstance(result, expected_type), (
+                f"{key}={value!r} should be {expected_type.__name__}"
+            )
+            if expected_type is int:
+                assert result == int(value)
+            else:
+                assert result == float(value)
 
     def test_unknown_key_stored_as_string(self):
         result = config_mod.set_config("custom_key", "hello")
@@ -474,25 +451,18 @@ class TestConfigBranchEdgeCases:
 class TestConfigRubberDuckHardening:
     """Tests from rubber-duck audit: non-finite, non-dict, int overflow."""
 
-    @pytest.mark.parametrize(
-        "content",
-        [
-            pytest.param("[]", id="array"),
-            pytest.param('"hello"', id="string"),
-            pytest.param("null", id="null"),
-            pytest.param("42", id="number"),
-            pytest.param("true", id="bool"),
-        ],
-    )
     def test_load_non_dict_json_falls_back(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, content: str
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """Non-dict JSON falls back to defaults."""
-        cfg_path = tmp_path / "config.json"
-        monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
-        cfg_path.write_text(content, encoding="utf-8")
-        cfg = config_mod.load_config()
-        assert cfg == dict(config_mod.DEFAULTS)
+        for content in ["[]", '"hello"', "null", "42", "true"]:
+            cfg_path = tmp_path / "config.json"
+            monkeypatch.setattr(config_mod, "CONFIG_PATH", cfg_path)
+            cfg_path.write_text(content, encoding="utf-8")
+            cfg = config_mod.load_config()
+            assert cfg == dict(config_mod.DEFAULTS), (
+                f"Non-dict JSON {content!r} should fall back to defaults"
+            )
 
     def test_load_nan_in_numeric_field_uses_default(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
