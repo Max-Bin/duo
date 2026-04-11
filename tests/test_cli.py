@@ -3757,6 +3757,50 @@ class TestExportFormats:
         assert "subtasks" in data
         assert "results" in data
         assert data["status"] == "created"
+        assert data["pr_consumed"] == 0
+
+    def test_export_json_includes_pr_count(self, runner: CliRunner):
+        """export JSON includes pr_consumed from journal events."""
+        from duo.protocol import append_event
+
+        task = _make_task("exp-pr")
+        append_event(task, "pr_consumed", {"action": "send"})
+        append_event(task, "pr_consumed", {"action": "retry"})
+        result = runner.invoke(main, ["export", "exp-pr", "--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["pr_consumed"] == 2
+
+    def test_export_json_includes_heartbeat(self, runner: CliRunner):
+        """export JSON includes heartbeat when present."""
+        from duo.protocol import write_json
+
+        task = _make_task("exp-hb")
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": "2025-01-01T00:00:00+00:00",
+                "incarnation": task.incarnation_id,
+                "step": 1,
+                "status": "working",
+                "current_file": "src/app.py",
+            },
+        )
+        result = runner.invoke(main, ["export", "exp-hb", "--format", "json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "heartbeat" in data
+        assert data["heartbeat"]["current_file"] == "src/app.py"
+
+    def test_export_text_includes_pr_count(self, runner: CliRunner):
+        """export text format includes PR Used line."""
+        from duo.protocol import append_event
+
+        task = _make_task("exp-pr-txt")
+        append_event(task, "pr_consumed", {"action": "send"})
+        result = runner.invoke(main, ["export", "exp-pr-txt"])
+        assert result.exit_code == 0
+        assert "PR Used:     1" in result.output
 
     def test_export_text_readable(self, runner: CliRunner, make_task):
         """export default text format has human-readable sections."""

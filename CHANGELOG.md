@@ -11,14 +11,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `send --file` option — read prompt from a file instead of inline text
 - `list --count` option — print just the number of matching tasks
 - `list --no-header` option — omit table header for cleaner scripting output
+- `list --active` flag — shorthand for showing only running/active tasks
+- `list --recent N` option — show only the N most recently created tasks
 - `cleanup --dry-run` option — preview what would be cleaned without acting
 - `stop --all` flag — stop all active tasks in one command
 - `kill --all` flag — terminate all tasks and clean up resources
-- `list --recent N` option — show only the N most recently created tasks
+- `inspect --events N` option — control how many journal events to show (0 for all)
 - `config validate` integration with `duo doctor` for automatic config health checks
 - Heartbeat info in `duo status` output (current file + last pulse)
 - Shell completion for thinking session names (`duo think <TAB>`)
 - Shell completion for `duo diff` task names
+- Shell completion for `--status` filter values
 - `status` now shows Branch and Description fields
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation

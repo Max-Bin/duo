@@ -3418,9 +3418,10 @@ def config_validate(*, as_json: bool = False) -> None:
 
 def _export_as_json(task: Task) -> str:
     """Generate a JSON export string for the given task."""
-    from duo.protocol import read_jsonl, read_result_for_step
+    from duo.protocol import read_heartbeat, read_jsonl, read_result_for_step
 
     events = read_jsonl(task.journal_path)
+    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
     report: dict[str, object] = {
         "task_id": task.id,
         "description": task.description,
@@ -3432,6 +3433,7 @@ def _export_as_json(task: Task) -> str:
         "steps": task.current_step,
         "total_steps": len(task.subtasks),
         "attempt": task.current_attempt,
+        "pr_consumed": pr_count,
         "subtasks": [
             {
                 "step_id": s.step_id,
@@ -3469,6 +3471,13 @@ def _export_as_json(task: Task) -> str:
                     }
                 )
     report["results"] = results
+    hb = read_heartbeat(task)
+    if hb:
+        report["heartbeat"] = {
+            "ts": hb.ts,
+            "status": hb.status,
+            "current_file": hb.current_file,
+        }
     return json.dumps(report, ensure_ascii=False, indent=2)
 
 
@@ -3477,6 +3486,7 @@ def _export_as_text(task: Task) -> str:
     from duo.protocol import read_jsonl
 
     events = read_jsonl(task.journal_path)
+    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
     lines: list[str] = []
     lines.append(f"Task Report: {task.id}")
     lines.append(f"{'=' * 40}")
@@ -3486,6 +3496,7 @@ def _export_as_text(task: Task) -> str:
     lines.append(f"Created:     {task.created_at}")
     lines.append(f"Step:        {task.current_step}/{len(task.subtasks)}")
     lines.append(f"Attempt:     {task.current_attempt}")
+    lines.append(f"PR Used:     {pr_count}")
     lines.append("")
 
     lines.append("Steps:")
