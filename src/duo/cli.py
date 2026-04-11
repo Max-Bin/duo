@@ -1040,6 +1040,17 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
     worktree = task.worktree
 
     if dry_run:
+        commit_count = 0
+        files_changed: list[str] = []
+        if os.path.isdir(worktree):
+            r = _run_git(["log", "--oneline", "main..HEAD"], cwd=worktree, check=False)
+            if r.returncode == 0 and r.stdout.strip():
+                commit_count = len(r.stdout.strip().splitlines())
+            r2 = _run_git(
+                ["diff", "--name-only", "main...HEAD"], cwd=worktree, check=False
+            )
+            if r2.returncode == 0 and r2.stdout.strip():
+                files_changed = r2.stdout.strip().splitlines()
         if as_json:
             click.echo(
                 json.dumps(
@@ -1048,6 +1059,8 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
                         "branch": task.branch,
                         "target": "main",
                         "worktree": task.worktree,
+                        "commits": commit_count,
+                        "files_changed": files_changed,
                     }
                 )
             )
@@ -1056,6 +1069,14 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
             click.echo(f"  Branch: {task.branch}")
             click.echo("  Into: main")
             click.echo(f"  Worktree: {task.worktree}")
+            if commit_count:
+                click.echo(f"  Commits: {commit_count}")
+            if files_changed:
+                click.echo(f"  Files changed: {len(files_changed)}")
+                for f in files_changed[:10]:
+                    click.echo(f"    {f}")
+                if len(files_changed) > 10:
+                    click.echo(f"    ... and {len(files_changed) - 10} more")
             click.echo("\nRun without --dry-run to execute.")
         return
 

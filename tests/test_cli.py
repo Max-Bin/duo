@@ -5888,6 +5888,89 @@ class TestDryRun:
         assert data["dry_run"] is True
         assert data["target"] == "main"
         assert "branch" in data
+        assert "commits" in data
+        assert "files_changed" in data
+
+    def test_merge_dry_run_with_worktree(self, runner: CliRunner, tmp_path: Path):
+        """merge --dry-run shows commit count and files when worktree exists."""
+        task = _make_task("dry-wt")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(
+                    returncode=0, stdout="abc1234 first\ndef5678 second\n", stderr=""
+                ),
+                MagicMock(returncode=0, stdout="file1.py\nfile2.py\n", stderr=""),
+            ]
+            result = runner.invoke(main, ["merge", "dry-wt", "--dry-run"])
+            assert result.exit_code == 0
+            assert "Commits: 2" in result.output
+            assert "Files changed: 2" in result.output
+            assert "file1.py" in result.output
+
+    def test_merge_dry_run_many_files(self, runner: CliRunner, tmp_path: Path):
+        """merge --dry-run truncates file list at 10."""
+        task = _make_task("dry-many")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt2"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        files = "\n".join(f"file{i}.py" for i in range(15))
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="abc commit\n", stderr=""),
+                MagicMock(returncode=0, stdout=files, stderr=""),
+            ]
+            result = runner.invoke(main, ["merge", "dry-many", "--dry-run"])
+            assert result.exit_code == 0
+            assert "... and 5 more" in result.output
+
+    def test_merge_dry_run_json_with_commits(self, runner: CliRunner, tmp_path: Path):
+        """merge --dry-run --json-output includes commit count."""
+        task = _make_task("dry-jc")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt3"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=0, stdout="abc first\n", stderr=""),
+                MagicMock(returncode=0, stdout="app.py\n", stderr=""),
+            ]
+            result = runner.invoke(
+                main, ["merge", "dry-jc", "--dry-run", "--json-output"]
+            )
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["commits"] == 1
+            assert data["files_changed"] == ["app.py"]
+
+    def test_merge_dry_run_git_fails(self, runner: CliRunner, tmp_path: Path):
+        """merge --dry-run handles git errors gracefully."""
+        task = _make_task("dry-fail")
+        task.status = TaskStatus.COMPLETED
+        wt_dir = tmp_path / "wt4"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        save_task(task)
+
+        with patch("duo.cli.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                MagicMock(returncode=1, stdout="", stderr="no upstream"),
+                MagicMock(returncode=1, stdout="", stderr="no upstream"),
+            ]
+            result = runner.invoke(main, ["merge", "dry-fail", "--dry-run"])
+            assert result.exit_code == 0
+            assert "Would merge" in result.output
 
     def test_merge_json_output(self, runner: CliRunner, tmp_path: Path):
         """merge --json-output returns structured result."""
