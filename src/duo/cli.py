@@ -1202,11 +1202,63 @@ def stop(name: str | None, *, as_json: bool = False, stop_all: bool = False) -> 
             click.echo(f"  Resume with: duo resume {name}")
 
 
+def _kill_all_tasks(as_json: bool) -> None:
+    """Kill all tasks (including terminal ones) and clean up resources."""
+    from duo.protocol import append_event, list_tasks, save_task, transition
+    from duo.transport import cleanup_pane_state, kill_pane
+
+    tasks = list_tasks()
+    results: list[dict[str, object]] = []
+    for task in tasks:
+        kill_pane(task.pane_label)
+        cleanup_pane_state(task.pane_label)
+        # Remove worktree
+        wt_removed = False
+        if os.path.exists(task.worktree):
+            r = _run_git(
+                ["worktree", "remove", "--force", task.worktree], cwd=".", check=False
+            )
+            wt_removed = r.returncode == 0
+        # Remove branch
+        r = _run_git(["branch", "-D", task.branch], cwd=".", check=False)
+        branch_deleted = r.returncode == 0
+        append_event(task, "task_killed", {})
+        if not transition(task, TaskStatus.FAILED):
+            task.status = TaskStatus.FAILED
+            save_task(task)
+        results.append(
+            {
+                "id": task.id,
+                "worktree_removed": wt_removed,
+                "branch_deleted": branch_deleted,
+            }
+        )
+    if as_json:
+        click.echo(json.dumps({"killed_count": len(results), "tasks": results}))
+    else:
+        if not results:
+            click.echo("No tasks to kill.")
+        else:
+            for entry in results:
+                click.echo(f"Killed '{entry['id']}'")
+            click.echo(f"\n{len(results)} task(s) killed.")
+
+
 @main.command()
-@click.argument("name", shell_complete=_complete_task_names)
+@click.argument(
+    "name", required=False, default=None, shell_complete=_complete_task_names
+)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-def kill(name: str, *, as_json: bool = False) -> None:
+@click.option("--all", "kill_all", is_flag=True, help="Kill all tasks")
+def kill(name: str | None, *, as_json: bool = False, kill_all: bool = False) -> None:
     """Kill a task and clean up."""
+    if kill_all:
+        _kill_all_tasks(as_json)
+        return
+
+    if name is None:
+        raise click.UsageError("Provide a task NAME or use --all")
+
     task = _load_task_or_fail(name)
 
     # Try to kill the pane

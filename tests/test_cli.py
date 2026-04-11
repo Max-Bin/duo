@@ -2729,9 +2729,86 @@ class TestKillSuccess:
         assert task_reloaded.status == TaskStatus.FAILED
 
 
-# ---------------------------------------------------------------------------
-# merge command
-# ---------------------------------------------------------------------------
+class TestKillAll:
+    def test_kill_all(self, runner: CliRunner):
+        """kill --all kills all tasks."""
+        _make_task("kill-all-1")
+        _make_task("kill-all-2")
+
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "--all"])
+            assert result.exit_code == 0
+            assert "kill-all-1" in result.output
+            assert "kill-all-2" in result.output
+            assert "2 task(s) killed" in result.output
+
+    def test_kill_all_empty(self, runner: CliRunner):
+        """kill --all with no tasks prints message."""
+        result = runner.invoke(main, ["kill", "--all"])
+        assert result.exit_code == 0
+        assert "No tasks to kill" in result.output
+
+    def test_kill_all_json(self, runner: CliRunner):
+        """kill --all --json-output returns structured JSON."""
+        _make_task("kill-all-j")
+
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "--all", "--json-output"])
+            assert result.exit_code == 0
+            data = json.loads(result.output)
+            assert data["killed_count"] == 1
+
+    def test_kill_no_name_no_all(self, runner: CliRunner):
+        """kill without name or --all shows error."""
+        result = runner.invoke(main, ["kill"])
+        assert result.exit_code != 0
+        assert "Provide a task NAME or use --all" in result.output
+
+    def test_kill_all_with_worktree(self, runner: CliRunner, tmp_path: Path):
+        """kill --all removes worktrees that exist on disk."""
+        task = _make_task("kill-all-wt")
+        wt_dir = tmp_path / "fake_worktree"
+        wt_dir.mkdir()
+        task.worktree = str(wt_dir)
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "--all"])
+            assert result.exit_code == 0
+            assert "kill-all-wt" in result.output
+
+    def test_kill_all_transition_fallback(self, runner: CliRunner):
+        """kill --all falls back to direct save when transition fails."""
+        task = _make_task("kill-all-fb")
+        task.status = TaskStatus.CREATED
+        save_task(task)
+
+        proc = MagicMock(returncode=0, stdout="", stderr="")
+        with (
+            patch("duo.cli.subprocess.run", return_value=proc),
+            patch("duo.transport.kill_pane", return_value=True),
+            patch("duo.transport.cleanup_pane_state"),
+        ):
+            result = runner.invoke(main, ["kill", "--all"])
+            assert result.exit_code == 0
+        reloaded = load_task("kill-all-fb")
+        assert reloaded.status == TaskStatus.FAILED
 
 
 class TestMergeCommand:
