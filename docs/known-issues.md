@@ -974,3 +974,38 @@ Two independent rubber-duck agents audited `verifier.py`. Findings:
 - **FSM allows protocol-skipping transitions** (MED → CLOSED): Permissiveness
   appears intentional for async/recovery flows. Adding artifact guards would
   over-constrain the architecture. **Round BM: CLOSE.**
+
+---
+
+## duo watch intermittently fails to wake CEO on dialog detection
+
+**Status: Open, recurring.**
+
+**Observation:**
+`duo watch` sometimes completes (fires the background task notification)
+but the CEO doesn't process the dialog in time. From the user's
+perspective: "Copilot is showing a dialog but CEO didn't respond."
+
+**Possible causes:**
+1. Watch fires on false positive (narration text containing box chars),
+   then a REAL dialog appears shortly after — but watch already exited
+2. Watch fires correctly but CEO's processing loop has latency between
+   receiving the notification and reading the pane
+3. Large dialogs (tall permission boxes with embedded scripts) may
+   take longer to render, causing a timing gap between watch detection
+   and dialog being fully interactive
+
+**Impact:** User sees Copilot stuck waiting for approval. CEO must be
+manually prompted to check the pane.
+
+**Mitigation ideas:**
+- `duo watch` should loop (not exit after first detection) unless
+  `--once` is specified — currently it always exits
+- Add a "confirmation read" after detection: re-read pane 1s later,
+  verify dialog is still there before exiting
+- CEO should poll pane on every notification, not just when watch fires
+
+**Priority:** Medium. Recurring annoyance but not data-losing.
+
+**Occurrences:** Multiple times during the multi-day CEO session,
+especially with large permission dialogs containing inline scripts.
