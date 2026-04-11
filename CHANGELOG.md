@@ -40,6 +40,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `diff -q/--quiet` — print only the changed file count
 - `retry -q/--quiet` — print only the new status value
 - `queue -q/--quiet` — print only the queue length
+- `config get -q/--quiet` — print only the raw config value
+- `export -q/--quiet` — print only the journal event count
+- `list --finished` — show only completed/failed/escalated tasks
 - Task name validation suggests corrected name on error
 - AGE column in `duo list` output showing elapsed time since task creation
 - `--sort` flag for `duo list` (sort by name, status, or age)
