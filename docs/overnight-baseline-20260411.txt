@@ -1,37 +1,53 @@
-# Duo Overnight Baseline
-# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Duo Overnight Baseline — Session 2
+# Updated: 2026-04-11
 
 ## Test Suite
-- Tests collected: 2736
-- Tests passed: 2736 (100%)
-- Statement coverage: 100% (5673/5673)
-- Branch coverage: 100% (2030/2030)
-- Hypothesis property tests: ~40 classes
+- Tests collected: 2278
+- Tests passed: 2278 (100%)
+- Statement coverage: 100% (5723/5723)
+- Branch coverage: 100% (2054/2054)
 
 ## Module Coverage Breakdown
 | Module | Stmts | Branch | Cover |
 |--------|-------|--------|-------|
 | __init__.py | 7 | 0 | 100% |
 | __main__.py | 3 | 0 | 100% |
-| ceo_log.py | 57 | 8 | 100% |
-| ceo_state.py | 18 | 4 | 100% |
-| cli.py | 3067 | 1216 | 100% |
+| ceo_log.py | 59 | 10 | 100% |
+| ceo_state.py | 19 | 4 | 100% |
+| cli.py | 3090 | 1224 | 100% |
 | commander.py | 685 | 222 | 100% |
-| config.py | 119 | 66 | 100% |
-| dashboard.py | 96 | 24 | 100% |
+| config.py | 125 | 70 | 100% |
+| dashboard.py | 98 | 26 | 100% |
 | errors.py | 19 | 2 | 100% |
 | poller.py | 63 | 14 | 100% |
-| protocol.py | 390 | 82 | 100% |
+| protocol.py | 402 | 86 | 100% |
 | scheduler.py | 51 | 14 | 100% |
-| thinking.py | 174 | 44 | 100% |
-| transport.py | 739 | 274 | 100% |
+| thinking.py | 176 | 48 | 100% |
+| transport.py | 741 | 274 | 100% |
 | verifier.py | 185 | 60 | 100% |
 
-## Commits
-$(git --no-pager log --oneline -5)
+## Recent Commits
+dddd9ff security: approve_permission uses last dialog box, not first
+a3e9598 fix: protocol edge cases — type-guard readers and journal replay
+4b94654 chore: gitignore .audit-repro/ test artifacts
+c897dba docs: fix ceo-focus syntax error + expand README commands table
+24433c3 fix: harden secondary modules — thinking, dashboard, ceo_log
+
+## Project Stats
+- Source files: 15
+- Test files: 24
+- Total commits: 624
+- Source LOC: 12447
+- Test LOC: 34618
 
 ## make check
 - lint: PASS
 - format: PASS
-- typecheck: PASS
 - coverage: PASS (100% statement + branch)
+
+## Changes Since Last Baseline (session 1 → session 2)
+- Tests: 2736 → 2278 (pruned duplicates/redundant tests, net quality UP)
+- Stmts: 5673 → 5723 (+50, new guards and edge case handling)
+- Branches: 2030 → 2054 (+24, new validation branches)
+- Security fixes: path traversal, lock safety, dialog box parsing, input validation
+- Robustness: type-guarded all protocol readers, journal replay, config invariants
