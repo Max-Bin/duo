@@ -1719,6 +1719,41 @@ class TestConfigListEdgeCases:
         assert len(items) == 12
 
 
+class TestTaskNameCompletion:
+    def test_task_name_completion(self):
+        """_complete_task_names returns matching task names."""
+        from duo.cli import _complete_task_names
+
+        _make_task("alpha-task")
+        _make_task("beta-task")
+        items = _complete_task_names(None, None, "alpha")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "alpha-task" in names
+        assert "beta-task" not in names
+
+    def test_task_name_completion_empty(self):
+        """Empty prefix returns all task names."""
+        from duo.cli import _complete_task_names
+
+        _make_task("first")
+        _make_task("second")
+        items = _complete_task_names(None, None, "")  # type: ignore[arg-type]
+        names = [i.value for i in items]
+        assert "first" in names
+        assert "second" in names
+        assert all(i.help for i in items)
+
+    def test_task_name_completion_error(self, monkeypatch: pytest.MonkeyPatch):
+        """Completion returns empty list on error."""
+        from duo.cli import _complete_task_names
+
+        monkeypatch.setattr(
+            "duo.protocol.list_tasks", lambda: (_ for _ in ()).throw(OSError("fail"))
+        )
+        items = _complete_task_names(None, None, "")  # type: ignore[arg-type]
+        assert items == []
+
+
 # ---------------------------------------------------------------------------
 # _safe_join
 # ---------------------------------------------------------------------------

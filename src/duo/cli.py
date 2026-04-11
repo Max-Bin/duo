@@ -178,6 +178,24 @@ _TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
 _MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
 
 
+def _complete_task_names(
+    ctx: click.Context, param: click.Parameter, incomplete: str
+) -> list[click.shell_completion.CompletionItem]:
+    from click.shell_completion import CompletionItem
+
+    from duo.protocol import list_tasks
+
+    try:
+        tasks = list_tasks()
+    except Exception:
+        return []
+    return [
+        CompletionItem(t.id, help=t.status.value)
+        for t in tasks
+        if t.id.startswith(incomplete)
+    ]
+
+
 def _safe_join(base: str, name: str) -> str:
     """Join base directory and name, rejecting path traversal."""
     base_path = Path(base).resolve()
@@ -547,7 +565,7 @@ def start(
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.argument("prompt")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def send(name: str, prompt: str, *, as_json: bool = False) -> None:
@@ -645,7 +663,7 @@ def send(name: str, prompt: str, *, as_json: bool = False) -> None:
 
 
 @main.command()
-@click.argument("name", required=False)
+@click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def status(name: str | None = None, *, as_json: bool = False) -> None:
     """Show task status."""
@@ -897,7 +915,7 @@ def recover(as_json: bool) -> None:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option("--dry-run", is_flag=True, help="Preview merge without executing")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
@@ -1019,7 +1037,7 @@ def merge(name: str, dry_run: bool, *, as_json: bool = False) -> None:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def stop(name: str, *, as_json: bool = False) -> None:
     """Stop a task gracefully (preserves worktree for resume)."""
@@ -1092,7 +1110,7 @@ def stop(name: str, *, as_json: bool = False) -> None:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def kill(name: str, *, as_json: bool = False) -> None:
     """Kill a task and clean up."""
@@ -1422,7 +1440,7 @@ def queue(as_json: bool) -> None:
 
 
 @main.command()
-@click.argument("name", required=False)
+@click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def audit(name: str | None = None, *, as_json: bool = False) -> None:
     """Show Premium Request consumption audit."""
@@ -1632,7 +1650,7 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option(
     "-n", "--lines", default=20, type=click.IntRange(1), help="Number of recent events"
 )
@@ -1828,7 +1846,7 @@ def _inspect_build_json(task: Task, include_files: bool) -> dict[str, Any]:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option(
     "--include-files",
@@ -2876,7 +2894,7 @@ def doctor(as_json: bool, strict: bool, fix: bool) -> None:
 
 
 @main.command()
-@click.argument("name", required=False)
+@click.argument("name", required=False, shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def resume(name: str | None, *, as_json: bool = False) -> None:
     """Resume interrupted task sessions."""
@@ -2979,7 +2997,7 @@ def resume(name: str | None, *, as_json: bool = False) -> None:
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 def retry(name: str, *, as_json: bool = False) -> None:
     """Retry a failed, blocked, or escalated task from its current step."""
@@ -5292,7 +5310,7 @@ def ceo_metrics_cmd(
 
 
 @main.command()
-@click.argument("name")
+@click.argument("name", shell_complete=_complete_task_names)
 @click.option(
     "--format",
     "fmt",
