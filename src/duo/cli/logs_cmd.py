@@ -42,7 +42,7 @@ def logs(
     quiet: bool,
 ) -> None:
     """Show task journal events."""
-    from duo.cli import _fmt_ts, _load_task_or_fail
+    from duo.cli._helpers import _fmt_ts, _load_task_or_fail
     from duo.protocol import read_jsonl
 
     task = _load_task_or_fail(name)

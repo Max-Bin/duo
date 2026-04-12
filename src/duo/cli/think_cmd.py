@@ -33,7 +33,7 @@ def think(
 
     NAME is the thinking session name, or 'list' to show all sessions.
     """
-    from duo.cli import _validate_task_name
+    from duo.cli._helpers import _validate_task_name
 
     # Special case: "duo think list"
     if name == "list":

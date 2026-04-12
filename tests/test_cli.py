@@ -2195,7 +2195,7 @@ class TestStatusValueCompletion:
         from duo.cli import _complete_status_values
 
         monkeypatch.setattr(
-            "duo.cli.TaskStatus",
+            "duo.cli._helpers.TaskStatus",
             property(lambda self: (_ for _ in ()).throw(RuntimeError("fail"))),
         )
         items = _complete_status_values(None, None, "")  # type: ignore[arg-type]
@@ -3220,7 +3220,7 @@ class TestMergeCommand:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
-            patch("duo.cli.get_config", return_value=worktree_base),
+            patch("duo.cli._helpers.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-ok"])
             assert result.exit_code == 0
@@ -3285,7 +3285,7 @@ class TestMergeCommand:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
-            patch("duo.cli.get_config", return_value=worktree_base),
+            patch("duo.cli._helpers.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-fetch"])
             assert result.exit_code == 0
@@ -3341,7 +3341,7 @@ class TestMergeCommand:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
-            patch("duo.cli.get_config", return_value=worktree_base),
+            patch("duo.cli._helpers.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-nomain"])
             assert result.exit_code != 0
@@ -3375,7 +3375,7 @@ class TestMergeCommand:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
-            patch("duo.cli.get_config", return_value=worktree_base),
+            patch("duo.cli._helpers.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-warn"])
             assert result.exit_code == 0
@@ -3407,7 +3407,7 @@ class TestMergeCommand:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_subprocess_run),
-            patch("duo.cli.get_config", return_value=worktree_base),
+            patch("duo.cli._helpers.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-ff"])
             assert result.exit_code != 0
@@ -7214,7 +7214,7 @@ class TestInspectIncludeFiles:
             return diff
 
         with (
-            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("duo.cli.inspect_cmd._run_git", side_effect=fake_run_git),
             patch("os.path.isdir", return_value=True),
         ):
             result = runner.invoke(main, ["inspect", "incl-files", "--include-files"])
@@ -7253,7 +7253,7 @@ class TestInspectIncludeFiles:
             return diff
 
         with (
-            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("duo.cli.inspect_cmd._run_git", side_effect=fake_run_git),
             patch("os.path.isdir", return_value=True),
         ):
             result = runner.invoke(
@@ -7287,7 +7287,7 @@ class TestInspectIncludeFiles:
             return diff
 
         with (
-            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("duo.cli.inspect_cmd._run_git", side_effect=fake_run_git),
             patch("os.path.isdir", return_value=True),
         ):
             result = runner.invoke(
@@ -7331,7 +7331,7 @@ class TestInspectIncludeFiles:
             return diff
 
         with (
-            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("duo.cli.inspect_cmd._run_git", side_effect=fake_run_git),
             patch("os.path.isdir", return_value=True),
         ):
             result = runner.invoke(
@@ -10376,7 +10376,7 @@ class TestCliBranchGapsBatch1:
 
         with (
             patch("duo.cli.subprocess.run", side_effect=mock_run),
-            patch("duo.cli.get_config", return_value=worktree_base),
+            patch("duo.cli._helpers.get_config", return_value=worktree_base),
         ):
             result = runner.invoke(main, ["merge", "merge-jf", "--json-output"])
         assert result.exit_code == 0
@@ -10483,7 +10483,7 @@ class TestCliBranchGapsBatch1:
             return empty
 
         with (
-            patch("duo.cli._run_git", side_effect=fake_run_git),
+            patch("duo.cli.inspect_cmd._run_git", side_effect=fake_run_git),
             patch("os.path.isdir", return_value=True),
         ):
             result = runner.invoke(main, ["inspect", "incl-empty", "--include-files"])
@@ -10808,12 +10808,12 @@ class TestCliBranchGapsBatch7:
     # -- 96→87: formatter section with no valid commands (empty rows) --
     def test_help_formatter_empty_section(self, runner: CliRunner, monkeypatch):
         """Help formatter skips sections where all commands are None."""
-        import duo.cli as cli_mod
+        import duo.cli._helpers as helpers_mod
 
-        original = cli_mod._COMMAND_SECTIONS
+        original = helpers_mod._COMMAND_SECTIONS
         patched = dict(original)
         patched["Phantom"] = ["nonexistent-cmd-xyz"]
-        monkeypatch.setattr(cli_mod, "_COMMAND_SECTIONS", patched)
+        monkeypatch.setattr(helpers_mod, "_COMMAND_SECTIONS", patched)
 
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0

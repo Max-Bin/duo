@@ -28,7 +28,7 @@ def events_list(
     limit: int, *, as_json: bool = False, quiet: bool = False, count: bool = False
 ) -> None:
     """List recent watch events (newest first)."""
-    from duo.cli import _fmt_ts
+    from duo.cli._helpers import _fmt_ts
 
     if not _WATCH_EVENTS_DIR.exists():
         if count:
@@ -79,7 +79,7 @@ def events_list(
 @click.argument("name", default="latest")
 def events_show(name: str) -> None:
     """Show a single event (by filename or 'latest')."""
-    from duo.cli import _validate_task_name
+    from duo.cli._helpers import _validate_task_name
 
     if not _WATCH_EVENTS_DIR.exists():
         raise DuoUserError(
@@ -133,7 +133,7 @@ def events_tail(limit: int) -> None:
     """Follow watch events in real-time (Ctrl-C to stop)."""
     import time
 
-    from duo.cli import _fmt_ts
+    from duo.cli._helpers import _fmt_ts
 
     _WATCH_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()

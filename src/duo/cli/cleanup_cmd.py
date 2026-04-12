@@ -62,7 +62,7 @@ def cleanup(
     quiet: bool = False,
 ) -> None:
     """Clean up completed and failed tasks."""
-    from duo.cli import _remove_worktree_and_branch
+    from duo.cli._helpers import _remove_worktree_and_branch
 
     if corrupted:
         from duo.protocol import list_corrupted

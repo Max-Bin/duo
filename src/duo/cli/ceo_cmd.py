@@ -69,7 +69,7 @@ def ceo_wait(task: str, timeout: float, interval: float) -> None:
     dialog content to stdout, writes a watch-event signal file, and
     exits 0. On timeout, exits 1.
     """
-    from duo.cli import _load_task_or_fail
+    from duo.cli._helpers import _load_task_or_fail
     from duo.commander import _write_watch_event
     from duo.transport import is_process_alive, read_pane, wait_for_dialog
 
@@ -131,7 +131,7 @@ def ceo_select(
     Safety: refuses to act if the pane is at the main ❯ prompt (would
     create a new Premium Request). Override with --force-new-session.
     """
-    from duo.cli import _load_task_or_fail
+    from duo.cli._helpers import _load_task_or_fail
     from duo.transport import (
         DialogKind,
         get_dialog_kind,
@@ -236,7 +236,7 @@ def ceo_approve(task: str, force_new_session: bool) -> None:
     Safety: refuses to act if the pane is at the main ❯ prompt (would
     create a new Premium Request). Override with --force-new-session.
     """
-    from duo.cli import _load_task_or_fail
+    from duo.cli._helpers import _load_task_or_fail
     from duo.transport import approve_permission, is_permission_dialog
 
     t = _load_task_or_fail(task)
@@ -281,7 +281,7 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
     Use --assert-in-dialog in scripts:
       duo ceo-status my-task --assert-in-dialog || handle_no_dialog
     """
-    from duo.cli import _load_task_or_fail
+    from duo.cli._helpers import _load_task_or_fail
     from duo.transport import (
         DialogKind,
         get_dialog_kind,

@@ -6,7 +6,6 @@ import fcntl
 import json
 import logging
 import os
-import re
 import subprocess
 import sys
 import time
@@ -15,6 +14,46 @@ from typing import Any
 
 import click
 
+from duo.cli._helpers import (  # noqa: F401 — re-export shared helpers
+    _ALIASES as _ALIASES,
+)
+from duo.cli._helpers import (
+    _COMMAND_SECTIONS as _COMMAND_SECTIONS,
+)
+from duo.cli._helpers import (
+    _GIT_TIMEOUT as _GIT_TIMEOUT,
+)
+from duo.cli._helpers import (
+    _MAX_AGE_SECONDS as _MAX_AGE_SECONDS,
+)
+from duo.cli._helpers import (
+    _TMUX_TIMEOUT as _TMUX_TIMEOUT,
+)
+from duo.cli._helpers import (
+    _complete_status_values as _complete_status_values,
+)
+from duo.cli._helpers import (
+    _complete_task_names,
+    _create_worktree,
+    _find_main_worktree,
+    _fmt_ts,
+    _load_task_or_fail,
+    _OrderedGroup,
+    _remove_worktree_and_branch,
+    _run_git,
+)
+from duo.cli._helpers import (
+    _complete_thinking_names as _complete_thinking_names,
+)
+from duo.cli._helpers import (
+    _fmt_age as _fmt_age,
+)
+from duo.cli._helpers import (
+    _safe_join as _safe_join,
+)
+from duo.cli._helpers import (
+    _validate_task_name as _validate_task_name,
+)
 from duo.cli.doctor import (
     CheckResult as CheckResult,  # noqa: F401 — re-export
 )
@@ -47,7 +86,6 @@ from duo.errors import DuoUserError
 from duo.protocol import (
     DUO_DIR,  # used by test monkeypatching
     TASKS_DIR,
-    Heartbeat,
     Subtask,
     Task,
     TaskStatus,
@@ -64,299 +102,6 @@ _TERMINAL_STATES = frozenset(
 )
 
 __all__ = ["main"]
-
-_COMMAND_SECTIONS: dict[str, list[str]] = {
-    "Task Lifecycle": [
-        "start",
-        "go",
-        "send",
-        "stop",
-        "status",
-        "merge",
-        "diff",
-        "kill",
-    ],
-    "Thinking": ["think"],
-    "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect"],
-    "Batch & Queue": ["batch", "queue"],
-    "CEO Workflow": [
-        "ceo-wait",
-        "ceo-select",
-        "ceo-approve",
-        "ceo-status",
-    ],
-    "Recovery": ["recover", "resume", "retry"],
-    "Data & Audit": ["audit", "cost", "cleanup", "events"],
-    "Setup": ["init", "doctor", "config"],
-    "Misc": ["version", "completion"],
-}
-
-
-_ALIASES: dict[str, str] = {
-    "ls": "list",
-    "st": "status",
-    "log": "logs",
-}
-
-
-class _OrderedGroup(click.Group):
-    """Click group that displays commands in categorized sections."""
-
-    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
-        """Resolve command name, supporting aliases."""
-        rv = super().get_command(ctx, cmd_name)
-        if rv is not None:
-            return rv
-        target = _ALIASES.get(cmd_name)
-        if target is not None:
-            return super().get_command(ctx, target)
-        return None
-
-    def format_commands(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:
-        """Format help output with categorized command sections."""
-        seen: set[str] = set()
-        for section, cmd_names in _COMMAND_SECTIONS.items():
-            rows: list[tuple[str, str]] = []
-            for name in cmd_names:
-                cmd = self.get_command(ctx, name)
-                if cmd is None:
-                    continue  # pragma: no cover — defensive for future section edits
-                seen.add(name)
-                help_text = cmd.get_short_help_str(limit=60)
-                rows.append((name, help_text))
-            if rows:
-                with formatter.section(section):
-                    formatter.write_dl(rows)
-
-        # Any commands not in a section
-        extra: list[tuple[str, str]] = []
-        for name in self.list_commands(ctx):
-            if name not in seen:
-                cmd = self.get_command(
-                    ctx, name
-                )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-                if cmd:  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-                    extra.append(
-                        (name, cmd.get_short_help_str(limit=60))
-                    )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-        if (
-            extra
-        ):  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-            with formatter.section(
-                "Other"
-            ):  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-                formatter.write_dl(
-                    extra
-                )  # pragma: no cover — unreachable: all commands are in COMMAND_SECTIONS
-
-        # Show aliases
-        if _ALIASES:  # pragma: no branch — _ALIASES is a non-empty constant
-            alias_rows = [(a, f"→ {t}") for a, t in sorted(_ALIASES.items())]
-            with formatter.section("Aliases"):
-                formatter.write_dl(alias_rows)
-
-
-def _validate_task_name(name: str) -> None:
-    """Validate that a task name contains only safe characters."""
-    if len(name) > 63:
-        raise click.BadParameter(
-            f"Task name must be at most 63 characters, got {len(name)}"
-        )
-    if not re.match(r"^[a-zA-Z0-9_-]+\Z", name):
-        suggested = re.sub(r"[^a-zA-Z0-9_-]", "-", name).strip("-")
-        hint = f" Try: '{suggested}'" if suggested else ""
-        raise click.BadParameter(
-            f"Task name must contain only letters, numbers, dashes, underscores. Got: '{name}'.{hint}"
-        )
-
-
-def _fmt_ts(ts: str) -> str:
-    """Extract HH:MM:SS from ISO timestamp, or return '?' if malformed."""
-    try:
-        return ts.split("T", 1)[1][:8] if "T" in ts else ts[:8]
-    except (IndexError, TypeError, AttributeError):
-        return "?"
-
-
-def _fmt_age(created_at: str) -> str:
-    """Format elapsed time since created_at as human-readable string."""
-    try:
-        from datetime import UTC, datetime
-
-        created = datetime.fromisoformat(created_at)
-        if created.tzinfo is None:
-            created = created.replace(tzinfo=UTC)
-        delta = datetime.now(UTC) - created
-        total_seconds = int(delta.total_seconds())
-        if total_seconds < 0:
-            return "0s"
-        if total_seconds < 60:
-            return f"{total_seconds}s"
-        if total_seconds < 3600:
-            return f"{total_seconds // 60}m"
-        if total_seconds < 86400:
-            return f"{total_seconds // 3600}h {(total_seconds % 3600) // 60}m"
-        return f"{total_seconds // 86400}d {(total_seconds % 86400) // 3600}h"
-    except (ValueError, TypeError, AttributeError):
-        return "?"
-
-
-_GIT_TIMEOUT = 30  # seconds for git subprocess calls
-_TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
-_MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
-
-
-def _complete_task_names(
-    ctx: click.Context, param: click.Parameter, incomplete: str
-) -> list[click.shell_completion.CompletionItem]:
-    from click.shell_completion import CompletionItem
-
-    from duo.protocol import list_tasks
-
-    try:
-        tasks = list_tasks()
-    except Exception:
-        return []
-    return [
-        CompletionItem(t.id, help=t.status.value)
-        for t in tasks
-        if t.id.startswith(incomplete)
-    ]
-
-
-def _complete_thinking_names(
-    _ctx: click.Context,
-    _param: click.Parameter,
-    incomplete: str,
-) -> list[click.shell_completion.CompletionItem]:
-    """Tab-complete thinking session names."""
-    try:
-        from click.shell_completion import CompletionItem
-
-        from duo.thinking import THINKING_DIR
-
-        if not THINKING_DIR.exists():
-            return []
-        return [
-            CompletionItem(d.name)
-            for d in sorted(THINKING_DIR.iterdir())
-            if d.is_dir() and d.name.startswith(incomplete)
-        ]
-    except Exception:
-        return []
-
-
-def _complete_status_values(
-    _ctx: click.Context,
-    _param: click.Parameter,
-    incomplete: str,
-) -> list[click.shell_completion.CompletionItem]:
-    """Tab-complete task status values."""
-    try:
-        from click.shell_completion import CompletionItem
-
-        return [
-            CompletionItem(s.value)
-            for s in TaskStatus
-            if s.value.startswith(incomplete)
-        ]
-    except Exception:
-        return []
-
-
-def _safe_join(base: str, name: str) -> str:
-    """Join base directory and name, rejecting path traversal."""
-    base_path = Path(base).resolve()
-    joined = (base_path / name).resolve()
-    if not str(joined).startswith(str(base_path) + os.sep) and joined != base_path:
-        raise click.BadParameter(f"Path traversal detected: {name}")
-    return str(joined)
-
-
-def _run_git(
-    args: list[str], cwd: str, *, check: bool = True
-) -> subprocess.CompletedProcess[str]:
-    """Run a git command with consistent error handling.
-
-    Args:
-        args: Git arguments (without 'git' prefix), e.g. ['rev-parse', 'HEAD']
-        cwd: Working directory
-        check: If True, exit on failure with error message
-
-    Returns:
-        CompletedProcess result
-    """
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=_GIT_TIMEOUT,
-        )
-    except FileNotFoundError:
-        raise DuoUserError(
-            "git is not installed",
-            fix="Install: brew install git (macOS) or apt install git (Linux)",
-        ) from None
-    except subprocess.TimeoutExpired:
-        cmd_str = " ".join(["git", *args])
-        raise DuoUserError(
-            f"`{cmd_str}` timed out after {_GIT_TIMEOUT}s",
-            fix="Try 'duo doctor' to check system state.",
-        ) from None
-    if check and result.returncode != 0:
-        cmd_str = " ".join(["git", *args])
-        stderr = result.stderr.strip()[:500]
-        raise DuoUserError(
-            f"`{cmd_str}` failed: {stderr}",
-            fix="Check the repo path is valid and you're in a git repository. Run 'duo doctor' to verify.",
-        )
-    return result
-
-
-def _remove_worktree_and_branch(
-    task: Task, *, cwd: str = ".", warn: bool = True
-) -> tuple[bool, bool]:
-    """Remove a task's git worktree and branch.
-
-    Returns (worktree_removed, branch_deleted).
-    """
-    wt_removed = False
-    if os.path.exists(task.worktree):
-        r = _run_git(
-            ["worktree", "remove", "--force", task.worktree], cwd=cwd, check=False
-        )
-        wt_removed = r.returncode == 0
-        if not wt_removed and warn:
-            click.echo(
-                f"  Warning: worktree removal failed: {r.stderr.strip()}", err=True
-            )
-    r = _run_git(["branch", "-D", task.branch], cwd=cwd, check=False)
-    branch_deleted = r.returncode == 0
-    if not branch_deleted and warn:
-        click.echo(f"  Warning: branch deletion failed: {r.stderr.strip()}", err=True)
-    return wt_removed, branch_deleted
-
-
-def _find_main_worktree(task_worktree: str) -> str | None:
-    """Find the main (non-duo) worktree from a git repo.
-
-    Returns the main worktree path, or None if not found.
-    """
-    cwd = task_worktree if os.path.exists(task_worktree) else "."
-    r = _run_git(["worktree", "list", "--porcelain"], cwd=cwd, check=False)
-    for line in r.stdout.split("\n"):
-        if (
-            line.startswith("worktree ")
-            and get_config("worktree_base_path") not in line
-        ):
-            parts = line.split(" ", 1)
-            return parts[1] if len(parts) > 1 else parts[0]
-    return None
 
 
 @click.group(cls=_OrderedGroup)
@@ -381,31 +126,6 @@ def main(ctx: click.Context, verbose: bool) -> None:
 
 
 main.add_command(doctor_command, "doctor")
-
-
-def _create_worktree(name: str, repo: str) -> tuple[str, str]:
-    """Create git worktree for task. Returns (worktree_path, base_commit)."""
-    if not os.path.isdir(repo):
-        raise DuoUserError(
-            f"repo path '{repo}' does not exist or is not a directory",
-            fix="Use --repo /path/to/git/repo or run from inside a git repo.",
-        )
-    if not os.path.exists(os.path.join(repo, ".git")):
-        raise DuoUserError(
-            f"'{repo}' is not a git repository (no .git found)",
-            fix="Run 'git init' first, or use --repo to point to an existing repo.",
-        )
-
-    worktree_base = get_config("worktree_base_path")
-    worktree = _safe_join(worktree_base, name)
-    branch = f"duo/{name}"
-
-    result = _run_git(["rev-parse", "HEAD"], cwd=repo)
-    base_commit = result.stdout.strip()
-
-    result = _run_git(["worktree", "add", worktree, "-b", branch], cwd=repo)
-
-    return worktree, base_commit
 
 
 @main.command()
@@ -2100,235 +1820,9 @@ from duo.cli.logs_cmd import (  # noqa: E402
 main.add_command(logs_command, "logs")
 
 
-def _inspect_gather_worktree_files(worktree: str) -> dict[str, Any]:
-    """Gather changed files, untracked files, and diff preview from a worktree."""
-    r = _run_git(["diff", "--name-only", "HEAD"], cwd=worktree, check=False)
-    changed = (
-        [f for f in r.stdout.strip().splitlines() if f] if r.returncode == 0 else []
-    )
-    r2 = _run_git(
-        ["ls-files", "--others", "--exclude-standard"],
-        cwd=worktree,
-        check=False,
-    )
-    untracked = (
-        [f for f in r2.stdout.strip().splitlines() if f] if r2.returncode == 0 else []
-    )
-    r3 = _run_git(["diff", "HEAD"], cwd=worktree, check=False)
-    diff_preview = r3.stdout[:500] if r3.returncode == 0 else ""
-    if len(r3.stdout) > 500:
-        diff_preview += "\n... (truncated)"
-    return {
-        "changed": changed,
-        "untracked": untracked,
-        "diff_preview": diff_preview,
-    }
+from duo.cli.inspect_cmd import inspect as inspect_command
 
-
-def _inspect_format_heartbeat(hb: Heartbeat) -> str:
-    """Format a heartbeat for text display."""
-    lines = [
-        "Heartbeat:",
-        f"  Timestamp:     {hb.ts}",
-        f"  Status:        {hb.status}",
-        f"  Current file:  {hb.current_file}",
-        f"  Incarnation:   {hb.incarnation}",
-    ]
-    return "\n".join(lines)
-
-
-def _inspect_format_ack_result(task: Task) -> str:
-    """Read and format the current step's ack and result for text display."""
-    from duo.protocol import read_ack_for_step, read_result_for_step
-
-    lines: list[str] = []
-    ack = read_ack_for_step(task, task.current_step, task.current_attempt)
-    if ack:
-        lines.append("")
-        lines.append("Ack:")
-        lines.append(f"  Acked at:      {ack.acked_at}")
-        lines.append(f"  Prompt hash:   {ack.prompt_hash}")
-
-    result = read_result_for_step(task, task.current_step, task.current_attempt)
-    if result:
-        lines.append("")
-        lines.append("Result:")
-        lines.append(f"  Status:        {result.status}")
-        lines.append(f"  Summary:       {result.summary}")
-        if result.files_changed:
-            lines.append(f"  Files changed: {', '.join(result.files_changed)}")
-
-    return "\n".join(lines)
-
-
-def _inspect_build_json(task: Task, include_files: bool) -> dict[str, Any]:
-    """Build the full JSON output dict for the inspect command."""
-    from duo.protocol import (
-        read_ack_for_step,
-        read_heartbeat,
-        read_result_for_step,
-    )
-
-    data: dict[str, Any] = {
-        "id": task.id,
-        "description": task.description,
-        "status": task.status.value,
-        "step": task.current_step,
-        "total_steps": len(task.subtasks),
-        "attempt": task.current_attempt,
-        "incarnation_id": task.incarnation_id,
-        "worktree": task.worktree,
-        "branch": task.branch,
-        "base_commit": task.base_commit,
-        "created_at": task.created_at,
-        "session_started_at": task.session_started_at,
-        "age": _fmt_age(task.created_at),
-        "subtasks": [
-            {
-                "step_id": s.step_id,
-                "description": s.description,
-                "target_files": s.target_files,
-                "writable_paths": s.writable_paths,
-            }
-            for s in task.subtasks
-        ],
-    }
-    hb = read_heartbeat(task)
-    if hb:
-        data["heartbeat"] = {
-            "ts": hb.ts,
-            "status": hb.status,
-            "current_file": hb.current_file,
-            "incarnation": hb.incarnation,
-        }
-    ack = read_ack_for_step(task, task.current_step, task.current_attempt)
-    if ack:
-        data["ack"] = {
-            "acked_at": ack.acked_at,
-            "prompt_hash": ack.prompt_hash,
-        }
-    result = read_result_for_step(task, task.current_step, task.current_attempt)
-    if result:
-        data["result"] = {
-            "status": result.status,
-            "summary": result.summary,
-            "files_changed": result.files_changed,
-        }
-    if include_files:
-        worktree = task.worktree
-        if os.path.isdir(worktree):
-            files = _inspect_gather_worktree_files(worktree)
-            data["changed_files"] = files["changed"]
-            data["untracked_files"] = files["untracked"]
-            data["diff_preview"] = files["diff_preview"]
-        else:
-            data["files_error"] = f"Worktree not found: {worktree}"
-    return data
-
-
-@main.command()
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option(
-    "--include-files",
-    is_flag=True,
-    help="Show changed files and diff preview from worktree",
-)
-@click.option(
-    "--events",
-    "event_count",
-    type=int,
-    default=None,
-    help="Number of recent journal events to show (default: 5, 0 for all)",
-)
-@click.option("-q", "--quiet", is_flag=True, help="Print only the task status")
-def inspect(
-    name: str,
-    as_json: bool,
-    include_files: bool,
-    event_count: int | None,
-    quiet: bool,
-) -> None:
-    """Show detailed task information."""
-    from duo.protocol import (
-        read_heartbeat,
-        read_jsonl,
-    )
-
-    task = _load_task_or_fail(name)
-
-    if quiet:
-        click.echo(task.status.value)
-        return
-
-    if as_json:
-        data = _inspect_build_json(task, include_files)
-        click.echo(json.dumps(data, indent=2))
-        return
-
-    # Task info
-    click.echo(f"Task: {task.id}")
-    click.echo(f"  Description:   {task.description}")
-    click.echo(f"  Status:        {task.status.value}")
-    click.echo(f"  Incarnation:   {task.incarnation_id}")
-    click.echo(f"  Step:          {task.current_step}/{len(task.subtasks)}")
-    click.echo(f"  Attempt:       {task.current_attempt}")
-    click.echo(f"  Worktree:      {task.worktree}")
-    click.echo(f"  Branch:        {task.branch}")
-    click.echo(f"  Created:       {task.created_at}")
-    if task.last_prompt_sent_at:
-        click.echo(f"  Last prompt:   {task.last_prompt_sent_at}")
-
-    # Current subtask
-    if task.current_step <= len(task.subtasks):
-        st = task.subtasks[task.current_step - 1]
-        click.echo(f"\nCurrent Step ({task.current_step}):")
-        click.echo(f"  Description:   {st.description}")
-        click.echo(f"  Target files:  {', '.join(st.target_files) or '(none)'}")
-        click.echo(f"  Writable:      {', '.join(st.writable_paths)}")
-
-    # Heartbeat
-    hb = read_heartbeat(task)
-    if hb:
-        click.echo(f"\n{_inspect_format_heartbeat(hb)}")
-    else:
-        click.echo("\nHeartbeat:       (none)")
-
-    # Ack/result
-    ack_result_text = _inspect_format_ack_result(task)
-    if ack_result_text:
-        click.echo(ack_result_text)
-
-    # Recent events
-    events = read_jsonl(task.journal_path)
-    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
-    click.echo(f"\nPR Consumed:     {pr_count}")
-
-    if events:
-        show_n = event_count if event_count is not None else 5
-        recent = events if show_n == 0 else events[-show_n:]
-        click.echo(f"\nRecent Events ({len(events)} total, showing {len(recent)}):")
-        for ev in recent:
-            ts = _fmt_ts(ev.get("ts", "?"))
-            click.echo(f"  {ts} {ev.get('event', '?')}")
-
-    if include_files:
-        worktree = task.worktree
-        if os.path.isdir(worktree):
-            files = _inspect_gather_worktree_files(worktree)
-            if files["changed"]:
-                click.echo(f"\nChanged files ({len(files['changed'])}):")
-                for f in files["changed"][:20]:
-                    click.echo(f"  M {f}")
-            if files["untracked"]:
-                click.echo(f"\nUntracked files ({len(files['untracked'])}):")
-                for f in files["untracked"][:20]:
-                    click.echo(f"  ? {f}")
-            if files["diff_preview"]:
-                click.echo("\nDiff preview:")
-                click.echo(files["diff_preview"])
-        else:
-            click.echo(f"\n⚠ Worktree not found: {worktree}")
+main.add_command(inspect_command, "inspect")
 
 
 @main.command()
@@ -2539,19 +2033,7 @@ def go(repo: str) -> None:
                 fix="Check tmux is responding: tmux list-panes",
             ) from None
 
-        # Get the REAL new pane ID by querying tmux active pane
-        # (after split-window -h, the new pane is active)
-        try:
-            active_result = subprocess.run(
-                ["tmux", "display-message", "-p", "#{pane_id}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if active_result.returncode == 0 and active_result.stdout.strip():
-                pane_id = active_result.stdout.strip()
-        except (subprocess.TimeoutExpired, OSError):
-            pass  # Fall back to split_window_horizontal's result
-
-        # Name the pane
+        # Name the pane (split_window_horizontal diff is reliable)
         try:
             name_pane(pane_id, standby_label)
         except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
@@ -2561,27 +2043,53 @@ def go(repo: str) -> None:
                 fix="Retry duo go, or check tmux panes.",
             ) from None
 
-        # Start Copilot in the standby pane
+        # Start Copilot in the standby pane — ALWAYS use -t pane_id
+        # Previous bug: send-keys without -t targets "active pane" which
+        # is unreliable (may revert to original pane). Explicit -t is safe.
         copilot_model = get_config("copilot_model")
         copilot_cmd = f"copilot --model {shlex.quote(str(copilot_model))}"
         if get_config("bypass_permissions"):
             copilot_cmd += " --yolo"
 
         time.sleep(1.5)  # Wait for shell to fully start in new pane
-        # After split-window -h, the NEW pane is tmux-active.
-        # Send commands WITHOUT -t so they go to the active pane.
-        # All previous approaches (pane ID, label resolve, diff) failed.
         try:
-            subprocess.run(["tmux", "send-keys", "-l", "--",
-                            f"cd {shlex.quote(str(repo_path))}"],
-                           check=True, capture_output=True, text=True, timeout=10)
-            subprocess.run(["tmux", "send-keys", "-H", "0d"],
-                           check=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(
+                [
+                    "tmux",
+                    "send-keys",
+                    "-t",
+                    pane_id,
+                    "-l",
+                    "--",
+                    f"cd {shlex.quote(str(repo_path))}",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            subprocess.run(
+                ["tmux", "send-keys", "-t", pane_id, "-H", "0d"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
             time.sleep(0.5)
-            subprocess.run(["tmux", "send-keys", "-l", "--", copilot_cmd],
-                           check=True, capture_output=True, text=True, timeout=10)
-            subprocess.run(["tmux", "send-keys", "-H", "0d"],
-                           check=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(
+                ["tmux", "send-keys", "-t", pane_id, "-l", "--", copilot_cmd],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            subprocess.run(
+                ["tmux", "send-keys", "-t", pane_id, "-H", "0d"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
         except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
             click.echo(f"  ⚠ Failed to start Copilot in pane: {exc}")
             click.echo("    Right pane may need manual: cd <project> && copilot")
@@ -2824,25 +2332,6 @@ main.add_command(events_group, "events")
 # ---------------------------------------------------------------------------
 # duo ceo-* — Ergonomic CEO workflow commands
 # ---------------------------------------------------------------------------
-
-
-def _load_task_or_fail(name: str) -> Task:
-    """Validate task name, load it, or raise DuoUserError."""
-    _validate_task_name(name)
-    task = load_task(name)
-    if task is None:
-        fix = "Run 'duo list' to see available tasks."
-        all_tasks = list_tasks()
-        if all_tasks:
-            similar = [
-                t.id
-                for t in all_tasks
-                if name.lower() in t.id.lower() or t.id.lower() in name.lower()
-            ]
-            if similar:
-                fix = f"Did you mean: {', '.join(similar[:3])}? Run 'duo list' to see all."
-        raise DuoUserError(f"task '{name}' not found", fix=fix)
-    return task
 
 
 from duo.cli.ceo_cmd import (  # noqa: E402
