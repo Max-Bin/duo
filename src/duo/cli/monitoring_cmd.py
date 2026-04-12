@@ -99,12 +99,14 @@ def status(
                     click.echo(f"Task '{name}' reached '{wait_for}' status.")
                 return
             time.sleep(1)
+        final = load_task(name)
+        current = final.status.value if final else "unknown"
         if quiet:
-            click.echo(load_task(name).status.value if load_task(name) else "unknown")  # type: ignore[union-attr]
+            click.echo(current)
         else:
             click.echo(
                 f"Timeout: task '{name}' did not reach '{wait_for}' "
-                f"within {wait_timeout}s (current: {load_task(name).status.value if load_task(name) else 'unknown'})",  # type: ignore[union-attr]
+                f"within {wait_timeout}s (current: {current})",
                 err=True,
             )
         raise SystemExit(1)
