@@ -196,7 +196,6 @@ The Copilot pane is already open but **has NOT received any prompt yet**
 | Command | Purpose |
 |---------|---------|
 | `duo ceo-status {task_id}` | Show Copilot pane state (JSON: idle/processing/dialog/dead) |
-| `duo ceo-now` | Dashboard: session age, fd count, risk level |
 | `duo diff {task_id}` | Show code changes in worktree |
 | `duo inspect {task_id}` | Detailed task info (steps, attempts, events) |
 | `duo logs {task_id}` | Show task journal events |
@@ -205,8 +204,8 @@ The Copilot pane is already open but **has NOT received any prompt yet**
 ### Session Management
 | Command | Purpose |
 |---------|---------|
-| `duo ceo-cleanup {task_id}` | Kill idle child processes, free fds |
-| `duo ceo-restart {task_id}` | Restart Copilot (preserves pane/worktree, NOT session memory) |
+| `duo stop {task_id}` | Stop task and kill pane |
+| `duo start --resume` | Resume stopped task in fresh session |
 | `duo monitor` | Start automated polling monitor |
 | `duo list` | List all tasks |
 
@@ -229,11 +228,11 @@ if done wrong.
 1. **send_keys uses raw hex** — `tmux send-keys -H 0d` not key names
 2. **Select pane first** — `tmux select-pane -t <target>` before sending
 3. **Long sessions leak** — kqueue/fd leak is upstream Copilot bug.
-   Run `duo doctor` periodically. Use `duo ceo-restart` to recover.
+   Run `duo doctor` periodically. Use `duo stop` + `duo start --resume` to recover.
 4. **No parallel same-file edits** — never let Copilot sub-agents edit
    the same file concurrently
 5. **CAPIError = context exhaustion** — if you see this in the pane,
-   the session needs restart (`duo ceo-restart`)
+   the session needs restart (`duo stop` + `duo start --resume`)
 
 ## Current Task Context
 
@@ -360,13 +359,11 @@ duo merge <task>                    # Merge changes to main branch
 | `duo ceo-select <task> N` | Select dialog option N (FREE) |
 | `duo ceo-approve <task>` | Approve dialog (FREE) |
 | `duo ceo-status <task>` | Copilot pane state (JSON) |
-| `duo ceo-now` | Dashboard: age, fds, risk |
 | `duo diff <task>` | Show code changes |
 | `duo inspect <task>` | Detailed task info |
 | `duo logs <task>` | Task journal events |
 | `duo doctor` | Health check |
-| `duo ceo-cleanup <task>` | Kill idle processes |
-| `duo ceo-restart <task>` | Restart Copilot (pane only, not memory) |
+| `duo stop <task>` | Stop task and kill pane |
 | `duo merge <task>` | Merge changes to main |
 | `duo list` | List all tasks |
 
@@ -380,7 +377,7 @@ Use for: architectural decisions, security code, multi-file changes.
 
 ## Known Pitfalls
 
-1. **Long sessions leak fds** — run `duo doctor` periodically, `duo ceo-restart` to recover
+1. **Long sessions leak fds** — run `duo doctor` periodically, `duo stop` + `duo start --resume` to recover
 2. **CAPIError = context full** — restart the Copilot session
 3. **No parallel same-file edits** — don't let sub-agents edit one file concurrently
 4. **One task at a time** recommended for best results

@@ -88,7 +88,7 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~6 490 | Click CLI entry point — 52 commands + `config` / `events` subgroups, CEO commands |
+| `cli.py` | ~4 900 | Click CLI entry point — 35 commands + `config` / `events` subgroups, CEO commands |
 | `protocol.py` | ~990 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
 | `commander.py` | ~1 800 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
 | `transport.py` | ~1 700 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |
@@ -640,11 +640,7 @@ validation.
 
 ### CEO Workflow
 
-`ceo-wait` · `ceo-select` · `ceo-approve` · `ceo-status` · `ceo-now` · `ceo-loop` · `ceo-dispatch` · `ceo-resume` · `ceo-restart` · `ceo-cleanup` · `ceo-focus` · `ceo-focus-show` · `ceo-focus-clear` · `ceo-smart` · `ceo-smart-config` · `ceo-metrics`
-
-### CEO Sessions
-
-`ceo-session-start` · `ceo-session-list` · `ceo-session-replay` · `ceo-session-stats`
+`ceo-wait` · `ceo-select` · `ceo-approve` · `ceo-status`
 
 ### Recovery
 
@@ -660,4 +656,4 @@ validation.
 
 ### Miscellaneous
 
-`version` · `completion` · `bench`
+`version` · `completion`

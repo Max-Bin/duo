@@ -56,7 +56,7 @@ check "duo completion bash runs"       uv run duo completion bash
 echo ""
 echo "Step 3: Help text contains key commands"
 HELP=$(uv run duo --help 2>&1)
-for cmd in start think ceo-loop doctor monitor; do
+for cmd in start think doctor monitor; do
   if echo "$HELP" | grep -q "$cmd"; then
     echo -e "  ${GREEN}✓${NC} help mentions '$cmd'"
     ((pass_count++)) || true

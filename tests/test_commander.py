@@ -1295,8 +1295,6 @@ class TestClaudeCommander:
             assert "duo ceo-approve" in content
             assert "duo watch" in content
             assert "duo doctor" in content
-            assert "duo ceo-cleanup" in content
-            assert "duo ceo-restart" in content
             assert "duo diff" in content
             # Rubber-duck
             assert "rubber-duck" in content.lower() or "Rubber-duck" in content

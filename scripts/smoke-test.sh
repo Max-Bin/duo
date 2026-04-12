@@ -55,14 +55,10 @@ echo "🔎 Command completeness check"
 EXPECTED_CMDS="start send stop status merge diff kill \
 think list monitor watch dashboard logs inspect stats \
 batch queue \
-ceo-wait ceo-select ceo-approve ceo-smart ceo-smart-config \
-ceo-dispatch ceo-status ceo-loop ceo-resume \
-ceo-focus ceo-focus-show ceo-focus-clear ceo-now \
-ceo-session-start ceo-session-list ceo-session-replay \
-ceo-session-stats ceo-metrics ceo-cleanup ceo-restart \
+ceo-wait ceo-select ceo-approve ceo-status \
 recover resume retry \
 export audit cost cleanup events \
-init doctor config bench completion go version"
+init doctor config completion go version"
 HELP_OUTPUT=$(duo --help 2>&1)
 MISSING=""
 for cmd in $EXPECTED_CMDS; do
@@ -83,14 +79,10 @@ for cmd in \
     start send stop status merge diff kill \
     think list monitor watch dashboard logs inspect stats \
     batch queue \
-    ceo-wait ceo-select ceo-approve ceo-smart ceo-smart-config \
-    ceo-dispatch ceo-status ceo-loop ceo-resume \
-    ceo-focus ceo-focus-show ceo-focus-clear ceo-now \
-    ceo-session-start ceo-session-list ceo-session-replay \
-    ceo-session-stats ceo-metrics ceo-cleanup ceo-restart \
+    ceo-wait ceo-select ceo-approve ceo-status \
     recover resume retry \
     export audit cost cleanup events \
-    init doctor config bench completion go; do
+    init doctor config completion go; do
     run_test "duo $cmd --help" duo "$cmd" --help
 done
 
@@ -155,15 +147,6 @@ run_test "duo list --json-output" duo list --json-output
 # === CEO Session ===
 echo ""
 echo "📝 CEO Session"
-run_test "ceo-session-list" duo ceo-session-list
-run_test "ceo-metrics" duo ceo-metrics
-run_test "ceo-smart-config" duo ceo-smart-config
-run_test "ceo-focus-show" duo ceo-focus-show
-
-# === Bench ===
-echo ""
-echo "⏱️  Benchmarks"
-run_test "duo bench all" duo bench all
 
 # === Commands that should fail gracefully (no tmux) ===
 echo ""
@@ -192,14 +175,9 @@ run_test "queue empty" duo queue
 # === CEO commands on empty state ===
 echo ""
 echo "📊 CEO commands (empty/no-task)"
-run_test_allow_fail "ceo-now empty" duo ceo-now
-run_test_expect_fail "ceo-cleanup no-task" duo ceo-cleanup nonexistent-task
-run_test_expect_fail "ceo-restart no-task" duo ceo-restart nonexistent-task
-run_test_expect_fail "ceo-dispatch no-task" duo ceo-dispatch nonexistent-task
 run_test_expect_fail "ceo-wait no-task" duo ceo-wait nonexistent-task
 run_test_expect_fail "ceo-approve no-task" duo ceo-approve nonexistent-task
 run_test_expect_fail "ceo-select no-task" duo ceo-select nonexistent-task 1
-run_test_expect_fail "ceo-resume no-task" duo ceo-resume nonexistent-task "msg"
 
 # === JSON output validation (must produce valid JSON) ===
 echo ""

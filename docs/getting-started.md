@@ -442,21 +442,7 @@ This sets up everything needed: checks tmux, creates panes, and starts both agen
 
 ---
 
-## 11. Performance Benchmarks
-
-Run built-in benchmarks to measure protocol performance:
-
-```bash
-duo bench                           # Run all benchmarks
-duo bench dialog-detection          # Benchmark dialog detection speed
-duo bench file-protocol             # Benchmark file I/O operations
-duo bench journal-append            # Benchmark journal write speed
-duo bench all                       # Run all benchmarks
-```
-
----
-
-## 12. Export & Events
+## 11. Export & Events
 
 ### Export task reports
 
@@ -478,7 +464,7 @@ duo events clear                    # Delete all event signal files
 
 ---
 
-## 13. Shell Completion
+## 12. Shell Completion
 
 Generate shell completion scripts for tab-completion of all `duo` commands:
 
@@ -503,42 +489,17 @@ duo completion fish | source
 
 ---
 
-## 14. Advanced CEO Commands
+## 13. CEO Commands
 
-Duo provides a suite of CEO (Chief Engineering Officer) commands for autonomous agent orchestration. These are used when you want an outer AI agent (like Claude Code) to supervise Duo tasks.
+Duo provides CEO (Chief Engineering Officer) commands for autonomous agent orchestration. These are used when you want an outer AI agent (like Claude Code) to supervise Duo tasks.
 
-### Session Management
-
-```bash
-duo ceo-now                         # Dashboard: active task, dialog state, session health
-duo ceo-now --json-output           # Machine-readable version
-
-duo ceo-focus my-task                # Set focus to a specific task
-duo ceo-focus-show                  # Show current focus
-duo ceo-focus-clear                 # Clear focus
-```
-
-### Autonomous Operations
+### Core CEO Workflow
 
 ```bash
-duo ceo-loop my-task --timeout 3600     # Autonomous approve loop (1 hour)
-duo ceo-smart my-task                   # Single smart decision (approve/select/wait)
-duo ceo-smart-config                    # Show smart decision policy
-duo ceo-dispatch my-task                # Full autonomous dispatch cycle
-duo ceo-resume my-task "Continue work"  # Resume with instruction
-duo ceo-restart my-task                 # Kill pane + restart session
-duo ceo-cleanup my-task                 # Kill idle children, free FDs
-```
-
-### Session Analytics
-
-```bash
-duo ceo-session-start               # Begin a CEO session
-duo ceo-session-list                # List all CEO sessions
-duo ceo-session-replay <id>         # Replay session decisions
-duo ceo-session-stats <id>          # Session statistics
-duo ceo-metrics                     # Aggregate metrics across sessions
-duo ceo-metrics --since 2025-01-01  # Filter by date
+duo ceo-wait my-task                # Wait for dialog to appear
+duo ceo-select my-task 1            # Select option 1 in a dialog (FREE)
+duo ceo-approve my-task             # Approve/accept current dialog (FREE)
+duo ceo-status my-task              # Show Copilot pane state (JSON)
 ```
 
 See [`docs/ceo-workflow.md`](ceo-workflow.md) for full details.

@@ -6,7 +6,6 @@ import json
 import string
 from collections.abc import Callable
 from pathlib import Path
-from unittest.mock import patch
 
 import click
 import pytest
@@ -14,7 +13,6 @@ from click.testing import CliRunner
 from hypothesis import given
 from hypothesis import strategies as st
 
-import duo.ceo_state
 import duo.cli
 import duo.protocol
 from duo.cli import (
@@ -30,7 +28,6 @@ from duo.protocol import (
     create_task,
     save_task,
 )
-from duo.transport import DialogKind
 
 # ---------------------------------------------------------------------------
 # Fixtures (same as test_cli.py)
@@ -47,7 +44,6 @@ def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
     monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
     monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.ceo_state, "CEO_STATE_PATH", tmp_path / "ceo-state.json")
     return tasks_dir
 
 
@@ -170,30 +166,6 @@ class TestCostBudgetZeroEdgeCases:
         assert result.exit_code == 0
 
 
-class TestCeoDispatchTimeoutZero:
-    """Edge case tests for ceo-dispatch with --timeout 0."""
-
-    def test_timeout_zero_dialog_present(
-        self,
-        runner: CliRunner,
-        make_task: Callable[..., Task],
-    ) -> None:
-        """ceo-dispatch --timeout 0 with dialog already present processes it."""
-        task = make_task("dispatch-instant")
-        pane = "  1. Continue\n  2. Cancel"
-        with (
-            patch("duo.transport.is_in_dialog", return_value=True),
-            patch("duo.transport.get_dialog_kind", return_value=DialogKind.OPTION),
-            patch("duo.transport.read_pane", return_value=pane),
-            patch("duo.transport.is_permission_dialog", return_value=False),
-            patch("duo.transport.select_dialog_option") as mock_sel,
-        ):
-            result = runner.invoke(main, ["ceo-dispatch", task.id, "--timeout", "0"])
-        assert result.exit_code == 0
-        assert "selected" in result.output.lower()
-        mock_sel.assert_called_once()
-
-
 class TestSafeJoinPropertyBased:
     """Hypothesis property test for _safe_join with random path components."""
 
@@ -247,11 +219,11 @@ class TestCommandSectionsComplete:
         assert phantom == set(), f"Phantom entries in _COMMAND_SECTIONS: {phantom}"
 
     def test_command_count_matches_docs(self) -> None:
-        """CLAUDE.md says '52 commands' — verify this matches reality."""
+        """CLAUDE.md says '35 commands' — verify this matches reality."""
         ctx = click.Context(main)
         registered = main.list_commands(ctx)
-        assert len(registered) == 52, (
-            f"CLAUDE.md says 52 commands but found {len(registered)}. "
+        assert len(registered) == 35, (
+            f"CLAUDE.md says 35 commands but found {len(registered)}. "
             "Update CLAUDE.md if commands were added/removed."
         )
 
