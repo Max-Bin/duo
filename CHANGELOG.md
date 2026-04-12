@@ -175,6 +175,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `__all__` exports on all modules (cli.py was the last)
 
 ### Fixed
+- **Rubber-duck audit: 6 commander.py findings resolved** (4 HIGH, 2 MED):
+  - `--reuse-pane` can no longer destroy caller's pane on transport error
+  - Worktree existence validated before sending any tmux commands
+  - `_prepare_pane` RuntimeError from `get_tmux_session_target()` now caught cleanly
+  - Startup soft failures (timeout, not-at-prompt) now bail out before side effects
+  - `start_claude_commander` name_pane failure now caught with pane cleanup
+  - `resume` prompt file read corruption falls back to `build_task_prompt()`
 - **`send_slash_command()` added** — Copilot slash commands (e.g. `/allow-all`) were incorrectly sent via `send_shell_command()` which rejects calls at the ❯ prompt. New dedicated function with opposite precondition.
 - Removed 4 raw `subprocess.run(["tmux", ...])` calls in `go()` — now uses transport abstraction
 - Stale `ceo-loop` references in events_cmd.py error messages, examples, and READMEs

@@ -117,7 +117,7 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 2275+ tests, **100% test coverage required** (enforced via `make coverage`)
+- 2285+ tests, **100% test coverage required** (enforced via `make coverage`)
 - Tests organized by module in `tests/test_*.py` (35 test files)
 - CLI tests split to match cli/ package: `test_cli_doctor.py`, `test_cli_lifecycle.py`, etc.
 - Mock `subprocess.run` for git/tmux-bridge calls
