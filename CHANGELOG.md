@@ -70,6 +70,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - Enriched JSON output for `list` and `status` commands (age, total_steps, incarnation_id)
 
 ### Changed
+- **Architecture: cli.py → cli/ package** — Split monolithic 6826-line cli.py into 16 submodules (95% reduction to 340 lines in `__init__.py`)
+- **Architecture: test_cli.py split** — Split 11,333-line test file into 16 matching test files
+- **Shared test fixtures** — Consolidated duplicated fixtures into `conftest.py` (-505 lines)
 - Improved error messages: `cost --budget` shows consumption vs budget, `config set` shows key name in error, `ceo-dispatch` identifies unknown actions, `ceo-smart` suggests `ceo-select` fix
 - Standardized `--json-output` parameter naming to `as_json` across all 36 commands
 - Standardized help text to "Output as JSON" (no trailing period) everywhere
@@ -172,6 +175,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `__all__` exports on all modules (cli.py was the last)
 
 ### Fixed
+- **`send_slash_command()` added** — Copilot slash commands (e.g. `/allow-all`) were incorrectly sent via `send_shell_command()` which rejects calls at the ❯ prompt. New dedicated function with opposite precondition.
+- Removed 4 raw `subprocess.run(["tmux", ...])` calls in `go()` — now uses transport abstraction
+- Stale `ceo-loop` references in events_cmd.py error messages, examples, and READMEs
+- Stale command count (52 → 33) in READMEs, architecture.md, getting-started.md
+- CLAUDE.md test count and fixture documentation updated for cli/ package split
 - Duplicate task ID detection in `create_task()` — raises ValueError instead of silently overwriting
 - `duo think --ask` timeout error message now includes actual duration (120s) for debuggability
 - Hypothesis-discovered bug: property test `test_function_calls_safe` now filters all 63 secret patterns (not just 6 keywords) to prevent false positive matches like `gho_`
