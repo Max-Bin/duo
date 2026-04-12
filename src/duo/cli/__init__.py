@@ -2605,9 +2605,15 @@ def go(repo: str) -> None:
     standby_label = "duo-copilot-standby"
     pane_id = ""
 
-    # Check for existing go-session
+    # Check for existing go-session — only reuse if SAME repo AND same tmux session
     existing = load_go_session()
-    if existing and existing.get("copilot_pane"):
+    current_tmux = os.environ.get("TMUX", "")
+    if (
+        existing
+        and existing.get("copilot_pane")
+        and existing.get("repo_root") == str(repo_path)
+        and existing.get("tmux_env", "") == current_tmux
+    ):
         # Verify pane is alive via transport layer
         if is_pane_alive(existing["copilot_pane"]):
             pane_id = existing["copilot_pane"]
@@ -2640,10 +2646,15 @@ def go(repo: str) -> None:
         if get_config("bypass_permissions"):
             copilot_cmd += " --yolo"
 
-        time.sleep(0.3)
-        send_shell_command(standby_label, f"cd {shlex.quote(str(repo_path))}")
-        time.sleep(0.3)
-        send_shell_command(standby_label, copilot_cmd)
+        time.sleep(1.0)  # Wait for shell to fully start in new pane
+        try:
+            send_shell_command(standby_label, f"cd {shlex.quote(str(repo_path))}")
+            time.sleep(0.5)
+            send_shell_command(standby_label, copilot_cmd)
+        except (RuntimeError, OSError) as exc:
+            click.echo(f"  ⚠ Failed to start Copilot in pane: {exc}")
+            click.echo("    Right pane may need manual: cd <project> && copilot")
+            # Don't abort — Claude Code can still work without Copilot
 
         click.echo("  Waiting for Copilot to start...")
         if wait_for_idle(standby_label, timeout=45, poll_interval=2.0):
@@ -2666,6 +2677,7 @@ def go(repo: str) -> None:
         pane_label=standby_label,
         repo_root=str(repo_path),
         copilot_pane=pane_id,
+        tmux_env=current_tmux,
     )
     click.echo("  ✓ go-session saved")
 

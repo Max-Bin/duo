@@ -10943,6 +10943,7 @@ class TestDuoGo:
             "pane_label": "duo-copilot-standby",
             "repo_root": str(tmp_path),
             "copilot_pane": "%77",
+            "tmux_env": "/tmp/tmux-1000/default,12345,0",
             "started_at": "2024-01-01T00:00:00Z",
         }
 

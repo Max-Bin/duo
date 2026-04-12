@@ -3692,7 +3692,8 @@ class TestSplitWindowHorizontal:
     def test_success_returns_pane_id(self):
         from duo.transport import split_window_horizontal
 
-        with patch("duo.transport.subprocess.run") as mock_run:
+        with patch("duo.transport.subprocess.run") as mock_run, \
+             patch("duo.transport.get_tmux_session_target", return_value="$0"):
             mock_run.return_value = MagicMock(returncode=0, stdout="%42\n", stderr="")
             result = split_window_horizontal()
             assert result == "%42"
@@ -3701,6 +3702,7 @@ class TestSplitWindowHorizontal:
                 "tmux",
                 "split-window",
                 "-h",
+                "-t", "$0",
                 "-P",
                 "-F",
                 "#{pane_id}",

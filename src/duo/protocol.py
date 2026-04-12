@@ -942,6 +942,7 @@ def save_go_session(
     pane_label: str,
     repo_root: str,
     copilot_pane: str = "",
+    tmux_env: str = "",
 ) -> None:
     """Persist go-session state for idempotent resume."""
     write_json(
@@ -950,6 +951,7 @@ def save_go_session(
             "pane_label": pane_label,
             "repo_root": repo_root,
             "copilot_pane": copilot_pane,
+            "tmux_env": tmux_env,
             "started_at": now_iso(),
         },
     )

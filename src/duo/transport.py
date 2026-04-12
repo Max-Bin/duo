@@ -586,12 +586,23 @@ def is_pane_alive(target: str) -> bool:
 def split_window_horizontal() -> str:
     """Create a new tmux pane via horizontal split and return its pane ID.
 
+    Uses :func:`get_tmux_session_target` to ensure the split happens in the
+    **caller's** tmux session, not whichever session happens to be "active"
+    on the tmux server.  Without ``-t``, ``tmux split-window`` targets the
+    server's most-recently-active pane, which may be in a completely different
+    session — causing cross-session pollution.
+
     Returns the new pane ID (e.g. ``%42``).
     Raises ``RuntimeError`` if the split fails.
     """
+    session_target = get_tmux_session_target()
     try:
         result = subprocess.run(
-            ["tmux", "split-window", "-h", "-P", "-F", "#{pane_id}"],
+            [
+                "tmux", "split-window", "-h",
+                "-t", session_target,
+                "-P", "-F", "#{pane_id}",
+            ],
             capture_output=True,
             text=True,
             timeout=10,
