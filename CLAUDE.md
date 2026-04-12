@@ -29,15 +29,23 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli/             — Click CLI package (33 commands)
-    ├── __init__.py  — main group, shared helpers, core commands
-    ├── ceo_cmd.py   — CEO workflow commands (wait/select/approve/status)
+└── cli/               — Click CLI package (16 submodules, 33 commands)
+    ├── __init__.py    — main group, version/completion, command registration (340 lines)
+    ├── _helpers.py    — shared utilities: validation, formatting, git ops, completions
+    ├── batch_cmd.py   — batch/queue commands
+    ├── ceo_cmd.py     — CEO workflow commands (wait/select/approve/status)
     ├── cleanup_cmd.py — task cleanup and pruning
-    ├── config_cmd.py — config get/set/list/reset/validate
-    ├── doctor.py    — environment diagnostics and auto-fix
-    ├── events_cmd.py — watch-event list/show/tail/clear
-    ├── logs_cmd.py  — task log viewing
-    └── think_cmd.py — think session management
+    ├── config_cmd.py  — config get/set/list/reset/validate
+    ├── doctor.py      — environment diagnostics and auto-fix
+    ├── events_cmd.py  — watch-event list/show/tail/clear
+    ├── inspect_cmd.py — task inspection
+    ├── lifecycle_cmd.py — start/init/go (task creation and setup)
+    ├── logs_cmd.py    — task log viewing
+    ├── monitoring_cmd.py — status/list/monitor/watch/dashboard
+    ├── reporting_cmd.py — audit/cost/diff
+    ├── task_mgmt_cmd.py — stop/kill/merge
+    ├── task_ops_cmd.py — send/resume/retry/recover
+    └── think_cmd.py   — think session management
 ```
 
 ### transport.py — Protocol Classes
