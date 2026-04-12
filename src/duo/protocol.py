@@ -694,11 +694,12 @@ def load_task(task_id: str) -> Task | None:
     n_subtasks = len(data["subtasks"])
     cs = data["current_step"]
     ca = data["current_attempt"]
-    if n_subtasks > 0 and cs < 1:
+    if n_subtasks > 0 and (cs < 1 or cs > n_subtasks):
         logger.warning(
-            "Task '%s' current_step %d out of range (must be >= 1)",
+            "Task '%s' current_step %d out of range (must be 1..%d)",
             task_id,
             cs,
+            n_subtasks,
         )
         return None
     if ca < 1:

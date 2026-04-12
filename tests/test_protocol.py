@@ -457,7 +457,14 @@ class TestTaskCRUD:
         assert load_task("bad-status") is None
 
     def test_save_updates_persisted_state(self):
-        task = create_task("save-test", "d", "/w", "b", "c", [_make_subtask()])
+        task = create_task(
+            "save-test",
+            "d",
+            "/w",
+            "b",
+            "c",
+            [_make_subtask(i) for i in range(1, 6)],
+        )
         task.current_step = 5
         task.last_prompt_sent_at = now_iso()
         save_task(task)
@@ -674,7 +681,7 @@ class TestLoadTaskEdgeCasesExtended:
         assert task.current_step == 0
 
     def test_current_step_exceeds_subtask_count(self):
-        """current_step=999 with 1 subtask loads (no upper-bound check)."""
+        """current_step=999 with 1 subtask is rejected (upper-bound check)."""
         import duo.protocol
 
         task_dir = duo.protocol.TASKS_DIR / "big-step"
@@ -688,9 +695,7 @@ class TestLoadTaskEdgeCasesExtended:
             '"pane_label":"p","security_policy":{}}'
         )
         task = load_task("big-step")
-        assert task is not None
-        assert task.current_step == 999
-        assert len(task.subtasks) == 1
+        assert task is None
 
 
 class TestLoadTaskMalformedSubtask:

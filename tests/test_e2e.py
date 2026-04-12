@@ -782,7 +782,7 @@ class TestTaskListing:
         assert tasks[0].status == TaskStatus.PROMPT_SENT
 
     def test_save_and_reload_preserves_state(self):
-        task = _task()
+        task = _task(subtasks=[_sub(1), _sub(2), _sub(3)])
         _advance(task, TaskStatus.SESSION_STARTING, TaskStatus.PROMPT_SENT)
         task.current_step = 2
         task.current_attempt = 3
