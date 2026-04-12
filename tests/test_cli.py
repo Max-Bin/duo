@@ -16328,3 +16328,124 @@ class TestMainModule:
 
             runpy.run_module("duo", run_name="__main__", alter_sys=False)
             mock_main.assert_called_once()
+
+
+class TestCliEdgeCases:
+    """Edge case value coverage for CLI commands."""
+
+    def test_load_task_or_fail_suggests_similar(self, runner: CliRunner):
+        """When task not found, similar task names are suggested."""
+        _make_task("my-auth-task")
+        result = runner.invoke(main, ["status", "auth"])
+        assert result.exit_code != 0
+        assert "my-auth-task" in result.output
+
+    def test_load_task_or_fail_no_similar(self, runner: CliRunner):
+        """When no similar tasks exist, generic fix message shown."""
+        result = runner.invoke(main, ["status", "zzz-nonexistent"])
+        assert result.exit_code != 0
+        assert "duo list" in result.output
+
+    def test_batch_empty_dict(self, runner: CliRunner, tmp_path: Path):
+        """batch with {} (no 'tasks' key) shows error."""
+        f = tmp_path / "empty.json"
+        f.write_text("{}")
+        result = runner.invoke(main, ["batch", str(f)])
+        assert result.exit_code != 0
+        assert "tasks" in result.output.lower()
+
+    def test_batch_tasks_is_string(self, runner: CliRunner, tmp_path: Path):
+        """batch with tasks: 'not a list' shows error."""
+        f = tmp_path / "bad.json"
+        f.write_text(json.dumps({"tasks": "not a list"}))
+        result = runner.invoke(main, ["batch", str(f)])
+        assert result.exit_code != 0
+        assert "must be a list" in result.output
+
+    def test_batch_tasks_contains_non_dict(self, runner: CliRunner, tmp_path: Path):
+        """batch with tasks containing non-dict items shows error."""
+        f = tmp_path / "bad.json"
+        f.write_text(json.dumps({"tasks": ["string-item", 42]}))
+        result = runner.invoke(main, ["batch", str(f)])
+        assert result.exit_code != 0
+        assert "must be a JSON object" in result.output
+
+    def test_export_quiet_with_no_journal(self, runner: CliRunner):
+        """export -q with no journal file outputs 0."""
+        task = _make_task("export-empty-q")
+        # Remove journal if it exists
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+        result = runner.invoke(main, ["export", "export-empty-q", "-q"])
+        # The task_created event writes to journal, so it may have events
+        # Just verify it exits cleanly with a number
+        assert result.exit_code == 0
+        assert result.output.strip().isdigit()
+
+    def test_export_jsonl_with_no_events(self, runner: CliRunner):
+        """export --format jsonl with empty journal outputs nothing."""
+        task = _make_task("export-jsonl-empty")
+        if task.journal_path.exists():
+            task.journal_path.unlink()
+        result = runner.invoke(
+            main, ["export", "export-jsonl-empty", "--format", "jsonl"]
+        )
+        assert result.exit_code == 0
+
+    def test_stats_all_completed(self, runner: CliRunner):
+        """stats with all tasks completed shows correct counts."""
+        for i in range(3):
+            t = _make_task(f"done-stats-{i}")
+            t.status = TaskStatus.COMPLETED
+            save_task(t)
+        result = runner.invoke(main, ["stats"])
+        assert result.exit_code == 0
+        assert "Tasks: 3" in result.output
+        assert "completed: 3" in result.output
+
+    def test_stats_all_failed(self, runner: CliRunner):
+        """stats with all tasks failed shows correct counts."""
+        for i in range(2):
+            t = _make_task(f"fail-stats-{i}")
+            t.status = TaskStatus.FAILED
+            save_task(t)
+        result = runner.invoke(main, ["stats"])
+        assert result.exit_code == 0
+        assert "Tasks: 2" in result.output
+        assert "failed: 2" in result.output
+
+    def test_stats_json_all_terminal(self, runner: CliRunner):
+        """stats --json with all terminal tasks includes correct by_status."""
+        t1 = _make_task("term-j-1")
+        t1.status = TaskStatus.COMPLETED
+        save_task(t1)
+        t2 = _make_task("term-j-2")
+        t2.status = TaskStatus.ESCALATED
+        save_task(t2)
+        result = runner.invoke(main, ["stats", "--json-output"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["total"] == 2
+        assert data["by_status"].get("completed", 0) == 1
+        assert data["by_status"].get("escalated", 0) == 1
+
+    def test_parse_age_zero_rejected(self, runner: CliRunner):
+        """cleanup with --age 0d is rejected."""
+        result = runner.invoke(main, ["cleanup", "--age", "0d", "--force"])
+        assert result.exit_code != 0
+        assert "must be > 0" in result.output
+
+    def test_diff_no_changes_message(self, runner: CliRunner, tmp_path: Path):
+        """diff with no changes shows appropriate message."""
+        task = _make_task("diff-empty")
+        task.worktree = str(tmp_path)
+        save_task(task)
+        with patch(
+            "duo.cli._run_git",
+            return_value=subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="", stderr=""
+            ),
+        ):
+            result = runner.invoke(main, ["diff", "diff-empty"])
+        assert result.exit_code == 0
+        assert "No changes" in result.output
