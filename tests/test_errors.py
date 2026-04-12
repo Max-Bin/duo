@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import click
 
-from duo.errors import DuoDataError, DuoError, DuoSystemError, DuoUserError
+from duo.errors import (
+    DuoDataError,
+    DuoError,
+    DuoSystemError,
+    DuoUserError,
+    TaskLockedError,
+)
 
 
 class TestDuoError:
@@ -160,3 +166,39 @@ class TestErrorHierarchyParametrized:
         ]:
             err = DuoDataError("test error", path=path)
             assert err.path == path, f"path={path!r}"
+
+
+class TestErrorEdgeCases:
+    """Edge case value coverage for error module."""
+
+    def test_duo_user_error_no_fix(self) -> None:
+        """DuoUserError with no fix has no 'Fix:' in output."""
+        err = DuoUserError("something failed")
+        assert "Fix:" not in err.format_message()
+
+    def test_duo_user_error_empty_fix(self) -> None:
+        """DuoUserError with empty fix string has no 'Fix:' in output."""
+        err = DuoUserError("something failed", fix="")
+        assert "Fix:" not in err.format_message()
+
+    def test_duo_user_error_with_fix(self) -> None:
+        """DuoUserError with fix appends it."""
+        err = DuoUserError("failed", fix="try again")
+        msg = err.format_message()
+        assert "Fix: try again" in msg
+
+    def test_duo_data_error_empty_path(self) -> None:
+        """DuoDataError with empty path stores empty string."""
+        err = DuoDataError("corruption", path="")
+        assert err.path == ""
+
+    def test_task_locked_error_is_duo_error(self) -> None:
+        """TaskLockedError is a DuoError subclass."""
+        err = TaskLockedError("locked")
+        assert isinstance(err, DuoError)
+
+    def test_duo_system_error_is_duo_error(self) -> None:
+        """DuoSystemError is a DuoError subclass."""
+        err = DuoSystemError("system failure")
+        assert isinstance(err, DuoError)
+        assert str(err) == "system failure"

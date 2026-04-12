@@ -738,3 +738,84 @@ class TestValidateConfig:
         assert any("Cannot read" in i for i in issues)
         # Restore permissions for cleanup
         unreadable.chmod(0o644)
+
+
+class TestConfigEdgeCasesRound8:
+    """Round 8: deeper config edge cases."""
+
+    def test_set_config_unknown_key_stored(self) -> None:
+        """Unknown keys are stored without validation."""
+        result = config_mod.set_config("custom_key", "custom_value")
+        assert result == "custom_value"
+        assert config_mod.get_config("custom_key") == "custom_value"
+
+    def test_set_config_int_out_of_range(self) -> None:
+        """Integer exceeding maximum raises ValueError."""
+        with pytest.raises(ValueError, match="must be"):
+            config_mod.set_config("max_corrections", "999")
+
+    def test_set_config_bool_case_insensitive(self) -> None:
+        """Bool coercion accepts 'TRUE', 'Yes', etc."""
+        for val, expected in [
+            ("TRUE", True),
+            ("Yes", True),
+            ("FALSE", False),
+            ("No", False),
+        ]:
+            result = config_mod.set_config("auto_allow_all", val)
+            assert result is expected
+
+    def test_reset_config_single_key(self) -> None:
+        """reset_config with specific key resets only that key."""
+        config_mod.set_config("max_corrections", "10")
+        config_mod.reset_config("max_corrections")
+        assert (
+            config_mod.get_config("max_corrections")
+            == config_mod.DEFAULTS["max_corrections"]
+        )
+
+    def test_reset_config_unknown_key_removed(self) -> None:
+        """reset_config with unknown key removes it from config."""
+        config_mod.set_config("unknown_key", "value")
+        config_mod.reset_config("unknown_key")
+        assert config_mod.get_config("unknown_key") is None
+
+    def test_reset_config_all(self) -> None:
+        """reset_config(None) resets everything to defaults."""
+        config_mod.set_config("max_corrections", "10")
+        config_mod.set_config("custom_key", "val")
+        config_mod.reset_config(None)
+        assert (
+            config_mod.get_config("max_corrections")
+            == config_mod.DEFAULTS["max_corrections"]
+        )
+
+    def test_load_config_unicode_error(self, isolated_config) -> None:
+        """load_config handles UnicodeDecodeError gracefully."""
+        isolated_config.write_bytes(b"\xff\xfe invalid unicode")
+        config = config_mod.load_config()
+        assert config == dict(config_mod.DEFAULTS)
+
+    def test_load_config_int_coercion_from_json_number(self, isolated_config) -> None:
+        """Integer config stored as JSON number is loaded correctly."""
+        isolated_config.write_text(json.dumps({"max_corrections": 5}))
+        config = config_mod.load_config()
+        assert config["max_corrections"] == 5
+
+    def test_check_value_type_bool_rejects_int(self) -> None:
+        """_check_value_type rejects int for bool key."""
+        result = config_mod._check_value_type("auto_allow_all", 1)
+        assert result is not None
+        assert "expected bool" in result
+
+    def test_check_value_type_str_rejects_number(self) -> None:
+        """_check_value_type rejects number for string key."""
+        result = config_mod._check_value_type("copilot_model", 42)
+        assert result is not None
+        assert "expected str" in result
+
+    def test_set_config_poll_max_auto_adjust(self) -> None:
+        """Setting poll_base > poll_max auto-adjusts max."""
+        config_mod.set_config("poll_max_interval", "10.0")
+        config_mod.set_config("poll_base_interval", "20.0")
+        assert config_mod.get_config("poll_max_interval") >= 20.0
