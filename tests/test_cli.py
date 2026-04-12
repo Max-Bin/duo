@@ -10972,6 +10972,7 @@ class TestDuoGo:
             "pane_label": "duo-copilot-standby",
             "repo_root": str(tmp_path),
             "copilot_pane": "%dead",
+            "tmux_env": "/tmp/tmux-1000/default,12345,0",
             "started_at": "2024-01-01T00:00:00Z",
         }
 
@@ -11186,6 +11187,36 @@ class TestDuoGo:
             assert result.exit_code != 0
             assert "failed to name" in result.output.lower()
             mock_kill.assert_called_once_with("%orphan")
+
+    def test_copilot_start_send_failure_continues(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch
+    ):
+        """duo go continues when send_shell_command fails during Copilot start."""
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+        (tmp_path / ".git").mkdir()
+        (tmp_path / ".duo").mkdir()
+
+        with (
+            patch("duo.commander.write_project_claude_md"),
+            patch("duo.protocol.load_go_session", return_value=None),
+            patch("duo.protocol.save_go_session"),
+            patch("duo.transport.name_pane"),
+            patch(
+                "duo.transport.send_shell_command",
+                side_effect=RuntimeError("pane not found"),
+            ),
+            patch("duo.transport.wait_for_idle", return_value=True),
+            patch("duo.transport.read_pane", return_value="❯"),
+            patch("duo.transport.is_at_main_prompt", return_value=True),
+            patch("duo.transport.split_window_horizontal", return_value="%42"),
+            patch("duo.config.get_config", return_value=False),
+            patch("os.execvp"),
+            patch("os.chdir"),
+            patch("time.sleep"),
+        ):
+            result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "Failed to start Copilot" in result.output
 
 
 class TestMainModule:
