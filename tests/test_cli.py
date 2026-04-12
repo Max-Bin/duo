@@ -8660,7 +8660,9 @@ class TestEventsCommand:
     def test_events_list_empty(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
         assert "No events" in result.output
@@ -8670,7 +8672,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(
@@ -8689,7 +8691,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(
@@ -8703,7 +8705,9 @@ class TestEventsCommand:
     def test_events_list_quiet_empty(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "list", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == ""
@@ -8713,7 +8717,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "list", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == ""
@@ -8723,7 +8727,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(edir / "e1.json", {"task_id": "t1", "detected_at": "x"})
@@ -8735,7 +8739,9 @@ class TestEventsCommand:
     def test_events_list_count_empty(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "list", "-c"])
         assert result.exit_code == 0
         assert result.output.strip() == "0"
@@ -8745,7 +8751,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "list", "-c"])
         assert result.exit_code == 0
         assert result.output.strip() == "0"
@@ -8755,7 +8761,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(
@@ -8773,7 +8779,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(
@@ -8790,7 +8796,7 @@ class TestEventsCommand:
         """Event file that matches the exact name (no .json fallback needed)."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         (edir / "exact-event").write_text(
             json.dumps({"task_id": "exact", "detected_at": "2026-04-08T10:00:00Z"})
         )
@@ -8803,14 +8809,14 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "show", "nonexistent"])
         assert result.exit_code != 0
 
     def test_events_show_no_dir(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "nope")
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "nope")
         result = runner.invoke(main, ["events", "show"])
         assert result.exit_code != 0
 
@@ -8820,7 +8826,7 @@ class TestEventsCommand:
         """Path traversal in event name is rejected."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "show", "../../../etc/passwd"])
         assert result.exit_code != 0
 
@@ -8830,7 +8836,7 @@ class TestEventsCommand:
         """Corrupt event file shows error."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         (edir / "bad-event.json").write_text("{corrupt json!!!")
         result = runner.invoke(main, ["events", "show", "bad-event"])
         assert result.exit_code != 0
@@ -8839,7 +8845,9 @@ class TestEventsCommand:
     def test_events_clear_empty(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "clear"])
         assert result.exit_code == 0
         assert "No events" in result.output
@@ -8849,7 +8857,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(edir / "ev1.json", {"task_id": "t"})
@@ -8864,7 +8872,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(edir / "ev.json", {"task_id": "t"})
@@ -8877,7 +8885,7 @@ class TestEventsCommand:
         """Tail shows initial events then gets interrupted."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(
@@ -8907,7 +8915,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
         assert "No events" in result.output
@@ -8917,7 +8925,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         (edir / "bad.json").write_text("{{{invalid")
         result = runner.invoke(main, ["events", "list"])
         assert result.exit_code == 0
@@ -8927,7 +8935,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "show"])
         assert result.exit_code != 0
         assert "No events" in result.output
@@ -8937,7 +8945,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         (edir / "bad.json").write_text("{{{nope")
         result = runner.invoke(main, ["events", "show", "bad.json"])
         assert result.exit_code != 0
@@ -8948,7 +8956,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "clear"])
         assert result.exit_code == 0
         assert "No events" in result.output
@@ -8959,7 +8967,7 @@ class TestEventsCommand:
         """Tail picks up a new event added during the loop."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         call_count = 0
@@ -8984,7 +8992,9 @@ class TestEventsCommand:
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """--json-output returns empty list when no events dir."""
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "list", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -8997,7 +9007,7 @@ class TestEventsCommand:
         """--json-output returns event data."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(
@@ -9017,7 +9027,7 @@ class TestEventsCommand:
         """--json-output returns empty when dir exists but no .json files."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "list", "--json-output"])
         data = json.loads(result.output)
         assert data["events"] == []
@@ -9026,7 +9036,9 @@ class TestEventsCommand:
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         """--json-output clear returns zero when no events."""
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "clear", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -9038,7 +9050,7 @@ class TestEventsCommand:
         """--json-output clear returns count of cleared files."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(edir / "e1.json", {"task_id": "t1"})
@@ -9054,7 +9066,7 @@ class TestEventsCommand:
         """--json-output clear when dir exists but empty."""
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "clear", "--json-output"])
         data = json.loads(result.output)
         assert data["cleared"] == 0
@@ -9062,7 +9074,9 @@ class TestEventsCommand:
     def test_events_clear_quiet_no_dir(
         self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", tmp_path / "no-events")
+        monkeypatch.setattr(
+            "duo.cli.events_cmd._WATCH_EVENTS_DIR", tmp_path / "no-events"
+        )
         result = runner.invoke(main, ["events", "clear", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == "0"
@@ -9072,7 +9086,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         result = runner.invoke(main, ["events", "clear", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == "0"
@@ -9082,7 +9096,7 @@ class TestEventsCommand:
     ) -> None:
         edir = tmp_path / "watch-events"
         edir.mkdir()
-        monkeypatch.setattr("duo.cli._WATCH_EVENTS_DIR", edir)
+        monkeypatch.setattr("duo.cli.events_cmd._WATCH_EVENTS_DIR", edir)
         from duo.protocol import write_json
 
         write_json(edir / "ev1.json", {"task_id": "t1"})
@@ -10764,9 +10778,9 @@ class TestCliBranchGapsBatch6:
     # -- 2959→2962 + 2970→2966: events tail with empty JSON (False branches) --
     def test_events_tail_empty_json(self, monkeypatch, tmp_path: Path):
         """events tail with event files containing invalid/empty JSON."""
-        import duo.cli as cli_mod
+        import duo.cli.events_cmd as events_mod
 
-        monkeypatch.setattr(cli_mod, "_WATCH_EVENTS_DIR", tmp_path)
+        monkeypatch.setattr(events_mod, "_WATCH_EVENTS_DIR", tmp_path)
 
         # Create an event file with empty/invalid content
         (tmp_path / "evt-001.json").write_text("", encoding="utf-8")
@@ -10809,9 +10823,9 @@ class TestCliBranchGapsBatch7:
     # -- 2970→2966: watch loop new file with empty JSON (False branch) --
     def test_events_tail_loop_empty_json(self, monkeypatch, tmp_path: Path):
         """events tail while-loop skips new files with empty JSON."""
-        import duo.cli as cli_mod
+        import duo.cli.events_cmd as events_mod
 
-        monkeypatch.setattr(cli_mod, "_WATCH_EVENTS_DIR", tmp_path)
+        monkeypatch.setattr(events_mod, "_WATCH_EVENTS_DIR", tmp_path)
 
         call_count = [0]
 
