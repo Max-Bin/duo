@@ -70,10 +70,10 @@ This means fewer round-trips and fewer Premium Requests.
 #### 5. Auto-handle dialogs
 
 ```bash
-duo ceo-loop fix-login
+duo watch fix-login
 ```
 
-This automatically handles permission dialogs as they appear, so the executor can work uninterrupted.
+This watches for permission dialogs and lets you handle them as they appear, so the executor can work uninterrupted.
 
 #### 6. Merge the fix
 
@@ -85,7 +85,7 @@ duo merge fix-login
 
 1. **Thinking phase** — You brainstormed the fix plan with the AI for free. No Premium Requests were consumed.
 2. **`--from-thinking`** — The plan was carried into the executor as context, so it knew exactly what to do.
-3. **`ceo-loop`** — Permission dialogs were auto-handled, minimizing idle time.
+3. **`watch`** — Permission dialogs were handled promptly, minimizing idle time.
 4. **Result** — The bug was fixed with minimal PR consumption because the executor had a clear plan from the start.
 
 ## Why Think First?

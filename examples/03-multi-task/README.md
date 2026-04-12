@@ -61,12 +61,10 @@ duo dashboard
 ### 3. Auto-handle dialogs for all tasks
 
 ```bash
-duo ceo-loop add-tests &
-duo ceo-loop fix-typos &
-duo ceo-loop add-logging &
+duo watch
 ```
 
-Running `ceo-loop` in the background for each task means permission dialogs are automatically approved as they appear. No manual babysitting required.
+Running `watch` monitors all tasks for permission dialogs. No manual babysitting required.
 
 ### 4. Check costs
 
@@ -109,7 +107,7 @@ Each merge is a fast-forward merge into your current branch. Since the worktrees
 
 1. **3 isolated worktrees** — Each task got its own branch and working directory
 2. **Parallel execution** — All 3 executors ran simultaneously in separate tmux panes
-3. **Independent dialog handling** — `ceo-loop` ran in the background for each task
+3. **Independent dialog handling** — `watch` monitored all tasks for dialogs
 4. **Cost tracking** — `duo cost` showed real-time PR consumption across all tasks
 5. **Sequential merges** — Tasks were merged one by one as they completed
 
