@@ -11228,12 +11228,14 @@ class TestArchitecturalGuards:
     """Prevent regression toward God File and other anti-patterns."""
 
     def test_cli_py_line_count(self):
-        """cli.py must not grow back into a God File."""
+        """cli package must not grow back into a God File."""
         import pathlib
 
-        cli_path = pathlib.Path(__file__).parent.parent / "src" / "duo" / "cli.py"
-        lines = cli_path.read_text().count("\n")
-        assert lines < 6000, f"cli.py is {lines} lines — split before it grows"
+        cli_path = pathlib.Path(__file__).parent.parent / "src" / "duo" / "cli"
+        total = 0
+        for py in cli_path.glob("**/*.py"):
+            total += py.read_text().count("\n")
+        assert total < 6000, f"cli/ package is {total} lines — split before it grows"
 
     def test_transport_py_line_count(self):
         """transport.py must stay under control."""
