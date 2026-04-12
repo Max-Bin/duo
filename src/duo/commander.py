@@ -69,6 +69,7 @@ from duo.transport import (
     select_dialog_option,
     send_bootstrap,
     send_shell_command,
+    send_slash_command,
     wait_for_dialog,
     wait_for_idle,
 )
@@ -958,7 +959,7 @@ def _start_and_prime_copilot(task: Task, pane_id: str, *, defer: bool) -> None:
 
     if get_config("auto_allow_all"):
         click.echo("Sending /allow-all...")
-        send_shell_command(task.pane_label, "/allow-all")
+        send_slash_command(task.pane_label, "/allow-all")
         if not wait_for_idle(
             task.pane_label,
             timeout=_IDLE_TIMEOUT_ALLOW_ALL,

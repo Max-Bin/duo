@@ -587,7 +587,8 @@ class TestStartSession:
         with (
             patch("duo.commander.subprocess.run") as mock_run,
             patch("duo.commander.name_pane"),
-            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.send_slash_command") as mock_slash,
             patch("duo.commander.wait_for_idle"),
             patch("duo.commander.read_pane", return_value="❯"),
             patch("duo.commander.is_at_main_prompt", return_value=True),
@@ -606,7 +607,7 @@ class TestStartSession:
 
             # /allow-all should have been sent
             allow_calls = [
-                c for c in mock_send.call_args_list if "/allow-all" in str(c)
+                c for c in mock_slash.call_args_list if "/allow-all" in str(c)
             ]
             assert len(allow_calls) == 1
 
@@ -626,7 +627,8 @@ class TestStartSession:
         with (
             patch("duo.commander.subprocess.run") as mock_run,
             patch("duo.commander.name_pane"),
-            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.send_slash_command") as mock_slash,
             patch("duo.commander.wait_for_idle"),
             patch("duo.commander.read_pane", return_value="❯"),
             patch("duo.commander.is_at_main_prompt", return_value=True),
@@ -645,7 +647,7 @@ class TestStartSession:
 
             # /allow-all should NOT have been sent
             allow_calls = [
-                c for c in mock_send.call_args_list if "/allow-all" in str(c)
+                c for c in mock_slash.call_args_list if "/allow-all" in str(c)
             ]
             assert len(allow_calls) == 0
 
@@ -791,6 +793,7 @@ class TestStartSession:
             patch("duo.commander.subprocess.run") as mock_run,
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
+            patch("duo.commander.send_slash_command"),
             patch("duo.commander.wait_for_idle", side_effect=[True, False]),
             patch("duo.commander.read_pane", return_value="❯"),
             patch("duo.commander.is_at_main_prompt", return_value=True),
@@ -847,6 +850,7 @@ class TestStartSession:
             patch("duo.commander.subprocess.run") as mock_run,
             patch("duo.commander.name_pane"),
             patch("duo.commander.send_shell_command"),
+            patch("duo.commander.send_slash_command"),
             patch("duo.commander.wait_for_idle", return_value=True),
             patch("duo.commander.read_pane", return_value="❯"),
             patch("duo.commander.is_at_main_prompt", return_value=True),
@@ -1614,6 +1618,7 @@ class TestClaudeCommander:
                 patch("duo.commander.subprocess.run") as mock_run,
                 patch("duo.commander.name_pane"),
                 patch("duo.commander.send_shell_command"),
+                patch("duo.commander.send_slash_command"),
                 patch("duo.commander.wait_for_idle", return_value=True),
                 patch("duo.commander.read_pane", return_value="❯"),
                 patch("duo.commander.is_at_main_prompt", return_value=True),
@@ -1655,6 +1660,7 @@ class TestClaudeCommander:
                 patch("duo.commander.subprocess.run") as mock_run,
                 patch("duo.commander.name_pane"),
                 patch("duo.commander.send_shell_command"),
+                patch("duo.commander.send_slash_command"),
                 patch("duo.commander.wait_for_idle", return_value=True),
                 patch("duo.commander.read_pane", return_value="❯"),
                 patch("duo.commander.is_at_main_prompt", return_value=True),

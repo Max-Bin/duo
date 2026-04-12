@@ -392,6 +392,7 @@ def go(repo: str) -> None:
         name_pane,
         read_pane,
         send_shell_command,
+        send_slash_command,
         split_window_horizontal,
         wait_for_idle,
     )
@@ -477,9 +478,7 @@ def go(repo: str) -> None:
                 fix="Retry duo go, or check tmux panes.",
             ) from None
 
-        # Start Copilot in the standby pane — ALWAYS use -t pane_id
-        # Previous bug: send-keys without -t targets "active pane" which
-        # is unreliable (may revert to original pane). Explicit -t is safe.
+        # Start Copilot in the standby pane via transport layer
         copilot_model = get_config("copilot_model")
         copilot_cmd = f"copilot --model {shlex.quote(str(copilot_model))}"
         if get_config("bypass_permissions"):
@@ -487,44 +486,10 @@ def go(repo: str) -> None:
 
         time.sleep(1.5)  # Wait for shell to fully start in new pane
         try:
-            subprocess.run(
-                [
-                    "tmux",
-                    "send-keys",
-                    "-t",
-                    pane_id,
-                    "-l",
-                    "--",
-                    f"cd {shlex.quote(str(repo_path))}",
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            subprocess.run(
-                ["tmux", "send-keys", "-t", pane_id, "-H", "0d"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
+            send_shell_command(standby_label, f"cd {shlex.quote(str(repo_path))}")
             time.sleep(0.5)
-            subprocess.run(
-                ["tmux", "send-keys", "-t", pane_id, "-l", "--", copilot_cmd],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            subprocess.run(
-                ["tmux", "send-keys", "-t", pane_id, "-H", "0d"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-        except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+            send_shell_command(standby_label, copilot_cmd)
+        except (RuntimeError, OSError) as exc:
             click.echo(f"  ⚠ Failed to start Copilot in pane: {exc}")
             click.echo("    Right pane may need manual: cd <project> && copilot")
             # Don't abort — Claude Code can still work without Copilot
@@ -533,9 +498,9 @@ def go(repo: str) -> None:
         if wait_for_idle(standby_label, timeout=45, poll_interval=2.0):
             pane_content = read_pane(standby_label)
             if is_at_main_prompt(pane_content):
-                # Send /allow-all
+                # Send /allow-all (slash command at ❯ prompt)
                 if get_config("auto_allow_all"):
-                    send_shell_command(standby_label, "/allow-all")
+                    send_slash_command(standby_label, "/allow-all")
                     wait_for_idle(standby_label, timeout=15, poll_interval=1.0)
                 click.echo(f"  ✓ Copilot standby ready ({pane_id})")
             else:

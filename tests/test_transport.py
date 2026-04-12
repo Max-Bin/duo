@@ -52,6 +52,7 @@ from duo.transport import (
     send_option_other_message,
     send_prompt,
     send_shell_command,
+    send_slash_command,
     send_text_dialog_message,
     type_text,
     wait_for_dialog,
@@ -481,6 +482,33 @@ class TestSendShellCommand:
         )
         with pytest.raises(RuntimeError, match="BLOCKED"):
             send_shell_command("agent", "cd /tmp")
+
+
+class TestSendSlashCommand:
+    @patch("subprocess.run")
+    def test_call_sequence(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="❯ Type @ to mention files", stderr=""
+        )
+        send_slash_command("agent", "/allow-all")
+        calls = mock_run.call_args_list
+        # read → type → read → resolve_label → select-pane → send-keys -H 0d
+        assert calls[0].args[0] == [BRIDGE, "read", "agent", "5"]
+        assert calls[1].args[0] == [BRIDGE, "type", "agent", "/allow-all"]
+        assert calls[2].args[0] == [BRIDGE, "read", "agent", "5"]
+
+    @patch("subprocess.run")
+    def test_rejects_non_slash_command(self, mock_run):
+        with pytest.raises(ValueError, match="must start with '/'"):
+            send_slash_command("agent", "allow-all")
+
+    @patch("subprocess.run")
+    def test_rejects_when_not_at_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="normal shell output", stderr=""
+        )
+        with pytest.raises(RuntimeError, match="not at ❯ prompt"):
+            send_slash_command("agent", "/allow-all")
 
 
 class TestSafeEnter:

@@ -1605,7 +1605,28 @@ def send_shell_command(label: str, command: str) -> None:
         if is_at_main_prompt(content):
             raise RuntimeError(
                 f"BLOCKED: '{label}' at ❯ prompt. "
-                "send_shell_command is for shell-only. Use select_dialog_option."
+                "send_shell_command is for shell-only. Use send_slash_command for Copilot commands."
+            )
+        type_text(label, command)
+        read_pane(label, 5)
+        send_keys(label, "Enter")
+
+
+def send_slash_command(label: str, command: str) -> None:
+    """Send a Copilot slash command (e.g. /allow-all) at the ❯ prompt.
+
+    Slash commands are Copilot-internal and do NOT consume a PR.
+    Safety: requires pane to be at the main ❯ prompt and command to start with '/'.
+    Holds pane_lock to prevent interleaving with concurrent callers.
+    """
+    if not command.startswith("/"):
+        raise ValueError(f"slash command must start with '/', got: {command!r}")
+    with pane_lock(label):
+        content = read_pane(label, 5)
+        if not is_at_main_prompt(content):
+            raise RuntimeError(
+                f"BLOCKED: '{label}' not at ❯ prompt. "
+                "send_slash_command requires Copilot to be idle at main prompt."
             )
         type_text(label, command)
         read_pane(label, 5)

@@ -975,6 +975,7 @@ class TestDuoGo:
             patch("duo.protocol.save_go_session"),
             patch("duo.transport.name_pane"),
             patch("duo.transport.send_shell_command"),
+            patch("duo.transport.send_slash_command"),
             patch("duo.transport.wait_for_idle", return_value=True),
             patch("duo.transport.read_pane", return_value="❯"),
             patch("duo.transport.is_at_main_prompt", return_value=True),
