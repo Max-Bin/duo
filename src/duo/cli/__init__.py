@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-import subprocess
+import subprocess  # noqa: F401 — test patch target: duo.cli.subprocess.run
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,6 +23,9 @@ from duo.cli._helpers import (
 )
 from duo.cli._helpers import (
     _MAX_AGE_SECONDS as _MAX_AGE_SECONDS,
+)
+from duo.cli._helpers import (
+    _TERMINAL_STATES as _TERMINAL_STATES,  # noqa: F401 — re-export
 )
 from duo.cli._helpers import (
     _TMUX_TIMEOUT as _TMUX_TIMEOUT,
@@ -91,13 +94,7 @@ from duo.protocol import (
     TaskStatus,
     create_task,
     list_tasks,
-    load_task,
     read_jsonl,
-    replay_state,
-)
-
-_TERMINAL_STATES = frozenset(
-    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
 )
 
 __all__ = ["main"]
@@ -187,523 +184,38 @@ main.add_command(init_command, "init")
 main.add_command(go_command, "go")
 
 
-@main.command()
-@click.argument("name", shell_complete=_complete_task_names)
-@click.argument("prompt", required=False, default=None)
-@click.option(
-    "--file",
-    "-f",
-    "prompt_file",
-    type=click.Path(exists=True),
-    help="Read prompt from file (use - for stdin)",
+from duo.cli.task_ops_cmd import recover as recover_command  # noqa: E402
+from duo.cli.task_ops_cmd import send as send_command  # noqa: E402
+
+main.add_command(send_command, "send")
+
+
+from duo.cli.monitoring_cmd import (  # noqa: E402
+    _print_task as _print_task,  # noqa: F401 — re-export
 )
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option(
-    "-q", "--quiet", is_flag=True, help="Print only 'sent' or 'queued' for scripting"
+from duo.cli.monitoring_cmd import (  # noqa: E402
+    dashboard as dashboard_command,
 )
-def send(
-    name: str,
-    prompt: str | None,
-    *,
-    prompt_file: str | None = None,
-    as_json: bool = False,
-    quiet: bool = False,
-) -> None:
-    """Send a prompt to a task's Copilot session."""
-    from duo.commander import send_task_prompt
-
-    if prompt_file:
-        if prompt:
-            raise click.UsageError("cannot specify both PROMPT argument and --file")
-        prompt = Path(prompt_file).read_text(encoding="utf-8")
-    if not prompt or not prompt.strip():
-        raise click.UsageError(
-            'prompt cannot be empty. Usage: duo send TASK_NAME "your instruction"'
-        )
-    task = _load_task_or_fail(name)
-
-    # Reject sends to terminal/dead states — give clear guidance
-    if task.status in _TERMINAL_STATES:
-        raise DuoUserError(
-            f"task '{name}' is in terminal state '{task.status.value}'",
-            fix=f"Use 'duo retry {name}' to retry, or create a new task.",
-        )
-    if task.status == TaskStatus.BLOCKED:
-        raise DuoUserError(
-            f"task '{name}' is blocked",
-            fix=f"Use 'duo resume {name}' to restart it first.",
-        )
-
-    if task.status == TaskStatus.QUEUED:
-        # Persist prompt for later — no pane exists yet, so don't try transport
-        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-        prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        from duo.protocol import atomic_write_text
-
-        atomic_write_text(prompt_path, prompt)
-        if quiet:
-            click.echo("queued")
-            return
-        if as_json:
-            click.echo(json.dumps({"sent": False, "queued": True, "task": name}))
-        else:
-            click.echo(
-                f"Task '{name}' is queued — prompt saved and will be sent when task starts.",
-                err=True,
-            )
-        return
-
-    if task.status == TaskStatus.SESSION_STARTING:
-        # Deferred start — Copilot is idle at ❯ prompt, send as bootstrap
-        from duo.commander import build_bootstrap_prompt
-        from duo.protocol import (
-            append_event,
-            atomic_write_text,
-            now_iso,
-            save_task,
-            transition,
-        )
-        from duo.transport import send_bootstrap
-
-        # Persist prompt file (like normal send path) for resume/replay
-        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-        prompt_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(prompt_path, prompt)
-
-        bootstrap = build_bootstrap_prompt(task, override_prompt=prompt)
-        send_bootstrap(task.pane_label, bootstrap)
-        task.last_prompt_sent_at = now_iso()
-        save_task(task)
-        append_event(
-            task,
-            "pr_consumed",
-            {
-                "action": "bootstrap",
-                "step": task.current_step,
-                "attempt": task.current_attempt,
-            },
-        )
-        transition(task, TaskStatus.PROMPT_SENT)
-        if quiet:
-            click.echo("sent")
-            return
-        if as_json:
-            click.echo(json.dumps({"sent": True, "task": name, "first_prompt": True}))
-        else:
-            click.echo(f"First prompt sent to '{name}' (session was deferred).")
-        return
-
-    send_task_prompt(task, prompt)
-    if quiet:
-        click.echo("sent")
-        return
-    if as_json:
-        click.echo(
-            json.dumps(
-                {
-                    "sent": True,
-                    "task": name,
-                    "step": task.current_step,
-                    "attempt": task.current_attempt,
-                }
-            )
-        )
-    else:
-        click.echo(
-            f"Sent to {name} (step={task.current_step} attempt={task.current_attempt})"
-        )
-
-
-@main.command()
-@click.argument("name", required=False, shell_complete=_complete_task_names)
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("-q", "--quiet", is_flag=True, help="Print only the status value")
-@click.option(
-    "--wait",
-    "wait_for",
-    default=None,
-    help="Block until task reaches this status (e.g. completed, failed)",
+from duo.cli.monitoring_cmd import (
+    list_cmd as list_command,
 )
-@click.option(
-    "--timeout",
-    "wait_timeout",
-    default=300,
-    type=int,
-    help="Max seconds to wait (default: 300)",
+from duo.cli.monitoring_cmd import (
+    monitor as monitor_command,
 )
-def status(
-    name: str | None = None,
-    *,
-    as_json: bool = False,
-    quiet: bool = False,
-    wait_for: str | None = None,
-    wait_timeout: int = 300,
-) -> None:
-    """Show task status."""
-    if wait_for is not None:
-        if name is None:
-            raise click.UsageError("--wait requires a task NAME")
-        import time
-
-        valid_statuses = {s.value for s in TaskStatus}
-        if wait_for not in valid_statuses:
-            raise DuoUserError(
-                f"unknown status '{wait_for}'",
-                fix=f"Valid statuses: {', '.join(sorted(valid_statuses))}",
-            )
-        deadline = time.monotonic() + wait_timeout
-        while time.monotonic() < deadline:
-            task = load_task(name)
-            if task is None:
-                raise DuoUserError(
-                    f"task '{name}' not found",
-                    fix="Run 'duo list' to see available tasks.",
-                )
-            if task.status.value == wait_for:
-                if quiet:
-                    click.echo(task.status.value)
-                elif as_json:
-                    click.echo(json.dumps({"id": task.id, "status": task.status.value}))
-                else:
-                    click.echo(f"Task '{name}' reached '{wait_for}' status.")
-                return
-            time.sleep(1)
-        if quiet:
-            click.echo(load_task(name).status.value if load_task(name) else "unknown")  # type: ignore[union-attr]
-        else:
-            click.echo(
-                f"Timeout: task '{name}' did not reach '{wait_for}' "
-                f"within {wait_timeout}s (current: {load_task(name).status.value if load_task(name) else 'unknown'})",  # type: ignore[union-attr]
-                err=True,
-            )
-        raise SystemExit(1)
-
-    if name:
-        task = _load_task_or_fail(name)
-        if quiet:
-            click.echo(task.status.value)
-            return
-        if as_json:
-            output = {
-                "id": task.id,
-                "status": task.status.value,
-                "step": task.current_step,
-                "total_steps": len(task.subtasks),
-                "attempt": task.current_attempt,
-                "worktree": task.worktree,
-                "branch": task.branch,
-                "incarnation_id": task.incarnation_id,
-                "created_at": task.created_at,
-                "session_started_at": task.session_started_at,
-                "description": task.description,
-                "age": _fmt_age(task.created_at),
-            }
-            click.echo(json.dumps(output, indent=2))
-            return
-        _print_task(task)
-    else:
-        tasks = list_tasks()
-        if not tasks:
-            if not quiet:
-                click.echo("No tasks.")
-            return
-        if quiet:
-            for t in tasks:
-                click.echo(f"{t.id}\t{t.status.value}")
-            return
-        for t in tasks:
-            _print_task(t)
-            click.echo("")
-
-
-def _print_task(task: Task) -> None:
-    click.echo(f"  {task.id}")
-    click.echo(f"    Status:      {task.status.value}")
-    click.echo(f"    Step:        {task.current_step}/{len(task.subtasks)}")
-    click.echo(f"    Attempt:     {task.current_attempt}")
-    click.echo(f"    Incarnation: {task.incarnation_id}")
-    click.echo(f"    Branch:      {task.branch}")
-    click.echo(f"    Worktree:    {task.worktree}")
-    if task.description:
-        click.echo(f"    Description: {task.description}")
-    if task.created_at:
-        click.echo(f"    Age:         {_fmt_age(task.created_at)}")
-    if task.session_started_at:
-        click.echo(f"    Session:     {task.session_started_at[:19]}")
-    # Show heartbeat info for active tasks
-    from duo.protocol import read_heartbeat
-
-    hb = read_heartbeat(task)
-    if hb and hb.current_file:
-        click.echo(f"    Working on:  {hb.current_file}")
-    if hb and hb.ts:
-        click.echo(f"    Last pulse:  {_fmt_age(hb.ts)}")
-
-
-@main.command("list")
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option(
-    "--status",
-    "status_filter",
-    default=None,
-    shell_complete=_complete_status_values,
-    help="Filter by task status (e.g. running, completed, created)",
+from duo.cli.monitoring_cmd import (
+    status as status_command,
 )
-@click.option(
-    "--sort",
-    "sort_by",
-    type=click.Choice(["name", "status", "age"], case_sensitive=False),
-    default=None,
-    help="Sort tasks by field",
+from duo.cli.monitoring_cmd import (
+    watch as watch_command,
 )
-@click.option("--reverse", is_flag=True, help="Reverse sort order")
-@click.option("-q", "--quiet", is_flag=True, help="Only print task IDs (one per line)")
-@click.option("-c", "--count", is_flag=True, help="Only print the number of tasks")
-@click.option("--no-header", is_flag=True, help="Omit table header")
-@click.option("--active", is_flag=True, help="Show only running/active tasks")
-@click.option("--finished", is_flag=True, help="Show only completed/failed tasks")
-@click.option(
-    "--wide", "-w", is_flag=True, help="Show description column in table output"
-)
-@click.option(
-    "--recent",
-    type=int,
-    default=None,
-    help="Show only the N most recently created tasks",
-)
-def list_cmd(
-    as_json: bool,
-    status_filter: str | None,
-    sort_by: str | None,
-    reverse: bool,
-    quiet: bool,
-    count: bool,
-    no_header: bool,
-    active: bool,
-    finished: bool,
-    wide: bool,
-    recent: int | None,
-) -> None:
-    """List all tasks."""
-    tasks = list_tasks()
 
-    if active:
-        _ACTIVE_STATUSES = {
-            TaskStatus.RUNNING,
-            TaskStatus.SESSION_STARTING,
-            TaskStatus.PROMPT_SENT,
-            TaskStatus.ACKED,
-            TaskStatus.RESULT_REPORTED,
-            TaskStatus.VERIFYING,
-            TaskStatus.CORRECTING,
-        }
-        tasks = [t for t in tasks if t.status in _ACTIVE_STATUSES]
-
-    if finished:
-        tasks = [t for t in tasks if t.status in _TERMINAL_STATES]
-
-    if status_filter:
-        valid_statuses = {s.value for s in TaskStatus}
-        if status_filter not in valid_statuses:
-            raise DuoUserError(
-                f"unknown status '{status_filter}'",
-                fix=f"Valid statuses: {', '.join(sorted(valid_statuses))}",
-            )
-        tasks = [t for t in tasks if t.status.value == status_filter]
-
-    if sort_by == "name":
-        tasks.sort(key=lambda t: t.id, reverse=reverse)
-    elif sort_by == "status":
-        tasks.sort(key=lambda t: t.status.value, reverse=reverse)
-    elif sort_by == "age":
-        tasks.sort(key=lambda t: t.created_at or "", reverse=not reverse)
-
-    if recent is not None:
-        # Sort by created_at descending and take the first N
-        tasks.sort(key=lambda t: t.created_at or "", reverse=True)
-        tasks = tasks[:recent]
-
-    if count:
-        click.echo(len(tasks))
-        return
-
-    if not tasks:
-        if not quiet:
-            click.echo("No tasks.")
-        return
-
-    if quiet:
-        for t in tasks:
-            click.echo(t.id)
-        return
-
-    if as_json:
-        output = [
-            {
-                "id": t.id,
-                "status": t.status.value,
-                "step": t.current_step,
-                "total_steps": len(t.subtasks),
-                "attempt": t.current_attempt,
-                "worktree": t.worktree,
-                "branch": t.branch,
-                "incarnation_id": t.incarnation_id,
-                "created_at": t.created_at,
-                "session_started_at": t.session_started_at,
-                "age": _fmt_age(t.created_at),
-                "description": t.description,
-            }
-            for t in tasks
-        ]
-        click.echo(json.dumps(output, indent=2))
-        return
-
-    if not no_header:
-        header = (
-            f"{'ID':<20} {'STATUS':<18} {'STEP':<8} {'AGE':<10} {'INCARNATION':<12}"
-        )
-        if wide:
-            header += f" {'DESCRIPTION'}"
-        click.echo(header)
-        click.echo("-" * (70 if not wide else 100))
-    for t in tasks:
-        step_str = f"{t.current_step}/{len(t.subtasks)}"
-        age_str = _fmt_age(t.created_at)
-        line = f"{t.id:<20} {t.status.value:<18} {step_str:<8} {age_str:<10} {t.incarnation_id:<12}"
-        if wide:
-            desc = (
-                (t.description[:28] + "...")
-                if len(t.description) > 30
-                else t.description
-            )
-            line += f" {desc}"
-        click.echo(line)
+main.add_command(status_command, "status")
+main.add_command(list_command, "list")
+main.add_command(monitor_command, "monitor")
+main.add_command(watch_command, "watch")
 
 
-@main.command()
-@click.argument("names", nargs=-1)
-@click.option(
-    "--max-time",
-    type=int,
-    default=0,
-    help="Max seconds before timing out tasks (overrides config).",
-)
-def monitor(names: tuple[str, ...], max_time: int) -> None:
-    """Start adaptive polling monitor."""
-    from duo.commander import monitor as run_monitor
-    from duo.config import set_config
-
-    if max_time > 0:
-        set_config("task_timeout", str(max_time))
-    task_ids = list(names) if names else None
-    click.echo("[duo] Starting monitor...")
-    try:
-        run_monitor(task_ids)
-    except KeyboardInterrupt:
-        click.echo("\n[duo] Monitor stopped.")
-
-
-@main.command()
-@click.argument("names", nargs=-1)
-@click.option(
-    "--timeout",
-    type=float,
-    default=300,
-    help="Seconds to wait for each dialog (default: 300).",
-)
-@click.option(
-    "--interval",
-    type=float,
-    default=5.0,
-    help="Poll interval in seconds (default: 5).",
-)
-@click.option("--once", is_flag=True, help="Exit after detecting one dialog.")
-@click.option(
-    "--auto-approve",
-    is_flag=True,
-    default=False,
-    help="Auto-approve permission dialogs (legacy). Default: detect and report only.",
-)
-def watch(
-    names: tuple[str, ...],
-    timeout: float,
-    interval: float,
-    once: bool,
-    auto_approve: bool,
-) -> None:
-    """Pane dialog detector — monitors tasks and reports dialogs.
-
-    Default mode: watches task panes for permission dialogs. When a dialog
-    is detected, prints its content, writes a signal file to
-    ``~/.duo/watch-events/``, and exits so the CEO process can decide
-    what to do next.
-
-    With ``--auto-approve``: automatically approves permission dialogs
-    (unattended mode).
-
-    \b
-    Example:
-      duo watch                # detect dialog → print → signal → exit
-      duo watch --auto-approve # auto-approve dialogs (legacy behavior)
-      duo watch --once         # exit after first detection
-    """
-    if timeout <= 0:
-        raise click.UsageError("--timeout must be > 0. Example: --timeout 60")
-    if interval <= 0:
-        raise click.UsageError("--interval must be > 0. Example: --interval 5")
-    from duo.commander import watch_tasks
-
-    task_ids = list(names) if names else None
-    try:
-        watch_tasks(
-            task_ids,
-            timeout=timeout,
-            interval=interval,
-            once=once,
-            auto_approve=auto_approve,
-        )
-    except KeyboardInterrupt:
-        click.echo("\n[duo] Watch stopped.")
-
-
-@main.command()
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("-q", "--quiet", is_flag=True, help="Print only the recovered count")
-def recover(as_json: bool, quiet: bool) -> None:
-    """Recover all interrupted tasks from journals."""
-    tasks = list_tasks()
-    recovered = 0
-    changes: list[dict[str, str]] = []
-    for task in tasks:
-        if task.status in (
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.ESCALATED,
-        ):
-            continue
-        actual = replay_state(task)
-        if actual != task.status:
-            changes.append(
-                {"task": task.id, "from": task.status.value, "to": actual.value}
-            )
-            if not as_json and not quiet:
-                click.echo(f"  {task.id}: {task.status.value} → {actual.value}")
-            task.status = actual
-            from duo.protocol import save_task
-
-            save_task(task)
-            recovered += 1
-
-    if quiet:
-        click.echo(str(recovered))
-        return
-
-    if as_json:
-        click.echo(json.dumps({"recovered": recovered, "changes": changes}, indent=2))
-    else:
-        click.echo(
-            f"Recovered {recovered} tasks." if recovered else "All tasks consistent."
-        )
+main.add_command(recover_command, "recover")
 
 
 from duo.cli.task_mgmt_cmd import kill as kill_command  # noqa: E402
@@ -1198,23 +710,7 @@ def cost(
         sys.exit(1)
 
 
-@main.command()
-@click.argument("names", nargs=-1)
-@click.option("--refresh", default=2.0, help="Refresh rate in seconds")
-def dashboard(names: tuple[str, ...], refresh: float) -> None:
-    """Live terminal dashboard for task monitoring."""
-    if refresh <= 0:
-        raise click.UsageError("--refresh must be > 0. Example: --refresh 2")
-    try:
-        from duo.dashboard import run_dashboard
-    except ImportError:
-        raise DuoUserError(
-            "'rich' library required for dashboard",
-            fix="Run: uv add rich",
-        ) from None
-
-    task_ids = list(names) if names else None
-    run_dashboard(task_ids, refresh_rate=refresh)
+main.add_command(dashboard_command, "dashboard")
 
 
 from duo.cli.logs_cmd import (  # noqa: E402
@@ -1229,176 +725,11 @@ from duo.cli.inspect_cmd import inspect as inspect_command
 main.add_command(inspect_command, "inspect")
 
 
-@main.command()
-@click.argument("name", required=False, shell_complete=_complete_task_names)
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("-q", "--quiet", is_flag=True, help="Print only the resumed count")
-def resume(name: str | None, *, as_json: bool = False, quiet: bool = False) -> None:
-    """Resume interrupted task sessions."""
-    from duo.commander import normalize_for_restart, restart_session, start_session
-    from duo.transport import cleanup_pane_state, is_process_alive, kill_pane
+from duo.cli.task_ops_cmd import resume as resume_command  # noqa: E402
+from duo.cli.task_ops_cmd import retry as retry_command  # noqa: E402
 
-    results: list[dict[str, Any]] = []
-
-    if name is not None:
-        task = _load_task_or_fail(name)
-        if task.status in _TERMINAL_STATES:
-            if quiet:
-                click.echo("0")
-                return
-            if as_json:
-                click.echo(json.dumps({"resumed": [], "already_complete": [name]}))
-            else:
-                click.echo(f"Task '{name}' is already completed.")
-            return
-        targets = [task]
-    else:
-        all_tasks = list_tasks()
-        _SKIP_STATES = _TERMINAL_STATES | {TaskStatus.QUEUED}
-        targets = [t for t in all_tasks if t.status not in _SKIP_STATES]
-        if not targets:
-            if quiet:
-                click.echo("0")
-                return
-            if as_json:
-                click.echo(
-                    json.dumps({"resumed": [], "message": "no interrupted tasks"})
-                )
-            else:
-                click.echo("No interrupted tasks found.")
-            return
-
-    for task in targets:
-        pane_alive = False
-        try:
-            pane_alive = is_process_alive(task.pane_label)
-        except (RuntimeError, OSError):
-            if not as_json and not quiet:
-                click.echo(
-                    f"  Warning: could not check pane status for '{task.id}', assuming dead",
-                    err=True,
-                )
-
-        if pane_alive:
-            if kill_pane(task.pane_label):
-                cleanup_pane_state(task.pane_label)
-            try:
-                restart_session(task)
-            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-                if as_json:
-                    results.append(
-                        {"task": task.id, "resumed": False, "error": str(exc)}
-                    )
-                else:
-                    click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
-                continue
-            if not as_json and not quiet:
-                click.echo(f"Resumed task '{task.id}' — restarted session")
-            results.append({"task": task.id, "resumed": True, "method": "restart"})
-        else:
-            if not normalize_for_restart(task):
-                msg = (
-                    f"Cannot normalize '{task.id}' from {task.status.value} for restart"
-                )
-                if as_json:
-                    results.append({"task": task.id, "resumed": False, "error": msg})
-                else:
-                    click.echo(f"  {msg}", err=True)
-                continue
-            try:
-                start_session(task)
-            except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-                if as_json:
-                    results.append(
-                        {"task": task.id, "resumed": False, "error": str(exc)}
-                    )
-                else:
-                    click.echo(f"  Failed to resume '{task.id}': {exc}", err=True)
-                continue
-            if not as_json and not quiet:
-                click.echo(f"Resumed task '{task.id}' — started new session")
-            results.append({"task": task.id, "resumed": True, "method": "new_session"})
-
-        from duo.commander import build_task_prompt, send_task_prompt
-
-        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-        if prompt_path.exists():
-            prompt = prompt_path.read_text()
-        else:
-            prompt = build_task_prompt(task)
-        try:
-            send_task_prompt(task, prompt)
-            if not as_json and not quiet:
-                click.echo(f"  Replayed prompt for step {task.current_step}")
-        except (RuntimeError, OSError) as exc:
-            if not as_json and not quiet:
-                click.echo(f"  Warning: could not replay prompt: {exc}", err=True)
-
-    if quiet:
-        resumed_count = sum(1 for r in results if r.get("resumed"))
-        click.echo(str(resumed_count))
-        return
-    if as_json:
-        click.echo(json.dumps({"resumed": results}))
-
-
-@main.command()
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("-q", "--quiet", is_flag=True, help="Print only the new status value")
-def retry(name: str, *, as_json: bool = False, quiet: bool = False) -> None:
-    """Retry a failed, blocked, or escalated task from its current step."""
-    from duo.protocol import transition
-
-    task = _load_task_or_fail(name)
-    retryable = (TaskStatus.FAILED, TaskStatus.BLOCKED, TaskStatus.ESCALATED)
-    if task.status not in retryable:
-        raise DuoUserError(
-            f"task '{name}' is '{task.status.value}', not retryable",
-            fix=(
-                f"Only FAILED, BLOCKED, or ESCALATED tasks can be retried. "
-                f"Check with 'duo status {name}'."
-            ),
-        )
-    # ESCALATED → PROMPT_SENT (re-send current step prompt)
-    # FAILED/BLOCKED → SESSION_STARTING (restart session)
-    if task.status == TaskStatus.ESCALATED:
-        target = TaskStatus.PROMPT_SENT
-    else:
-        target = TaskStatus.SESSION_STARTING
-    previous = task.status.value
-    if not transition(task, target):
-        if as_json:
-            click.echo(
-                json.dumps(
-                    {
-                        "retried": False,
-                        "error": f"Cannot transition from {previous} to {target.value}",
-                    }
-                )
-            )
-        else:
-            click.echo(
-                f"Error: cannot retry task '{name}' — illegal transition {previous} → {target.value}.",
-                err=True,
-            )
-        raise SystemExit(1)
-    if quiet:
-        click.echo(target.value)
-        return
-    if as_json:
-        click.echo(
-            json.dumps(
-                {
-                    "retried": True,
-                    "previous_status": previous,
-                    "new_status": target.value,
-                    "step": task.current_step,
-                }
-            )
-        )
-    else:
-        click.echo(f"Task '{name}' queued for retry from step {task.current_step}.")
+main.add_command(resume_command, "resume")
+main.add_command(retry_command, "retry")
 
 
 # ---------------------------------------------------------------------------

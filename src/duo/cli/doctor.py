@@ -16,12 +16,9 @@ from typing import Any
 
 import click
 
+from duo.cli._helpers import _TERMINAL_STATES
 from duo.config import get_config
-from duo.protocol import DUO_DIR, TASKS_DIR, TaskStatus, list_tasks
-
-_TERMINAL_STATES = frozenset(
-    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
-)
+from duo.protocol import DUO_DIR, TASKS_DIR, list_tasks
 
 _TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
 

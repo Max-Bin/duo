@@ -406,7 +406,7 @@ class TestStatus:
                 return None
             return original_load(name)
 
-        monkeypatch.setattr("duo.cli.load_task", _vanishing_load)
+        monkeypatch.setattr("duo.cli.monitoring_cmd.load_task", _vanishing_load)
         result = runner.invoke(
             main,
             ["status", "wait-gone", "--wait", "completed", "--timeout", "5"],
@@ -4609,18 +4609,17 @@ class TestWatchCommand:
 class TestDashboardCommand:
     def test_dashboard_invocation(self, runner: CliRunner):
         """dashboard calls run_dashboard."""
-        with patch("duo.cli.dashboard") as _:
-            # We need to patch the import inside the command
-            with patch.dict("sys.modules", {"duo.dashboard": MagicMock()}) as _:
-                import sys
+        # Patch the lazy import target inside the command
+        with patch.dict("sys.modules", {"duo.dashboard": MagicMock()}) as _:
+            import sys
 
-                mock_dashboard_mod = sys.modules["duo.dashboard"]
-                mock_dashboard_mod.run_dashboard = MagicMock()
-                result = runner.invoke(main, ["dashboard", "task-x"])
-                assert result.exit_code == 0
-                mock_dashboard_mod.run_dashboard.assert_called_once_with(
-                    ["task-x"], refresh_rate=2.0
-                )
+            mock_dashboard_mod = sys.modules["duo.dashboard"]
+            mock_dashboard_mod.run_dashboard = MagicMock()
+            result = runner.invoke(main, ["dashboard", "task-x"])
+            assert result.exit_code == 0
+            mock_dashboard_mod.run_dashboard.assert_called_once_with(
+                ["task-x"], refresh_rate=2.0
+            )
 
     def test_dashboard_no_rich(self, runner: CliRunner):
         """dashboard shows error when rich is not installed."""
@@ -5865,7 +5864,8 @@ class TestResume:
         )
         monkeypatch.setattr("duo.transport.cleanup_pane_state", MagicMock())
         monkeypatch.setattr(
-            "duo.cli.subprocess.run", MagicMock(return_value=MagicMock(returncode=0))
+            "duo.cli.task_ops_cmd.subprocess.run",
+            MagicMock(return_value=MagicMock(returncode=0)),
         )
         result = runner.invoke(main, ["resume", "restart-err"])
         assert result.exit_code == 0
@@ -5933,7 +5933,9 @@ class TestResume:
         save_task(task)
 
         monkeypatch.setattr("duo.transport.is_process_alive", lambda label: True)
-        monkeypatch.setattr("duo.cli.subprocess.run", MagicMock(returncode=0))
+        monkeypatch.setattr(
+            "duo.cli.task_ops_cmd.subprocess.run", MagicMock(returncode=0)
+        )
         monkeypatch.setattr(
             "duo.commander.restart_session",
             MagicMock(side_effect=OSError("restart failed")),

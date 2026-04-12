@@ -22,6 +22,10 @@ _GIT_TIMEOUT = 30  # seconds for git subprocess calls
 _TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
 _MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
 
+_TERMINAL_STATES = frozenset(
+    {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ESCALATED}
+)
+
 
 _COMMAND_SECTIONS: dict[str, list[str]] = {
     "Task Lifecycle": [
