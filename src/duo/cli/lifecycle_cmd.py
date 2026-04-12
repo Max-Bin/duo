@@ -527,14 +527,11 @@ def go(repo: str) -> None:
     if get_config("bypass_permissions"):
         claude_args.append("--dangerously-skip-permissions")
 
-    # Pass initial prompt so CEO immediately starts duo watch in background
-    claude_args.extend(
-        [
-            "--prompt",
-            "Run `duo watch` in background (run_in_background: true) immediately. "
-            "This is your first and most critical task as CEO. "
-            "Then greet the user and ask what they want to build.",
-        ]
+    # Initial prompt (positional arg) forces CEO to start duo watch immediately
+    claude_args.append(
+        "Run `duo watch` in background (run_in_background: true) immediately. "
+        "This is your first and most critical task as CEO. "
+        "Then greet the user and ask what they want to build."
     )
 
     # Change to repo directory before exec
