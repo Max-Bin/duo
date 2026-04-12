@@ -170,7 +170,6 @@ See the [`examples/`](examples/) directory for step-by-step walkthroughs:
 - **[Getting Started Guide](docs/getting-started.md)** — Complete walkthrough from install to merge
 - **[Architecture Spec](docs/architecture.md)** — FSM states, file protocol schema, security model
 - **[CEO Workflow](docs/ceo-workflow.md)** — Programmatic dialog handling for orchestrating agents
-- **[Thinking Design](docs/design-duo-think.md)** — Architecture and design for `duo think`
 
 ## Contributing
 

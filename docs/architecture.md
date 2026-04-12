@@ -99,7 +99,6 @@ from a previous session from corrupting current state.
 | `config.py` | ~235 | Persistent JSON config with type coercion and validated ranges |
 | `dashboard.py` | ~186 | Rich live terminal dashboard — task table, queue panel, event stream |
 | `ceo_log.py` | ~150 | CEO session event logging — structured JSONL with categories |
-| `ceo_state.py` | ~44 | CEO session state persistence |
 | `errors.py` | ~48 | Domain-specific exception hierarchy |
 
 ---
