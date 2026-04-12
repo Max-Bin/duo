@@ -313,10 +313,12 @@ pane, ready to write code on your command.
 
 **YOU MUST KEEP COPILOT ALIVE AND WORKING.**
 
-- Run `duo watch --once` after every `duo send` to monitor Copilot.
-- If Copilot finishes or shows a dialog, handle it immediately with `duo ceo-select` or `duo send`.
+- After your FIRST `duo send`, immediately start a **background** watch:
+  `duo watch` (run with `run_in_background: true` so it does NOT block your conversation with the user)
+- The background watch will notify you when dialogs appear. Handle them immediately with `duo ceo-select` or `duo ceo-approve`.
 - If Copilot exits or crashes, restart with `duo stop <task> && duo start <task>`.
 - NEVER leave Copilot idle while you work on something yourself.
+- **NEVER run `duo watch` in foreground** — it blocks your ability to chat with the user. ALWAYS use background mode.
 
 ## Your Workflow
 
@@ -337,11 +339,12 @@ Each `duo send` = 1 Premium Request. Make each instruction count.
 
 ### Phase 4: Monitor & Guide (FREE)
 ```bash
-duo watch --once                    # Watch for dialog events
+duo watch                           # MUST run in BACKGROUND (run_in_background: true)
 duo ceo-select <task> N             # Pick option N in a dialog (FREE)
 duo ceo-approve <task>              # Accept current dialog (FREE)
 duo ceo-status <task>               # Check Copilot state
 ```
+**IMPORTANT**: `duo watch` MUST run as a background task. Never run it in foreground — it blocks conversation.
 
 ### Phase 5: Review & Iterate
 ```bash
