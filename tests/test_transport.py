@@ -2910,6 +2910,68 @@ class TestCountBulletItems:
         assert cursor == 1
 
 
+# ── _parse_dialog_options edge cases ──────────────────────────────────
+
+
+class TestParseDialogOptionsEdgeCases:
+    """Edge-case tests for _parse_dialog_options parsing."""
+
+    def test_no_box_markers(self):
+        """Content without box markers returns empty options."""
+        from duo.transport import _parse_dialog_options
+
+        options, cursor = _parse_dialog_options("just some text\nno box here")
+        assert options == {}
+        assert cursor == 0
+
+    def test_empty_content(self):
+        """Empty string returns empty options."""
+        from duo.transport import _parse_dialog_options
+
+        options, cursor = _parse_dialog_options("")
+        assert options == {}
+        assert cursor == 0
+
+    def test_multiple_boxes_uses_last(self):
+        """When multiple boxes exist, options from the last box are returned."""
+        from duo.transport import _parse_dialog_options
+
+        content = (
+            "╭─ First ─╮\n"
+            "❯ 1. FirstA\n"
+            "  2. FirstB\n"
+            "╰──────────╯\n"
+            "╭─ Second ─╮\n"
+            "  3. SecondA\n"
+            "❯ 4. SecondB\n"
+            "╰──────────╯"
+        )
+        options, cursor = _parse_dialog_options(content)
+        # Last box resets — should only have options from second box
+        assert "3" in options
+        assert "4" in options
+        assert "1" not in options
+        assert cursor == 4
+
+
+# ── _retry_enter_until_dismissed edge cases ────────────────────────────
+
+
+class TestRetryEnterUntilDismissedEdgeCases:
+    """Edge-case tests for _retry_enter_until_dismissed."""
+
+    @patch("duo.transport.detect_dialog_kind", return_value=DialogKind.NONE)
+    @patch("duo.transport.read_pane", return_value="no dialog here")
+    def test_already_dismissed(self, mock_read, mock_detect):
+        """If dialog is already dismissed on first read, returns True immediately."""
+        from duo.transport import _retry_enter_until_dismissed
+
+        result = _retry_enter_until_dismissed("test-label")
+        assert result is True
+        # No Enter sent since dialog was already gone
+        mock_read.assert_called_once()
+
+
 # ── select_bullet_option ────────────────────────────────────────────
 
 

@@ -573,6 +573,35 @@ class TestCheckSecretLeak:
         result = _check_secret_leak(task, diff, ["ghp_"])
         assert isinstance(result, Correction)
 
+    def test_secret_pattern_just_equals(self):
+        """Pattern '=' creates empty key regex — matches any '=' in added lines."""
+        task = _make_task()
+        diff = "+FOO=bar\n"
+        result = _check_secret_leak(task, diff, ["="])
+        assert isinstance(result, Correction)
+
+    def test_secret_pattern_whitespace_only(self):
+        """Whitespace-only pattern still matches if found in added lines."""
+        task = _make_task()
+        diff = "+some text with spaces\n"
+        result = _check_secret_leak(task, diff, [" "])
+        assert isinstance(result, Correction)
+
+    def test_path_dotdot_prefix_filename(self):
+        """File named '..foo' starts with '..' but normpath handles it."""
+        task = _make_task(subtasks=[_make_subtask(writable_paths=["*"])])
+        result = _check_security_scope(task, {"..foo"}, ["*"], "/fake/worktree")
+        # normpath("..foo") → "..foo" which starts with ".." → path traversal
+        assert isinstance(result, Correction)
+        assert "path traversal" in result.reason.lower()
+
+    def test_path_dot_dot_literal_dir(self):
+        """A path 'src/..bar/file.py' is normalized and checked."""
+        # normpath("src/..bar/file.py") → "src/..bar/file.py" (no traversal)
+        normalized = os.path.normpath("src/..bar/file.py")
+        # This should NOT start with ".." so it passes traversal check
+        assert not normalized.startswith("..")
+
 
 # ---------------------------------------------------------------------------
 # _check_untracked

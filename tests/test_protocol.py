@@ -650,6 +650,48 @@ class TestLoadTaskAttemptValidation:
         assert load_task("bad-att-neg") is None
 
 
+class TestLoadTaskEdgeCasesExtended:
+    """Edge cases for current_step vs subtask count boundary conditions."""
+
+    def test_zero_subtasks_step_zero_loads(self):
+        """n_subtasks==0 with current_step==0 bypasses range check — loads OK."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "empty-task"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"empty-task","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":0,"current_attempt":1,'
+            '"subtasks":[],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        task = load_task("empty-task")
+        assert task is not None
+        assert task.subtasks == []
+        assert task.current_step == 0
+
+    def test_current_step_exceeds_subtask_count(self):
+        """current_step=999 with 1 subtask loads (no upper-bound check)."""
+        import duo.protocol
+
+        task_dir = duo.protocol.TASKS_DIR / "big-step"
+        task_dir.mkdir(parents=True, exist_ok=True)
+        (task_dir / "task.json").write_text(
+            '{"id":"big-step","description":"x","worktree":"/w",'
+            '"base_commit":"c","branch":"b","status":"created",'
+            '"current_step":999,"current_attempt":1,'
+            '"subtasks":[{"step_id":1,"description":"s","target_files":[],"writable_paths":[]}],'
+            '"created_at":"2025-01-01T00:00:00","incarnation_id":"abc",'
+            '"pane_label":"p","security_policy":{}}'
+        )
+        task = load_task("big-step")
+        assert task is not None
+        assert task.current_step == 999
+        assert len(task.subtasks) == 1
+
+
 class TestLoadTaskMalformedSubtask:
     """load_task() handles malformed subtask data gracefully."""
 

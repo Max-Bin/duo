@@ -557,6 +557,46 @@ class TestConfigRubberDuckHardening:
             config_mod.set_config("poll_base_interval", "-inf")
 
 
+class TestConfigEdgeCasesExtended:
+    """Additional edge-case tests for value-coverage (non-finite, bool aliases, equal intervals)."""
+
+    def test_set_config_float_infinity_rejected(self):
+        """float('inf') and float('-inf') from string conversion should be rejected."""
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_base_interval", "inf")
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_max_interval", "-inf")
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_base_interval", "1e309")  # overflows to inf
+
+    def test_set_config_float_nan_rejected(self):
+        """NaN should be rejected by isfinite check."""
+        with pytest.raises(ValueError, match="finite"):
+            config_mod.set_config("poll_base_interval", "nan")
+
+    def test_set_config_equal_poll_intervals_allowed(self):
+        """Equal poll_base and poll_max is allowed (degenerate backoff)."""
+        config_mod.set_config("poll_base_interval", "5.0")
+        config_mod.set_config("poll_max_interval", "5.0")
+        cfg = config_mod.load_config()
+        assert cfg["poll_base_interval"] == 5.0
+        assert cfg["poll_max_interval"] == 5.0
+
+    def test_set_config_boolean_rejects_abbreviations(self):
+        """Common bool abbreviations not in accepted set are rejected."""
+        for val in ("t", "f", "on", "off", "y", "n"):
+            with pytest.raises(ValueError, match="Cannot convert"):
+                config_mod.set_config("auto_allow_all", val)
+
+    def test_load_config_nonfinite_float_on_disk(self, isolated_config: Path) -> None:
+        """Non-finite float values on disk are rejected — default used instead."""
+        isolated_config.write_text(
+            json.dumps({"poll_base_interval": float("inf")}), encoding="utf-8"
+        )
+        cfg = config_mod.load_config()
+        assert cfg["poll_base_interval"] == config_mod.DEFAULTS["poll_base_interval"]
+
+
 class TestConfigKeyRoundTrip:
     """Every config key can be get → set → reset without error."""
 
