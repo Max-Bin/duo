@@ -2539,11 +2539,22 @@ def go(repo: str) -> None:
                 fix="Check tmux is responding: tmux list-panes",
             ) from None
 
+        # Get the REAL new pane ID by querying tmux active pane
+        # (after split-window -h, the new pane is active)
+        try:
+            active_result = subprocess.run(
+                ["tmux", "display-message", "-p", "#{pane_id}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if active_result.returncode == 0 and active_result.stdout.strip():
+                pane_id = active_result.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError):
+            pass  # Fall back to split_window_horizontal's result
+
         # Name the pane
         try:
             name_pane(pane_id, standby_label)
         except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
-            # Kill orphaned pane on failure
             kill_pane(pane_id)
             raise DuoUserError(
                 f"failed to name standby pane: {exc}",
@@ -2557,14 +2568,21 @@ def go(repo: str) -> None:
             copilot_cmd += " --yolo"
 
         time.sleep(1.5)  # Wait for shell to fully start in new pane
-        # CRITICAL: Use pane_id directly, NOT standby_label.
-        # resolve_label searches ALL sessions and may find a stale pane
-        # from a previous duo go in a different tmux session.
+        # After split-window -h, the NEW pane is tmux-active.
+        # Send commands WITHOUT -t so they go to the active pane.
+        # All previous approaches (pane ID, label resolve, diff) failed.
         try:
-            send_shell_command(standby_label, f"cd {shlex.quote(str(repo_path))}")
+            subprocess.run(["tmux", "send-keys", "-l", "--",
+                            f"cd {shlex.quote(str(repo_path))}"],
+                           check=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(["tmux", "send-keys", "-H", "0d"],
+                           check=True, capture_output=True, text=True, timeout=10)
             time.sleep(0.5)
-            send_shell_command(standby_label, copilot_cmd)
-        except (RuntimeError, OSError) as exc:
+            subprocess.run(["tmux", "send-keys", "-l", "--", copilot_cmd],
+                           check=True, capture_output=True, text=True, timeout=10)
+            subprocess.run(["tmux", "send-keys", "-H", "0d"],
+                           check=True, capture_output=True, text=True, timeout=10)
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
             click.echo(f"  ⚠ Failed to start Copilot in pane: {exc}")
             click.echo("    Right pane may need manual: cd <project> && copilot")
             # Don't abort — Claude Code can still work without Copilot
