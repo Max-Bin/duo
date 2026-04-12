@@ -492,7 +492,7 @@ class TestFifoTiebreaker:
         assert [t.id for t in queued] == ["alpha", "bravo", "charlie"]
 
 
-class TestSchedulerEdgeCases:
+class TestSchedulerTransitionEdgeCases:
     """Edge case value coverage for scheduler."""
 
     def test_enqueue_when_transition_fails(self) -> None:
