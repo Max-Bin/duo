@@ -29,7 +29,12 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — Click CLI entry point (33 commands + config/events subgroups: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/batch/queue/recover/resume/retry/audit/cleanup/init/doctor/config/version/completion/think/cost/events/go/ceo-wait/ceo-select/ceo-approve/ceo-status)
+└── cli/             — Click CLI package (33 commands)
+    ├── __init__.py  — main group, shared helpers, core commands
+    ├── doctor.py    — environment diagnostics and auto-fix
+    ├── config_cmd.py — config get/set/list/reset/validate
+    ├── events_cmd.py — watch-event list/show/tail/clear
+    └── think_cmd.py — think session management
 ```
 
 ### transport.py — Protocol Classes
@@ -44,7 +49,7 @@ These allow easy mocking in tests and future transport backends.
 ### Security Guards
 
 - **Path traversal protection** — verifier rejects changes outside `writable_paths` (fnmatch)
-- **Label sanitization** — `_validate_label()` in transport.py enforces `^[a-zA-Z0-9_.-]+$`; `_validate_task_name()` in cli.py enforces `^[a-zA-Z0-9_-]+$`
+- **Label sanitization** — `_validate_label()` in transport.py enforces `^[a-zA-Z0-9_.-]+$`; `_validate_task_name()` in cli/__init__.py enforces `^[a-zA-Z0-9_-]+$`
 - **Secret detection** — verifier scans diffs for sensitive patterns
 - **`shell=False`** — all subprocess calls use list-form arguments
 
