@@ -31,9 +31,12 @@ src/duo/
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
 └── cli/             — Click CLI package (33 commands)
     ├── __init__.py  — main group, shared helpers, core commands
-    ├── doctor.py    — environment diagnostics and auto-fix
+    ├── ceo_cmd.py   — CEO workflow commands (wait/select/approve/status)
+    ├── cleanup_cmd.py — task cleanup and pruning
     ├── config_cmd.py — config get/set/list/reset/validate
+    ├── doctor.py    — environment diagnostics and auto-fix
     ├── events_cmd.py — watch-event list/show/tail/clear
+    ├── logs_cmd.py  — task log viewing
     └── think_cmd.py — think session management
 ```
 
