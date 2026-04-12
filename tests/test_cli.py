@@ -30,61 +30,13 @@ from duo.cli import (
 )
 from duo.errors import DuoUserError
 from duo.protocol import (
-    Subtask,
     TaskStatus,
-    create_task,
     save_task,
 )
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli.doctor, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _make_task(task_id: str = "test-task", description: str = "Test task"):
-    """Create a task in the isolated TASKS_DIR and return it."""
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
-
-
-@pytest.fixture
-def make_task():
-    """Fixture wrapper around _make_task for use in test classes."""
-    return _make_task
-
 
 # ---------------------------------------------------------------------------
 # main group
@@ -107,14 +59,14 @@ class TestMainGroup:
         result = runner.invoke(main, ["ls"])
         assert result.exit_code == 0
 
-    def test_alias_st(self, runner: CliRunner, _isolate_tasks_dir: Path):
-        task = _make_task("alias-test")
+    def test_alias_st(self, runner: CliRunner, _isolate_tasks_dir: Path, make_task):
+        task = make_task("alias-test")
         result = runner.invoke(main, ["st", task.id])
         assert result.exit_code == 0
         assert task.id in result.output
 
-    def test_alias_log(self, runner: CliRunner, _isolate_tasks_dir: Path):
-        task = _make_task("log-alias")
+    def test_alias_log(self, runner: CliRunner, _isolate_tasks_dir: Path, make_task):
+        task = make_task("log-alias")
         result = runner.invoke(main, ["log", task.id])
         assert result.exit_code == 0
 
@@ -236,9 +188,9 @@ class TestErrorMessages:
         result = runner.invoke(main, ["inspect", "nope"])
         assert "duo list" in result.output
 
-    def test_inspect_quiet(self, runner: CliRunner):
+    def test_inspect_quiet(self, runner: CliRunner, make_task):
         """inspect -q prints only the status value."""
-        _make_task("q-insp")
+        make_task("q-insp")
         result = runner.invoke(main, ["inspect", "q-insp", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == "created"
@@ -250,8 +202,8 @@ class TestErrorMessages:
 
 
 class TestEdgeCases:
-    def test_start_duplicate_task(self, runner: CliRunner):
-        _make_task("dupe-task")
+    def test_start_duplicate_task(self, runner: CliRunner, make_task):
+        make_task("dupe-task")
         result = runner.invoke(main, ["start", "dupe-task", "--repo", "/tmp"])
         assert result.exit_code != 0
         assert "already exists" in result.output
@@ -263,8 +215,8 @@ class TestEdgeCases:
         assert result.exit_code != 0
         assert "No tasks" in result.output
 
-    def test_send_queued_task_warning(self, runner: CliRunner):
-        task = _make_task("q-task")
+    def test_send_queued_task_warning(self, runner: CliRunner, make_task):
+        task = make_task("q-task")
         task.status = TaskStatus.QUEUED
         save_task(task)
         result = runner.invoke(main, ["send", "q-task", "hello"])
@@ -274,8 +226,8 @@ class TestEdgeCases:
         assert prompt_path.exists()
         assert prompt_path.read_text() == "hello"
 
-    def test_merge_missing_worktree(self, runner: CliRunner):
-        task = _make_task("merge-task")
+    def test_merge_missing_worktree(self, runner: CliRunner, make_task):
+        task = make_task("merge-task")
         task.status = TaskStatus.COMPLETED
         save_task(task)
         result = runner.invoke(main, ["merge", "merge-task"])
@@ -289,23 +241,23 @@ class TestEdgeCases:
 
 
 class TestTaskNameCompletion:
-    def test_task_name_completion(self):
+    def test_task_name_completion(self, make_task):
         """_complete_task_names returns matching task names."""
         from duo.cli import _complete_task_names
 
-        _make_task("alpha-task")
-        _make_task("beta-task")
+        make_task("alpha-task")
+        make_task("beta-task")
         items = _complete_task_names(None, None, "alpha")  # type: ignore[arg-type]
         names = [i.value for i in items]
         assert "alpha-task" in names
         assert "beta-task" not in names
 
-    def test_task_name_completion_empty(self):
+    def test_task_name_completion_empty(self, make_task):
         """Empty prefix returns all task names."""
         from duo.cli import _complete_task_names
 
-        _make_task("first")
-        _make_task("second")
+        make_task("first")
+        make_task("second")
         items = _complete_task_names(None, None, "")  # type: ignore[arg-type]
         names = [i.value for i in items]
         assert "first" in names
@@ -603,9 +555,9 @@ class TestDryRun:
         tasks_dir = duo.protocol.TASKS_DIR
         assert len(list(tasks_dir.iterdir())) == 0
 
-    def test_merge_dry_run(self, runner: CliRunner):
+    def test_merge_dry_run(self, runner: CliRunner, make_task):
         """merge --dry-run previews without merging."""
-        task = _make_task("dry-merge")
+        task = make_task("dry-merge")
         task.status = TaskStatus.COMPLETED
         save_task(task)
 
@@ -614,9 +566,9 @@ class TestDryRun:
         assert "Would merge" in result.output
         assert "dry-merge" in result.output or task.branch in result.output
 
-    def test_merge_dry_run_json(self, runner: CliRunner):
+    def test_merge_dry_run_json(self, runner: CliRunner, make_task):
         """merge --dry-run --json-output returns structured preview."""
-        task = _make_task("dry-merge-json")
+        task = make_task("dry-merge-json")
         task.status = TaskStatus.COMPLETED
         save_task(task)
 
@@ -631,9 +583,11 @@ class TestDryRun:
         assert "commits" in data
         assert "files_changed" in data
 
-    def test_merge_dry_run_with_worktree(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_dry_run_with_worktree(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge --dry-run shows commit count and files when worktree exists."""
-        task = _make_task("dry-wt")
+        task = make_task("dry-wt")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "wt"
         wt_dir.mkdir()
@@ -653,9 +607,11 @@ class TestDryRun:
             assert "Files changed: 2" in result.output
             assert "file1.py" in result.output
 
-    def test_merge_dry_run_many_files(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_dry_run_many_files(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge --dry-run truncates file list at 10."""
-        task = _make_task("dry-many")
+        task = make_task("dry-many")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "wt2"
         wt_dir.mkdir()
@@ -672,9 +628,11 @@ class TestDryRun:
             assert result.exit_code == 0
             assert "... and 5 more" in result.output
 
-    def test_merge_dry_run_json_with_commits(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_dry_run_json_with_commits(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge --dry-run --json-output includes commit count."""
-        task = _make_task("dry-jc")
+        task = make_task("dry-jc")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "wt3"
         wt_dir.mkdir()
@@ -694,9 +652,11 @@ class TestDryRun:
             assert data["commits"] == 1
             assert data["files_changed"] == ["app.py"]
 
-    def test_merge_dry_run_git_fails(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_dry_run_git_fails(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge --dry-run handles git errors gracefully."""
-        task = _make_task("dry-fail")
+        task = make_task("dry-fail")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "wt4"
         wt_dir.mkdir()
@@ -712,9 +672,9 @@ class TestDryRun:
             assert result.exit_code == 0
             assert "Would merge" in result.output
 
-    def test_merge_dry_run_quiet(self, runner: CliRunner):
+    def test_merge_dry_run_quiet(self, runner: CliRunner, make_task):
         """merge --dry-run -q prints only the changed file count."""
-        task = _make_task("dry-q")
+        task = make_task("dry-q")
         task.status = TaskStatus.COMPLETED
         save_task(task)
 
@@ -722,9 +682,9 @@ class TestDryRun:
         assert result.exit_code == 0
         assert result.output.strip() == "0"
 
-    def test_merge_quiet(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_quiet(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge -q prints only the branch name."""
-        task = _make_task("merge-q")
+        task = make_task("merge-q")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "mq_wt"
         wt_dir.mkdir()
@@ -741,9 +701,9 @@ class TestDryRun:
         assert result.exit_code == 0
         assert result.output.strip() == task.branch
 
-    def test_merge_json_output(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_json_output(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge --json-output returns structured result."""
-        task = _make_task("merge-json")
+        task = make_task("merge-json")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_wt"
         wt_dir.mkdir()
@@ -771,9 +731,9 @@ class TestDryRun:
 
 
 class TestJsonOutput:
-    def test_list_json(self, runner: CliRunner):
+    def test_list_json(self, runner: CliRunner, make_task):
         """list --json-output returns JSON array."""
-        _make_task("json-task", "A JSON task")
+        make_task("json-task", "A JSON task")
         result = runner.invoke(main, ["list", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -798,10 +758,10 @@ class TestJsonOutput:
         assert result.exit_code == 0
         assert "No tasks." in result.output
 
-    def test_list_json_multiple(self, runner: CliRunner):
+    def test_list_json_multiple(self, runner: CliRunner, make_task):
         """list --json-output with multiple tasks returns sorted array."""
-        _make_task("beta-task", "Beta")
-        _make_task("alpha-task", "Alpha")
+        make_task("beta-task", "Beta")
+        make_task("alpha-task", "Alpha")
         result = runner.invoke(main, ["list", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -809,9 +769,9 @@ class TestJsonOutput:
         assert data[0]["id"] == "alpha-task"
         assert data[1]["id"] == "beta-task"
 
-    def test_status_json(self, runner: CliRunner):
+    def test_status_json(self, runner: CliRunner, make_task):
         """status --json-output returns JSON object."""
-        _make_task("json-status", "Status JSON task")
+        make_task("json-status", "Status JSON task")
         result = runner.invoke(main, ["status", "json-status", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -835,49 +795,49 @@ class TestJsonOutput:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_status_json_no_name(self, runner: CliRunner):
+    def test_status_json_no_name(self, runner: CliRunner, make_task):
         """status --json-output without name falls back to normal output."""
-        _make_task("fallback-task", "Fallback")
+        make_task("fallback-task", "Fallback")
         result = runner.invoke(main, ["status", "--json-output"])
         assert result.exit_code == 0
         assert "fallback-task" in result.output
 
-    def test_list_without_json_flag(self, runner: CliRunner):
+    def test_list_without_json_flag(self, runner: CliRunner, make_task):
         """list without --json-output returns table format."""
-        _make_task("table-task", "Table task")
+        make_task("table-task", "Table task")
         result = runner.invoke(main, ["list"])
         assert result.exit_code == 0
         assert "ID" in result.output
         assert "STATUS" in result.output
         assert "table-task" in result.output
 
-    def test_list_wide_shows_description(self, runner: CliRunner):
+    def test_list_wide_shows_description(self, runner: CliRunner, make_task):
         """list --wide includes DESCRIPTION column."""
-        _make_task("wide-task", "Fix the login bug")
+        make_task("wide-task", "Fix the login bug")
         result = runner.invoke(main, ["list", "--wide"])
         assert result.exit_code == 0
         assert "DESCRIPTION" in result.output
         assert "Fix the login bug" in result.output
 
-    def test_list_wide_truncates_long_desc(self, runner: CliRunner):
+    def test_list_wide_truncates_long_desc(self, runner: CliRunner, make_task):
         """list --wide truncates descriptions longer than 30 chars."""
-        _make_task("long-desc", "A" * 50)
+        make_task("long-desc", "A" * 50)
         result = runner.invoke(main, ["list", "--wide"])
         assert result.exit_code == 0
         assert "..." in result.output
 
-    def test_status_without_json_flag(self, runner: CliRunner):
+    def test_status_without_json_flag(self, runner: CliRunner, make_task):
         """status without --json-output returns normal format."""
-        _make_task("normal-task", "Normal task")
+        make_task("normal-task", "Normal task")
         result = runner.invoke(main, ["status", "normal-task"])
         assert result.exit_code == 0
         assert "normal-task" in result.output
         assert "Status:" in result.output
         assert "Age:" in result.output
 
-    def test_status_no_created_at(self, runner: CliRunner):
+    def test_status_no_created_at(self, runner: CliRunner, make_task):
         """status handles task without created_at."""
-        t = _make_task("no-date-task")
+        t = make_task("no-date-task")
         t.created_at = ""
         save_task(t)
         result = runner.invoke(main, ["status", "no-date-task"])
@@ -1043,9 +1003,9 @@ class TestNotFoundParametrized:
             assert result.exit_code != 0, f"{args} should fail"
             assert "not found" in result.output.lower(), f"{args} missing 'not found'"
 
-    def test_not_found_suggests_similar(self, runner: CliRunner):
+    def test_not_found_suggests_similar(self, runner: CliRunner, make_task):
         """When task not found, suggest similar task names."""
-        _make_task("my-feature")
+        make_task("my-feature")
         result = runner.invoke(main, ["status", "feature"])
         assert result.exit_code != 0
         assert "Did you mean" in result.output
@@ -1057,9 +1017,9 @@ class TestNotFoundParametrized:
         assert result.exit_code != 0
         assert "duo list" in result.output
 
-    def test_not_found_no_similar_tasks(self, runner: CliRunner):
+    def test_not_found_no_similar_tasks(self, runner: CliRunner, make_task):
         """When tasks exist but none match, show generic message."""
-        _make_task("alpha")
+        make_task("alpha")
         result = runner.invoke(main, ["status", "zzz-unrelated"])
         assert result.exit_code != 0
         assert "duo list" in result.output
@@ -1075,9 +1035,9 @@ class TestCliBranchGapsBatch1:
     """Close easy cli.py branch gaps: merge JSON, stop JSON, inspect display."""
 
     # -- merge --json-output with fetch failure (807→810) --
-    def test_merge_json_fetch_fails(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_json_fetch_fails(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge --json-output suppresses fetch warning (branch 807→810)."""
-        task = _make_task("merge-jf")
+        task = make_task("merge-jf")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "wt_merge_jf"
         wt_dir.mkdir()
@@ -1111,9 +1071,11 @@ class TestCliBranchGapsBatch1:
         assert "Warning" not in result.output
 
     # -- merge --json-output with rebase abort failure (814→819) --
-    def test_merge_json_rebase_abort_fails(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_json_rebase_abort_fails(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge --json-output suppresses abort warning (branch 814→819)."""
-        task = _make_task("merge-ja")
+        task = make_task("merge-ja")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "wt_merge_ja"
         wt_dir.mkdir()
@@ -1142,9 +1104,9 @@ class TestCliBranchGapsBatch1:
         assert "could not abort rebase" not in result.output
 
     # -- stop --json-output kill_pane fails (923→926) --
-    def test_stop_json_kill_pane_fails(self, runner: CliRunner):
+    def test_stop_json_kill_pane_fails(self, runner: CliRunner, make_task):
         """stop --json-output suppresses pane kill warning (branch 923→926)."""
-        task = _make_task("stop-jpf")
+        task = make_task("stop-jpf")
         task.status = TaskStatus.RUNNING
         task.pane_label = "test-jpf"
         save_task(task)
@@ -1161,11 +1123,11 @@ class TestCliBranchGapsBatch1:
         assert "failed to kill pane" not in result.output
 
     # -- inspect result with empty files_changed (1612→1615) --
-    def test_inspect_result_empty_files_changed(self, runner: CliRunner):
+    def test_inspect_result_empty_files_changed(self, runner: CliRunner, make_task):
         """inspect shows result without files_changed line when empty (1612→1615)."""
         from duo.protocol import write_json
 
-        task = _make_task("res-nofiles")
+        task = make_task("res-nofiles")
         task.step_dir(1).mkdir(parents=True, exist_ok=True)
         write_json(
             task.result_path(1, 1),
@@ -1187,9 +1149,9 @@ class TestCliBranchGapsBatch1:
         assert "Files changed:" not in result.output
 
     # -- inspect with empty journal (1739→1746) --
-    def test_inspect_no_events(self, runner: CliRunner):
+    def test_inspect_no_events(self, runner: CliRunner, make_task):
         """inspect with empty journal skips Recent Events section (1739→1746)."""
-        task = _make_task("no-events")
+        task = make_task("no-events")
         # Ensure journal file does not exist
         if task.journal_path.exists():
             task.journal_path.unlink()
@@ -1199,9 +1161,9 @@ class TestCliBranchGapsBatch1:
         assert "Recent Events" not in result.output
 
     # -- inspect --include-files: empty changed/untracked/diff (1750,1754,1758) --
-    def test_inspect_include_files_all_empty(self, runner: CliRunner):
+    def test_inspect_include_files_all_empty(self, runner: CliRunner, make_task):
         """inspect --include-files with no changes (1750→1754, 1758→exit)."""
-        _make_task("incl-empty")
+        make_task("incl-empty")
         empty = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
         def fake_run_git(args, cwd, *, check=True):
@@ -1222,9 +1184,11 @@ class TestCliBranchGapsBatch2:
     """Close more cli.py branch gaps: kill worktree, audit, recover JSON."""
 
     # -- kill: worktree list returns only base-path lines (978→986, 979→978) --
-    def test_kill_no_main_worktree_found(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_no_main_worktree_found(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """kill when all worktree lines contain base_path (978→986, 979→978)."""
-        task = _make_task("kill-nomw")
+        task = make_task("kill-nomw")
         task.worktree = str(tmp_path / "gone")  # doesn't exist → also covers 990→1001
         save_task(task)
 
@@ -1250,9 +1214,9 @@ class TestCliBranchGapsBatch2:
         assert "Killed" in result.output
 
     # -- kill: worktree doesn't exist, skip removal (990→1001) --
-    def test_kill_worktree_gone(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_worktree_gone(self, runner: CliRunner, tmp_path: Path, make_task):
         """kill skips worktree removal when path doesn't exist (990→1001)."""
-        task = _make_task("kill-wgone")
+        task = make_task("kill-wgone")
         task.worktree = str(tmp_path / "vanished")
         save_task(task)
 
@@ -1272,11 +1236,11 @@ class TestCliBranchGapsBatch2:
         assert "Killed" in result.output
 
     # -- audit: task with no pr_consumed events (1306→exit) --
-    def test_audit_no_pr_events(self, runner: CliRunner):
+    def test_audit_no_pr_events(self, runner: CliRunner, make_task):
         """audit shows task with 0 PR consumed, no table (1306→exit)."""
         from duo.protocol import append_event
 
-        task = _make_task("audit-nopr")
+        task = make_task("audit-nopr")
         # Write a non-pr event
         append_event(task, "task_started", {})
 
@@ -1286,9 +1250,9 @@ class TestCliBranchGapsBatch2:
         assert "TIME" not in result.output  # no table header
 
     # -- resume --json-output: is_process_alive throws (2575→2581) --
-    def test_resume_json_pane_check_error(self, runner: CliRunner):
+    def test_resume_json_pane_check_error(self, runner: CliRunner, make_task):
         """resume --json-output suppresses pane check warning (2575→2581)."""
-        task = _make_task("res-jpce")
+        task = make_task("res-jpce")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -1306,9 +1270,9 @@ class TestCliBranchGapsBatch2:
         assert "could not check pane" not in result.output
 
     # -- resume --json-output: pane alive + restart success (2594→2596) --
-    def test_resume_json_restart_success(self, runner: CliRunner):
+    def test_resume_json_restart_success(self, runner: CliRunner, make_task):
         """resume --json-output suppresses restart echo (2594→2596)."""
-        task = _make_task("res-jrs")
+        task = make_task("res-jrs")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -1328,9 +1292,9 @@ class TestCliBranchGapsBatch2:
         assert "Resumed task" not in result.output
 
     # -- resume --json-output: replay prompt fails (2633→2570 loop) --
-    def test_resume_json_replay_prompt_fails(self, runner: CliRunner):
+    def test_resume_json_replay_prompt_fails(self, runner: CliRunner, make_task):
         """resume --json-output suppresses prompt replay warning (2633→2570)."""
-        task = _make_task("res-jrpf")
+        task = make_task("res-jrpf")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -1378,9 +1342,11 @@ class TestCliBranchGapsBatch3:
         assert isinstance(fixed, list)
 
     # -- cleanup: orphan worktree removal succeeds (2463→2452) --
-    def test_cleanup_orphan_worktree_removed(self, runner: CliRunner, tmp_path: Path):
+    def test_cleanup_orphan_worktree_removed(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """cleanup successfully removes orphan worktree (2463→2452)."""
-        task = _make_task("cleanup-orphan")
+        task = make_task("cleanup-orphan")
         task.status = TaskStatus.FAILED
         save_task(task)
 
@@ -1606,9 +1572,9 @@ class TestMainModule:
 class TestCliEdgeCases:
     """Edge case value coverage for CLI commands."""
 
-    def test_load_task_or_fail_suggests_similar(self, runner: CliRunner):
+    def test_load_task_or_fail_suggests_similar(self, runner: CliRunner, make_task):
         """When task not found, similar task names are suggested."""
-        _make_task("my-auth-task")
+        make_task("my-auth-task")
         result = runner.invoke(main, ["status", "auth"])
         assert result.exit_code != 0
         assert "my-auth-task" in result.output
@@ -1649,9 +1615,11 @@ class TestCliEdgeCases:
         assert result.exit_code != 0
         assert "must be > 0" in result.output
 
-    def test_diff_no_changes_message(self, runner: CliRunner, tmp_path: Path):
+    def test_diff_no_changes_message(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """diff with no changes shows appropriate message."""
-        task = _make_task("diff-empty")
+        task = make_task("diff-empty")
         task.worktree = str(tmp_path)
         save_task(task)
         with patch(

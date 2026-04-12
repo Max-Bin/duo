@@ -13,26 +13,11 @@ from duo.protocol import load_task
 
 
 @pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-@pytest.fixture
 def fake_thinking(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect THINKING_DIR to a temp dir."""
     fake = tmp_path / "thinking"
     monkeypatch.setattr("duo.thinking.THINKING_DIR", fake)
     return fake
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Isolate TASKS_DIR so tasks don't persist across tests."""
-    tasks = tmp_path / "tasks"
-    tasks.mkdir()
-    monkeypatch.setattr("duo.cli.TASKS_DIR", tasks)
-    monkeypatch.setattr("duo.protocol.TASKS_DIR", tasks)
-    return tasks
 
 
 # ---------------------------------------------------------------------------

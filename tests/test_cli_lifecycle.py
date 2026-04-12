@@ -27,43 +27,6 @@ from duo.protocol import (
 )
 
 
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _make_task(task_id: str = "test-task", description: str = "Test task"):
-    """Create a task in the isolated TASKS_DIR and return it."""
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
-
-
 class TestStart:
     def test_not_a_git_repo(self, runner: CliRunner, tmp_path: Path):
         not_a_repo = tmp_path / "not-a-repo"
@@ -160,7 +123,9 @@ class TestStart:
             lock_fd.close()
             lock_path.unlink(missing_ok=True)
 
-    def test_start_race_recheck_after_lock(self, runner: CliRunner, tmp_path: Path):
+    def test_start_race_recheck_after_lock(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """Re-check after lock detects task created by another process."""
         import subprocess
         from unittest.mock import patch
@@ -181,7 +146,7 @@ class TestStart:
             call_count += 1
             if call_count <= 1:
                 return None  # first check passes
-            return _make_task(name)  # re-check finds task
+            return make_task(name)  # re-check finds task
 
         with patch("duo.cli.lifecycle_cmd.load_task", side_effect=load_side_effect):
             result = runner.invoke(
@@ -1398,10 +1363,12 @@ class TestMultiProjectIsolation:
         assert load_task("repoA-fix") is not None
         assert load_task("repoB-fix") is not None
 
-    def test_kill_does_not_affect_other_tasks(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_does_not_affect_other_tasks(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """Killing one task leaves other similarly-named tasks intact."""
-        _make_task("alpha-fix")
-        task_beta = _make_task("beta-fix")
+        make_task("alpha-fix")
+        task_beta = make_task("beta-fix")
         wt_dir = tmp_path / "alpha_wt"
         wt_dir.mkdir()
         alpha = load_task("alpha-fix")

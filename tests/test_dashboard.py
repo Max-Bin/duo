@@ -5,37 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-import pytest
-
-import duo.protocol
-from duo.protocol import Subtask, TaskStatus, append_event, create_task, write_json
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path, monkeypatch):
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-def _make_task(task_id="test-task", description="Test task"):
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
+from duo.protocol import TaskStatus, append_event, write_json
 
 
 class TestBuildTasksTable:
@@ -45,22 +15,22 @@ class TestBuildTasksTable:
         table = _build_tasks_table([])
         assert table.row_count == 0
 
-    def test_with_tasks(self):
+    def test_with_tasks(self, make_task):
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task()
+        task = make_task()
         table = _build_tasks_table([task])
         assert table.row_count == 1
 
-    def test_multiple_tasks(self):
+    def test_multiple_tasks(self, make_task):
         from duo.dashboard import _build_tasks_table
 
-        t1 = _make_task("task-1", "First task")
-        t2 = _make_task("task-2", "Second task")
+        t1 = make_task("task-1", "First task")
+        t2 = make_task("task-2", "Second task")
         table = _build_tasks_table([t1, t2])
         assert table.row_count == 2
 
-    def test_long_description_truncated(self):
+    def test_long_description_truncated(self, make_task):
         """Descriptions longer than 40 chars get ellipsis truncation."""
         from io import StringIO
 
@@ -69,7 +39,7 @@ class TestBuildTasksTable:
         from duo.dashboard import _build_tasks_table
 
         long_desc = "A" * 60
-        task = _make_task("trunc-task", long_desc)
+        task = make_task("trunc-task", long_desc)
         table = _build_tasks_table([task])
         # Render the table to a string and check for ellipsis
         buf = StringIO()
@@ -96,29 +66,29 @@ class TestBuildEventsPanel:
         panel = _build_events_panel([])
         assert panel is not None
 
-    def test_with_events(self):
+    def test_with_events(self, make_task):
         from duo.dashboard import _build_events_panel
 
-        task = _make_task()
+        task = make_task()
         panel = _build_events_panel([task])
         assert panel is not None
 
-    def test_build_events_panel_empty_events(self):
+    def test_build_events_panel_empty_events(self, make_task):
         """Task with empty journal produces 'No events' content."""
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("empty-journal")
+        task = make_task("empty-journal")
         task.journal_path.write_text("")  # overwrite journal to be empty
         panel = _build_events_panel([task])
         assert panel.renderable == "[dim]No events[/]"
 
-    def test_build_events_panel_max_events(self):
+    def test_build_events_panel_max_events(self, make_task):
         """Only max_events events appear when exceeding limit."""
         import time as _t
 
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("max-ev-task")
+        task = make_task("max-ev-task")
         for i in range(15):
             append_event(task, f"evt_{i:02d}")
             _t.sleep(0.01)
@@ -127,13 +97,13 @@ class TestBuildEventsPanel:
         lines = [l for l in content.split("\n") if l.strip()]
         assert len(lines) == 3
 
-    def test_build_events_panel_event_ordering(self):
+    def test_build_events_panel_event_ordering(self, make_task):
         """Events are in reverse chronological order."""
         import time as _t
 
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("order-task")
+        task = make_task("order-task")
         for name in ["alpha", "beta", "gamma"]:
             append_event(task, name)
             _t.sleep(0.02)
@@ -152,12 +122,12 @@ class TestStatusText:
 
 
 class TestTaskRowStatuses:
-    def test_task_row_per_status(self):
+    def test_task_row_per_status(self, make_task):
         """Build table row for each TaskStatus without error."""
         from duo.dashboard import _build_tasks_table
 
         for status in list(TaskStatus):
-            task = _make_task(f"st-{status.value}", f"Task {status.value}")
+            task = make_task(f"st-{status.value}", f"Task {status.value}")
             task.status = status
             table = _build_tasks_table([task])
             assert table.row_count == 1, f"status={status}"
@@ -179,44 +149,44 @@ def _write_heartbeat(task, seconds_ago):
 
 
 class TestTasksTableHeartbeat:
-    def test_tasks_table_heartbeat_fresh(self):
+    def test_tasks_table_heartbeat_fresh(self, make_task):
         """Heartbeat age < 30s shows green styling."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("hb-fresh")
+        task = make_task("hb-fresh")
         _write_heartbeat(task, seconds_ago=10)
         table = _build_tasks_table([task])
         hb_cell = table.columns[4]._cells[0]
         assert hb_cell.style == "green"
         assert "ago" in str(hb_cell)
 
-    def test_tasks_table_heartbeat_stale(self):
+    def test_tasks_table_heartbeat_stale(self, make_task):
         """Heartbeat age 30-90s shows yellow styling."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("hb-stale")
+        task = make_task("hb-stale")
         _write_heartbeat(task, seconds_ago=60)
         table = _build_tasks_table([task])
         hb_cell = table.columns[4]._cells[0]
         assert hb_cell.style == "yellow"
         assert "ago" in str(hb_cell)
 
-    def test_tasks_table_heartbeat_old(self):
+    def test_tasks_table_heartbeat_old(self, make_task):
         """Heartbeat age > 90s shows red styling."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("hb-old")
+        task = make_task("hb-old")
         _write_heartbeat(task, seconds_ago=120)
         table = _build_tasks_table([task])
         hb_cell = table.columns[4]._cells[0]
         assert hb_cell.style == "red"
         assert "ago" in str(hb_cell)
 
-    def test_tasks_table_heartbeat_missing(self):
+    def test_tasks_table_heartbeat_missing(self, make_task):
         """Task without heartbeat shows '—'."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("hb-missing")
+        task = make_task("hb-missing")
         table = _build_tasks_table([task])
         hb_cell = table.columns[4]._cells[0]
         assert str(hb_cell) == "—"
@@ -224,7 +194,7 @@ class TestTasksTableHeartbeat:
 
 
 class TestEventsPanelColoring:
-    def test_event_coloring(self):
+    def test_event_coloring(self, make_task):
         from duo.dashboard import _build_events_panel
 
         cases = [
@@ -238,7 +208,7 @@ class TestEventsPanelColoring:
             ("heartbeat", "white"),
         ]
         for event_name, expected_color in cases:
-            task = _make_task(f"color-{event_name}")
+            task = make_task(f"color-{event_name}")
             append_event(task, event_name)
             panel = _build_events_panel([task])
             content = panel.renderable
@@ -246,13 +216,13 @@ class TestEventsPanelColoring:
                 f"event={event_name}, expected_color={expected_color}"
             )
 
-    def test_events_panel_missing_journal(self):
+    def test_events_panel_missing_journal(self, make_task):
         """Panel gracefully handles tasks with missing journal files."""
         from unittest.mock import patch
 
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("ghost-task")
+        task = make_task("ghost-task")
         with patch("duo.dashboard.read_jsonl", side_effect=OSError("disk error")):
             panel = _build_events_panel([task])
         content = panel.renderable
@@ -297,14 +267,16 @@ class TestRunDashboard:
     @patch("duo.dashboard.time.sleep", side_effect=KeyboardInterrupt)
     @patch("duo.dashboard.Console")
     @patch("duo.dashboard.Live")
-    def test_run_dashboard_filters_tasks(self, mock_live, mock_console, mock_sleep):
+    def test_run_dashboard_filters_tasks(
+        self, mock_live, mock_console, mock_sleep, make_task
+    ):
         """run_dashboard filters tasks by task_ids."""
         from duo.dashboard import run_dashboard
 
         mock_live.return_value.__enter__ = lambda s: s
         mock_live.return_value.__exit__ = lambda s, *a: False
-        _make_task("keep-me")
-        _make_task("skip-me")
+        make_task("keep-me")
+        make_task("skip-me")
         # Should not raise; only "keep-me" would be displayed
         run_dashboard(task_ids=["keep-me"])
 
@@ -352,10 +324,10 @@ class TestStatusColorsExhaustiveness:
 class TestEventsPanelNonDictJSONL:
     """Non-dict JSONL entries are skipped, not crashed on."""
 
-    def test_non_dict_entries_skipped(self):
+    def test_non_dict_entries_skipped(self, make_task):
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("nondict-journal")
+        task = make_task("nondict-journal")
         # Write a mix of valid dict and non-dict JSONL
         import json
 
@@ -395,12 +367,12 @@ class TestMarkupEscaping:
             # Should not raise; markup should be escaped
             assert panel is not None
 
-    def test_events_panel_escapes_content(self):
+    def test_events_panel_escapes_content(self, make_task):
         import json
 
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("markup-test")
+        task = make_task("markup-test")
         with task.journal_path.open("a") as f:
             f.write(
                 json.dumps({"event": "[red]injected[/]", "ts": "2024-01-01T00:00:00"})
@@ -415,10 +387,10 @@ class TestMarkupEscaping:
 class TestHeartbeatReadResilience:
     """Dashboard survives unreadable heartbeat files."""
 
-    def test_heartbeat_oserror_shows_dash(self):
+    def test_heartbeat_oserror_shows_dash(self, make_task):
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("hb-error")
+        task = make_task("hb-error")
         with patch("duo.dashboard.read_heartbeat", side_effect=OSError("perm denied")):
             table = _build_tasks_table([task])
             assert table is not None
@@ -460,31 +432,31 @@ class TestDashboardEdgeCases:
             text = _status_text(status)
             assert text.plain == status.value
 
-    def test_build_tasks_table_description_exactly_40(self):
+    def test_build_tasks_table_description_exactly_40(self, make_task):
         """Description at exactly 40 chars is not truncated."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("exact-40")
+        task = make_task("exact-40")
         task.description = "A" * 40
         with patch("duo.dashboard.read_heartbeat", return_value=None):
             table = _build_tasks_table([task])
         assert table is not None
 
-    def test_build_tasks_table_description_41_truncated(self):
+    def test_build_tasks_table_description_41_truncated(self, make_task):
         """Description at 41 chars IS truncated with '...'."""
         from duo.dashboard import _build_tasks_table
 
-        task = _make_task("over-40")
+        task = make_task("over-40")
         task.description = "B" * 41
         with patch("duo.dashboard.read_heartbeat", return_value=None):
             table = _build_tasks_table([task])
         assert table is not None
 
-    def test_build_events_panel_timestamps_without_T(self):
+    def test_build_events_panel_timestamps_without_T(self, make_task):
         """Events with timestamps lacking 'T' separator use first 8 chars."""
         from duo.dashboard import _build_events_panel
 
-        task = _make_task("no-T-ts")
+        task = make_task("no-T-ts")
         # Write a journal entry with unusual timestamp
         from duo.protocol import append_event
 
@@ -492,12 +464,12 @@ class TestDashboardEdgeCases:
         panel = _build_events_panel([task])
         assert panel is not None
 
-    def test_build_events_panel_error_and_completed_colors(self):
+    def test_build_events_panel_error_and_completed_colors(self, make_task):
         """Events containing 'error' and 'completed' get colored."""
         from duo.dashboard import _build_events_panel
         from duo.protocol import append_event
 
-        task = _make_task("color-test")
+        task = make_task("color-test")
         append_event(task, "step_error", {"reason": "fail"})
         append_event(task, "task_completed", {"id": task.id})
         panel = _build_events_panel([task])

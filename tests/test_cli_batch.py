@@ -10,30 +10,10 @@ import click
 import pytest
 from click.testing import CliRunner
 
-import duo.cli
-import duo.protocol
 from duo.cli import (
     _load_batch_file,
     main,
 )
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
 
 
 class TestBatchEdgeCases:
@@ -62,10 +42,8 @@ class TestBatchEdgeCases:
 # export edge cases
 # ---------------------------------------------------------------------------
 
-
 # TestExportEdgeCases — deleted: duplicate of TestExport.test_task_not_found
 # TestAuditEdgeCases — deleted: duplicate of TestAudit.test_audit_no_tasks
-
 
 # ---------------------------------------------------------------------------
 # cleanup edge cases
@@ -640,7 +618,6 @@ class TestBatchInvalidName:
 # ---------------------------------------------------------------------------
 # Error handling tests
 # ---------------------------------------------------------------------------
-
 
 # TestBatchCorruptedJson — deleted: duplicate of TestBatchEdgeCases.test_batch_invalid_json_file
 

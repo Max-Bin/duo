@@ -321,9 +321,11 @@ class TestCeoLogEdgeCases:
         """list_sessions only returns directories, not files."""
         import duo.ceo_log
 
-        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path)
-        (tmp_path / "real-session").mkdir()
-        (tmp_path / "not-a-session.txt").write_text("file")
+        ceo_dir = tmp_path / "ceo"
+        ceo_dir.mkdir()
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", ceo_dir)
+        (ceo_dir / "real-session").mkdir()
+        (ceo_dir / "not-a-session.txt").write_text("file")
         sessions = list_sessions()
         assert sessions == ["real-session"]
 

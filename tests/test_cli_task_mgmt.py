@@ -6,59 +6,17 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
-import duo.cli
-import duo.protocol
 from duo.cli import (
     main,
 )
 from duo.protocol import (
-    Subtask,
     TaskStatus,
-    create_task,
     load_task,
     read_jsonl,
     save_task,
 )
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _make_task(task_id: str = "test-task", description: str = "Test task"):
-    """Create a task in the isolated TASKS_DIR and return it."""
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
 
 
 class TestStop:
@@ -67,9 +25,9 @@ class TestStop:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_stop_running_task(self, runner: CliRunner):
+    def test_stop_running_task(self, runner: CliRunner, make_task):
         """stop transitions task to BLOCKED and preserves worktree."""
-        task = _make_task("stop-running")
+        task = make_task("stop-running")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -83,9 +41,9 @@ class TestStop:
         assert reloaded is not None
         assert reloaded.status == TaskStatus.BLOCKED
 
-    def test_stop_already_completed(self, runner: CliRunner):
+    def test_stop_already_completed(self, runner: CliRunner, make_task):
         """stop on completed task shows message."""
-        task = _make_task("stop-done")
+        task = make_task("stop-done")
         task.status = TaskStatus.COMPLETED
         save_task(task)
 
@@ -93,9 +51,9 @@ class TestStop:
         assert result.exit_code == 0
         assert "terminal state" in result.output
 
-    def test_stop_already_blocked(self, runner: CliRunner):
+    def test_stop_already_blocked(self, runner: CliRunner, make_task):
         """stop on already blocked task shows message."""
-        task = _make_task("stop-blocked")
+        task = make_task("stop-blocked")
         task.status = TaskStatus.BLOCKED
         save_task(task)
 
@@ -103,9 +61,9 @@ class TestStop:
         assert result.exit_code == 0
         assert "already stopped" in result.output
 
-    def test_stop_pane_kill_failure_warns(self, runner: CliRunner):
+    def test_stop_pane_kill_failure_warns(self, runner: CliRunner, make_task):
         """stop shows warning when kill_pane returns False."""
-        task = _make_task("stop-pane-fail")
+        task = make_task("stop-pane-fail")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -118,9 +76,9 @@ class TestStop:
             assert "Warning" in result.output
             assert "Stopped" in result.output
 
-    def test_stop_records_event(self, runner: CliRunner):
+    def test_stop_records_event(self, runner: CliRunner, make_task):
         """stop logs task_stopped event with previous status."""
-        task = _make_task("stop-event")
+        task = make_task("stop-event")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -132,9 +90,9 @@ class TestStop:
         assert len(stopped_events) == 1
         assert stopped_events[0]["data"]["previous_status"] == "running"
 
-    def test_stop_json_output(self, runner: CliRunner):
+    def test_stop_json_output(self, runner: CliRunner, make_task):
         """stop --json-output returns structured JSON."""
-        task = _make_task("stop-json")
+        task = make_task("stop-json")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -149,9 +107,9 @@ class TestStop:
             assert data["previous_status"] == "running"
             assert "worktree" in data
 
-    def test_stop_json_pane_kill_failure_silent(self, runner: CliRunner):
+    def test_stop_json_pane_kill_failure_silent(self, runner: CliRunner, make_task):
         """stop --json-output with kill_pane failure doesn't print warning text."""
-        task = _make_task("stop-json-fail")
+        task = make_task("stop-json-fail")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -166,9 +124,9 @@ class TestStop:
             # No text warning in JSON mode
             assert "Warning" not in result.output.split("\n")[0]
 
-    def test_stop_json_already_terminal(self, runner: CliRunner):
+    def test_stop_json_already_terminal(self, runner: CliRunner, make_task):
         """stop --json-output on terminal task returns reason."""
-        task = _make_task("stop-json-term")
+        task = make_task("stop-json-term")
         task.status = TaskStatus.COMPLETED
         save_task(task)
 
@@ -178,9 +136,9 @@ class TestStop:
         assert data["stopped"] is False
         assert data["reason"] == "already_terminal"
 
-    def test_stop_json_already_blocked(self, runner: CliRunner):
+    def test_stop_json_already_blocked(self, runner: CliRunner, make_task):
         """stop --json-output on blocked task returns reason."""
-        task = _make_task("stop-json-blk")
+        task = make_task("stop-json-blk")
         task.status = TaskStatus.BLOCKED
         save_task(task)
 
@@ -190,9 +148,9 @@ class TestStop:
         assert data["stopped"] is False
         assert data["reason"] == "already_stopped"
 
-    def test_stop_transition_failure_warns(self, runner: CliRunner):
+    def test_stop_transition_failure_warns(self, runner: CliRunner, make_task):
         """stop warns when BLOCKED transition fails (text mode)."""
-        task = _make_task("stop-trans-fail")
+        task = make_task("stop-trans-fail")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -204,9 +162,9 @@ class TestStop:
             assert "Warning" in result.output
             assert "could not transition" in result.output
 
-    def test_stop_transition_failure_json(self, runner: CliRunner):
+    def test_stop_transition_failure_json(self, runner: CliRunner, make_task):
         """stop --json-output reports stopped=False when transition fails."""
-        task = _make_task("stop-trans-fail-j")
+        task = make_task("stop-trans-fail-j")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -218,7 +176,7 @@ class TestStop:
             data = json.loads(result.output)
             assert data["stopped"] is False
 
-    def test_stop_from_all_non_terminal_states(self, runner: CliRunner):
+    def test_stop_from_all_non_terminal_states(self, runner: CliRunner, make_task):
         """stop successfully transitions to BLOCKED from every non-terminal state."""
         non_terminal = [
             TaskStatus.CREATED,
@@ -234,7 +192,7 @@ class TestStop:
         ]
         for state in non_terminal:
             tid = f"stop-{state.value}"
-            task = _make_task(tid)
+            task = make_task(tid)
             task.status = state
             save_task(task)
 
@@ -247,16 +205,16 @@ class TestStop:
             assert reloaded is not None
             assert reloaded.status == TaskStatus.BLOCKED
 
-    def test_stop_all_stops_active_tasks(self, runner: CliRunner):
+    def test_stop_all_stops_active_tasks(self, runner: CliRunner, make_task):
         """stop --all stops all non-terminal tasks."""
-        t1 = _make_task("stop-all-1")
+        t1 = make_task("stop-all-1")
         t1.status = TaskStatus.RUNNING
         save_task(t1)
-        t2 = _make_task("stop-all-2")
+        t2 = make_task("stop-all-2")
         t2.status = TaskStatus.ACKED
         save_task(t2)
         # completed task should be skipped
-        t3 = _make_task("stop-all-3")
+        t3 = make_task("stop-all-3")
         t3.status = TaskStatus.COMPLETED
         save_task(t3)
 
@@ -274,9 +232,9 @@ class TestStop:
         assert result.exit_code == 0
         assert "No active tasks" in result.output
 
-    def test_stop_all_json(self, runner: CliRunner):
+    def test_stop_all_json(self, runner: CliRunner, make_task):
         """stop --all --json-output returns structured JSON."""
-        t = _make_task("stop-all-j")
+        t = make_task("stop-all-j")
         t.status = TaskStatus.RUNNING
         save_task(t)
 
@@ -293,9 +251,9 @@ class TestStop:
         assert result.exit_code != 0
         assert "Provide a task NAME or use --all" in result.output
 
-    def test_stop_all_transition_failure(self, runner: CliRunner):
+    def test_stop_all_transition_failure(self, runner: CliRunner, make_task):
         """stop --all handles tasks where transition fails."""
-        t = _make_task("stop-all-tf")
+        t = make_task("stop-all-tf")
         t.status = TaskStatus.RUNNING
         save_task(t)
 
@@ -307,9 +265,9 @@ class TestStop:
             assert result.exit_code == 0
             assert "stop-all-tf" in result.output
 
-    def test_stop_quiet_success(self, runner: CliRunner):
+    def test_stop_quiet_success(self, runner: CliRunner, make_task):
         """stop -q prints 'stopped' on success."""
-        t = _make_task("stop-q-ok")
+        t = make_task("stop-q-ok")
         t.status = TaskStatus.RUNNING
         save_task(t)
         with patch("duo.cli.subprocess.run"):
@@ -317,18 +275,18 @@ class TestStop:
         assert result.exit_code == 0
         assert result.output.strip() == "stopped"
 
-    def test_stop_quiet_already_terminal(self, runner: CliRunner):
+    def test_stop_quiet_already_terminal(self, runner: CliRunner, make_task):
         """stop -q on completed task prints status value."""
-        t = _make_task("stop-q-done")
+        t = make_task("stop-q-done")
         t.status = TaskStatus.COMPLETED
         save_task(t)
         result = runner.invoke(main, ["stop", "stop-q-done", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == "completed"
 
-    def test_stop_quiet_already_blocked(self, runner: CliRunner):
+    def test_stop_quiet_already_blocked(self, runner: CliRunner, make_task):
         """stop -q on blocked task prints 'blocked'."""
-        t = _make_task("stop-q-blk")
+        t = make_task("stop-q-blk")
         t.status = TaskStatus.BLOCKED
         save_task(t)
         result = runner.invoke(main, ["stop", "stop-q-blk", "-q"])
@@ -340,9 +298,9 @@ class TestStop:
 
 
 class TestKillSuccess:
-    def test_kill_existing_task(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_existing_task(self, runner: CliRunner, tmp_path: Path, make_task):
         """kill terminates pane, removes worktree, and marks task failed."""
-        task = _make_task("kill-task")
+        task = make_task("kill-task")
         # Create fake worktree dir so os.path.exists returns True
         wt_dir = tmp_path / "fake_worktree"
         wt_dir.mkdir()
@@ -366,9 +324,11 @@ class TestKillSuccess:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_kill_pane_kill_failure_warns(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_pane_kill_failure_warns(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """kill shows warning when kill_pane returns False."""
-        task = _make_task("kill-pane-fail")
+        task = make_task("kill-pane-fail")
         wt_dir = tmp_path / "kill_pane_wt"
         wt_dir.mkdir()
         task.worktree = str(wt_dir)
@@ -389,9 +349,9 @@ class TestKillSuccess:
             assert result.exit_code == 0
             assert "Warning" in result.output
 
-    def test_kill_cleanup_warnings(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_cleanup_warnings(self, runner: CliRunner, tmp_path: Path, make_task):
         """kill shows warnings when git cleanup fails."""
-        task = _make_task("kill-warn")
+        task = make_task("kill-warn")
         wt_dir = tmp_path / "kill_warn_wt"
         wt_dir.mkdir()
         task.worktree = str(wt_dir)
@@ -416,9 +376,9 @@ class TestKillSuccess:
             assert "Warning: worktree removal failed" in result.output
             assert "Warning: branch deletion failed" in result.output
 
-    def test_kill_json_output(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_json_output(self, runner: CliRunner, tmp_path: Path, make_task):
         """kill --json-output returns structured JSON."""
-        task = _make_task("kill-json")
+        task = make_task("kill-json")
         wt_dir = tmp_path / "kill_json_wt"
         wt_dir.mkdir()
         task.worktree = str(wt_dir)
@@ -438,11 +398,13 @@ class TestKillSuccess:
             assert "worktree_removed" in data
             assert "branch_deleted" in data
 
-    def test_kill_emits_status_changed_event(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_emits_status_changed_event(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """kill uses transition() to emit status_changed for journal replay."""
         from duo.protocol import TaskStatus, read_jsonl, transition
 
-        task = _make_task("kill-trans")
+        task = make_task("kill-trans")
         transition(task, TaskStatus.SESSION_STARTING)
         wt_dir = tmp_path / "kill_trans_wt"
         wt_dir.mkdir()
@@ -461,11 +423,13 @@ class TestKillSuccess:
         status_events = [e for e in events if e.get("event") == "status_changed"]
         assert any(e["data"]["to"] == "failed" for e in status_events)
 
-    def test_kill_completed_task_uses_fallback(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_completed_task_uses_fallback(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """kill from COMPLETED falls back to direct save (no FAILED transition)."""
         from duo.protocol import TaskStatus, transition
 
-        task = _make_task("kill-comp")
+        task = make_task("kill-comp")
         transition(task, TaskStatus.SESSION_STARTING)
         transition(task, TaskStatus.PROMPT_SENT)
         transition(task, TaskStatus.ACKED)
@@ -506,9 +470,9 @@ class TestKill:
         result = runner.invoke(main, ["kill", "foo/bar"])
         assert result.exit_code != 0
 
-    def test_kill_empty_worktree_list(self, runner: CliRunner):
+    def test_kill_empty_worktree_list(self, runner: CliRunner, make_task):
         """kill handles empty git worktree list gracefully."""
-        task = _make_task("kill-empty-wt")
+        task = make_task("kill-empty-wt")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -521,9 +485,9 @@ class TestKill:
             result = runner.invoke(main, ["kill", "kill-empty-wt"])
             assert result.exit_code == 0
 
-    def test_kill_worktree_list_no_match(self, runner: CliRunner):
+    def test_kill_worktree_list_no_match(self, runner: CliRunner, make_task):
         """kill handles worktree list where no line matches worktree pattern."""
-        task = _make_task("kill-no-match")
+        task = make_task("kill-no-match")
         task.status = TaskStatus.RUNNING
         save_task(task)
 
@@ -545,10 +509,10 @@ class TestKill:
 
 
 class TestKillAll:
-    def test_kill_all(self, runner: CliRunner):
+    def test_kill_all(self, runner: CliRunner, make_task):
         """kill --all kills all tasks."""
-        _make_task("kill-all-1")
-        _make_task("kill-all-2")
+        make_task("kill-all-1")
+        make_task("kill-all-2")
 
         proc = MagicMock(returncode=0, stdout="", stderr="")
         with (
@@ -568,9 +532,9 @@ class TestKillAll:
         assert result.exit_code == 0
         assert "No tasks to kill" in result.output
 
-    def test_kill_all_json(self, runner: CliRunner):
+    def test_kill_all_json(self, runner: CliRunner, make_task):
         """kill --all --json-output returns structured JSON."""
-        _make_task("kill-all-j")
+        make_task("kill-all-j")
 
         proc = MagicMock(returncode=0, stdout="", stderr="")
         with (
@@ -589,9 +553,9 @@ class TestKillAll:
         assert result.exit_code != 0
         assert "Provide a task NAME or use --all" in result.output
 
-    def test_kill_all_with_worktree(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_all_with_worktree(self, runner: CliRunner, tmp_path: Path, make_task):
         """kill --all removes worktrees that exist on disk."""
-        task = _make_task("kill-all-wt")
+        task = make_task("kill-all-wt")
         wt_dir = tmp_path / "fake_worktree"
         wt_dir.mkdir()
         task.worktree = str(wt_dir)
@@ -608,9 +572,9 @@ class TestKillAll:
             assert result.exit_code == 0
             assert "kill-all-wt" in result.output
 
-    def test_kill_all_transition_fallback(self, runner: CliRunner):
+    def test_kill_all_transition_fallback(self, runner: CliRunner, make_task):
         """kill --all falls back to direct save when transition fails."""
-        task = _make_task("kill-all-fb")
+        task = make_task("kill-all-fb")
         task.status = TaskStatus.CREATED
         save_task(task)
 
@@ -625,9 +589,9 @@ class TestKillAll:
         reloaded = load_task("kill-all-fb")
         assert reloaded.status == TaskStatus.FAILED
 
-    def test_kill_quiet(self, runner: CliRunner, tmp_path: Path):
+    def test_kill_quiet(self, runner: CliRunner, tmp_path: Path, make_task):
         """kill -q prints only the task name."""
-        task = _make_task("kill-q")
+        task = make_task("kill-q")
         wt_dir = tmp_path / "kq_wt"
         wt_dir.mkdir()
         task.worktree = str(wt_dir)
@@ -646,9 +610,9 @@ class TestKillAll:
 
 
 class TestMergeCommand:
-    def test_merge_not_completed(self, runner: CliRunner):
+    def test_merge_not_completed(self, runner: CliRunner, make_task):
         """merge refuses non-completed tasks."""
-        task = _make_task("merge-nc")
+        task = make_task("merge-nc")
         task.status = TaskStatus.RUNNING
         save_task(task)
         result = runner.invoke(main, ["merge", "merge-nc"])
@@ -670,9 +634,9 @@ class TestMergeCommand:
         result = runner.invoke(main, ["merge", "foo/bar"])
         assert result.exit_code != 0
 
-    def test_merge_completed_task(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_completed_task(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge: happy path — fetch, rebase, ff-merge, cleanup."""
-        task = _make_task("merge-ok")
+        task = make_task("merge-ok")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_wt"
         wt_dir.mkdir()
@@ -703,9 +667,9 @@ class TestMergeCommand:
             assert "Merged merge-ok" in result.output
             assert "git push" in result.output
 
-    def test_merge_rebase_conflict(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_rebase_conflict(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge exits on rebase conflict."""
-        task = _make_task("merge-conflict")
+        task = make_task("merge-conflict")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_conflict_wt"
         wt_dir.mkdir()
@@ -735,9 +699,11 @@ class TestMergeCommand:
             assert result.exit_code != 0
             assert "Rebase conflict" in result.output
 
-    def test_merge_fetch_fails_continues(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_fetch_fails_continues(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge continues when git fetch fails (line 311)."""
-        task = _make_task("merge-fetch")
+        task = make_task("merge-fetch")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_fetch_wt"
         wt_dir.mkdir()
@@ -767,9 +733,11 @@ class TestMergeCommand:
             assert result.exit_code == 0
             assert "Warning: fetch failed" in result.output
 
-    def test_merge_rebase_abort_fails(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_rebase_abort_fails(
+        self, runner: CliRunner, tmp_path: Path, make_task
+    ):
         """merge warns when rebase --abort also fails (line 322)."""
-        task = _make_task("merge-abortfail")
+        task = make_task("merge-abortfail")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_abortfail_wt"
         wt_dir.mkdir()
@@ -796,10 +764,10 @@ class TestMergeCommand:
             assert "Rebase conflict" in result.output
             assert "could not abort rebase" in result.output
 
-    def test_merge_no_main_worktree(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_no_main_worktree(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge errors when no main worktree found (lines 342-347 unreachable
         due to uninitialized main_worktree; verifies the error path)."""
-        task = _make_task("merge-nomain")
+        task = make_task("merge-nomain")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_nomain_wt"
         wt_dir.mkdir()
@@ -822,9 +790,9 @@ class TestMergeCommand:
             result = runner.invoke(main, ["merge", "merge-nomain"])
             assert result.exit_code != 0
 
-    def test_merge_cleanup_warnings(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_cleanup_warnings(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge shows warnings when worktree/branch cleanup fails."""
-        task = _make_task("merge-warn")
+        task = make_task("merge-warn")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_warn_wt"
         wt_dir.mkdir()
@@ -858,9 +826,9 @@ class TestMergeCommand:
             assert "Warning: worktree removal failed" in result.output
             assert "Warning: branch deletion failed" in result.output
 
-    def test_merge_ff_only_fails(self, runner: CliRunner, tmp_path: Path):
+    def test_merge_ff_only_fails(self, runner: CliRunner, tmp_path: Path, make_task):
         """merge exits when ff-only merge fails (lines 358-359)."""
-        task = _make_task("merge-ff")
+        task = make_task("merge-ff")
         task.status = TaskStatus.COMPLETED
         wt_dir = tmp_path / "merge_ff_wt"
         wt_dir.mkdir()

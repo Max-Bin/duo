@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,48 +12,9 @@ import duo.cli
 import duo.protocol
 from duo.cli import main
 from duo.protocol import (
-    Subtask,
     TaskStatus,
-    create_task,
     save_task,
 )
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _make_task(task_id: str = "test-task", description: str = "Test task"):
-    """Create a task in the isolated TASKS_DIR and return it."""
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
 
 
 class TestStatus:
@@ -63,17 +23,17 @@ class TestStatus:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_named_task_shows_details(self, runner: CliRunner):
-        task = _make_task()
+    def test_named_task_shows_details(self, runner: CliRunner, make_task):
+        task = make_task()
         result = runner.invoke(main, ["status", "test-task"])
         assert result.exit_code == 0
         assert "test-task" in result.output
         assert task.status.value in result.output
         assert task.incarnation_id in result.output
 
-    def test_named_task_shows_session_started(self, runner: CliRunner):
+    def test_named_task_shows_session_started(self, runner: CliRunner, make_task):
         """status displays Session line when session_started_at is set."""
-        task = _make_task()
+        task = make_task()
         task.session_started_at = "2025-01-15T10:30:00Z"
         from duo.protocol import save_task
 
@@ -88,40 +48,40 @@ class TestStatus:
         assert result.exit_code == 0
         assert "No tasks." in result.output
 
-    def test_no_name_lists_all(self, runner: CliRunner):
-        _make_task("alpha", "Alpha task")
-        _make_task("beta", "Beta task")
+    def test_no_name_lists_all(self, runner: CliRunner, make_task):
+        make_task("alpha", "Alpha task")
+        make_task("beta", "Beta task")
         result = runner.invoke(main, ["status"])
         assert result.exit_code == 0
         assert "alpha" in result.output
         assert "beta" in result.output
 
-    def test_status_shows_branch(self, runner: CliRunner):
+    def test_status_shows_branch(self, runner: CliRunner, make_task):
         """status shows the branch name."""
-        task = _make_task()
+        task = make_task()
         result = runner.invoke(main, ["status", "test-task"])
         assert result.exit_code == 0
         assert "Branch:" in result.output
         assert task.branch in result.output
 
-    def test_status_shows_description(self, runner: CliRunner):
+    def test_status_shows_description(self, runner: CliRunner, make_task):
         """status shows description when set."""
-        _make_task("desc-task", "Fix the login bug")
+        make_task("desc-task", "Fix the login bug")
         result = runner.invoke(main, ["status", "desc-task"])
         assert result.exit_code == 0
         assert "Description:" in result.output
         assert "Fix the login bug" in result.output
 
-    def test_status_no_description(self, runner: CliRunner):
+    def test_status_no_description(self, runner: CliRunner, make_task):
         """status omits description when empty."""
-        _make_task("no-desc-task", "")
+        make_task("no-desc-task", "")
         result = runner.invoke(main, ["status", "no-desc-task"])
         assert result.exit_code == 0
         assert "Description:" not in result.output
 
-    def test_status_shows_heartbeat_file(self, runner: CliRunner):
+    def test_status_shows_heartbeat_file(self, runner: CliRunner, make_task):
         """status shows current file from heartbeat."""
-        task = _make_task("hb-task")
+        task = make_task("hb-task")
         import json as _json
 
         hb_data = {
@@ -139,25 +99,25 @@ class TestStatus:
         assert "src/main.py" in result.output
         assert "Last pulse:" in result.output
 
-    def test_status_no_heartbeat(self, runner: CliRunner):
+    def test_status_no_heartbeat(self, runner: CliRunner, make_task):
         """status omits heartbeat lines when no heartbeat file."""
-        _make_task("no-hb-task")
+        make_task("no-hb-task")
         result = runner.invoke(main, ["status", "no-hb-task"])
         assert result.exit_code == 0
         assert "Working on:" not in result.output
         assert "Last pulse:" not in result.output
 
-    def test_status_quiet_single(self, runner: CliRunner):
+    def test_status_quiet_single(self, runner: CliRunner, make_task):
         """status -q prints only the status value for a named task."""
-        _make_task("q-task")
+        make_task("q-task")
         result = runner.invoke(main, ["status", "q-task", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == "created"
 
-    def test_status_quiet_all(self, runner: CliRunner):
+    def test_status_quiet_all(self, runner: CliRunner, make_task):
         """status -q with no name prints ID\tstatus for each task."""
-        _make_task("alpha-q")
-        _make_task("beta-q")
+        make_task("alpha-q")
+        make_task("beta-q")
         result = runner.invoke(main, ["status", "-q"])
         assert result.exit_code == 0
         lines = result.output.strip().splitlines()
@@ -170,9 +130,9 @@ class TestStatus:
         assert result.exit_code == 0
         assert result.output.strip() == ""
 
-    def test_status_wait_already_reached(self, runner: CliRunner):
+    def test_status_wait_already_reached(self, runner: CliRunner, make_task):
         """status --wait returns immediately if status already matches."""
-        task = _make_task("wait-ok")
+        task = make_task("wait-ok")
         task.status = TaskStatus.COMPLETED
         save_task(task)
         result = runner.invoke(
@@ -181,26 +141,26 @@ class TestStatus:
         assert result.exit_code == 0
         assert "reached" in result.output
 
-    def test_status_wait_quiet(self, runner: CliRunner):
+    def test_status_wait_quiet(self, runner: CliRunner, make_task):
         """status --wait -q prints just the status value."""
-        task = _make_task("wait-q")
+        task = make_task("wait-q")
         task.status = TaskStatus.COMPLETED
         save_task(task)
         result = runner.invoke(main, ["status", "wait-q", "--wait", "completed", "-q"])
         assert result.exit_code == 0
         assert result.output.strip() == "completed"
 
-    def test_status_wait_timeout(self, runner: CliRunner):
+    def test_status_wait_timeout(self, runner: CliRunner, make_task):
         """status --wait times out if status doesn't match."""
-        _make_task("wait-to")
+        make_task("wait-to")
         result = runner.invoke(
             main, ["status", "wait-to", "--wait", "completed", "--timeout", "1"]
         )
         assert result.exit_code != 0
 
-    def test_status_wait_timeout_quiet(self, runner: CliRunner):
+    def test_status_wait_timeout_quiet(self, runner: CliRunner, make_task):
         """status --wait -q on timeout prints current status."""
-        _make_task("wait-tq")
+        make_task("wait-tq")
         result = runner.invoke(
             main,
             ["status", "wait-tq", "--wait", "completed", "--timeout", "1", "-q"],
@@ -208,9 +168,9 @@ class TestStatus:
         assert result.exit_code != 0
         assert result.output.strip() == "created"
 
-    def test_status_wait_json(self, runner: CliRunner):
+    def test_status_wait_json(self, runner: CliRunner, make_task):
         """status --wait --json-output prints JSON on success."""
-        task = _make_task("wait-js")
+        task = make_task("wait-js")
         task.status = TaskStatus.COMPLETED
         save_task(task)
         result = runner.invoke(
@@ -222,10 +182,13 @@ class TestStatus:
         assert data["status"] == "completed"
 
     def test_status_wait_task_disappears(
-        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        make_task,
     ):
         """status --wait errors if task disappears mid-poll."""
-        _make_task("wait-gone")
+        make_task("wait-gone")
         call_count = {"n": 0}
         original_load = duo.protocol.load_task
 
@@ -248,9 +211,9 @@ class TestStatus:
         result = runner.invoke(main, ["status", "--wait", "completed"])
         assert result.exit_code != 0
 
-    def test_status_wait_invalid_status(self, runner: CliRunner):
+    def test_status_wait_invalid_status(self, runner: CliRunner, make_task):
         """status --wait with invalid status name raises error."""
-        _make_task("wait-inv")
+        make_task("wait-inv")
         result = runner.invoke(main, ["status", "wait-inv", "--wait", "bogus"])
         assert result.exit_code != 0
         assert "unknown status" in result.output
@@ -267,8 +230,8 @@ class TestList:
         assert result.exit_code == 0
         assert "No tasks." in result.output
 
-    def test_with_tasks(self, runner: CliRunner):
-        _make_task("my-task")
+    def test_with_tasks(self, runner: CliRunner, make_task):
+        make_task("my-task")
         result = runner.invoke(main, ["list"])
         assert result.exit_code == 0
         # Table header columns
@@ -280,9 +243,9 @@ class TestList:
         assert "my-task" in result.output
         assert "created" in result.output
 
-    def test_multiple_tasks_sorted(self, runner: CliRunner):
-        _make_task("zzz-task")
-        _make_task("aaa-task")
+    def test_multiple_tasks_sorted(self, runner: CliRunner, make_task):
+        make_task("zzz-task")
+        make_task("aaa-task")
         result = runner.invoke(main, ["list"])
         assert result.exit_code == 0
         lines = result.output.strip().splitlines()
@@ -295,10 +258,10 @@ class TestList:
         assert task_lines[0].startswith("aaa-task")
         assert task_lines[1].startswith("zzz-task")
 
-    def test_status_filter(self, runner: CliRunner):
+    def test_status_filter(self, runner: CliRunner, make_task):
         """list --status filters tasks by status."""
-        _make_task("created-task")
-        task2 = _make_task("done-task")
+        make_task("created-task")
+        task2 = make_task("done-task")
         task2.status = TaskStatus.COMPLETED
         save_task(task2)
         result = runner.invoke(main, ["list", "--status", "completed"])
@@ -306,25 +269,25 @@ class TestList:
         assert "done-task" in result.output
         assert "created-task" not in result.output
 
-    def test_status_filter_no_match(self, runner: CliRunner):
+    def test_status_filter_no_match(self, runner: CliRunner, make_task):
         """list --status with no matching tasks shows 'No tasks.'"""
-        _make_task("a-task")
+        make_task("a-task")
         result = runner.invoke(main, ["list", "--status", "completed"])
         assert result.exit_code == 0
         assert "No tasks." in result.output
 
-    def test_status_filter_invalid(self, runner: CliRunner):
+    def test_status_filter_invalid(self, runner: CliRunner, make_task):
         """list --status with invalid status shows error."""
-        _make_task("a-task")
+        make_task("a-task")
         result = runner.invoke(main, ["list", "--status", "bogus"])
         assert result.exit_code != 0
         assert "unknown status" in result.output
         assert "Valid statuses" in result.output
 
-    def test_sort_by_name(self, runner: CliRunner):
+    def test_sort_by_name(self, runner: CliRunner, make_task):
         """list --sort name sorts alphabetically."""
-        _make_task("zzz-task")
-        _make_task("aaa-task")
+        make_task("zzz-task")
+        make_task("aaa-task")
         result = runner.invoke(main, ["list", "--sort", "name"])
         assert result.exit_code == 0
         lines = [
@@ -335,10 +298,10 @@ class TestList:
         assert lines[0].startswith("aaa-task")
         assert lines[1].startswith("zzz-task")
 
-    def test_sort_by_name_reverse(self, runner: CliRunner):
+    def test_sort_by_name_reverse(self, runner: CliRunner, make_task):
         """list --sort name --reverse reverses order."""
-        _make_task("aaa-task")
-        _make_task("zzz-task")
+        make_task("aaa-task")
+        make_task("zzz-task")
         result = runner.invoke(main, ["list", "--sort", "name", "--reverse"])
         assert result.exit_code == 0
         lines = [
@@ -349,12 +312,12 @@ class TestList:
         assert lines[0].startswith("zzz-task")
         assert lines[1].startswith("aaa-task")
 
-    def test_sort_by_status(self, runner: CliRunner):
+    def test_sort_by_status(self, runner: CliRunner, make_task):
         """list --sort status groups by status value."""
-        task_c = _make_task("completed-task")
+        task_c = make_task("completed-task")
         task_c.status = TaskStatus.COMPLETED
         save_task(task_c)
-        _make_task("active-task")
+        make_task("active-task")
         result = runner.invoke(main, ["list", "--sort", "status"])
         assert result.exit_code == 0
         lines = [
@@ -366,10 +329,10 @@ class TestList:
         assert "completed" in lines[0]
         assert "created" in lines[1]
 
-    def test_sort_by_age(self, runner: CliRunner):
+    def test_sort_by_age(self, runner: CliRunner, make_task):
         """list --sort age sorts oldest first."""
-        _make_task("old-task")
-        _make_task("new-task")
+        make_task("old-task")
+        make_task("new-task")
         result = runner.invoke(main, ["list", "--sort", "age"])
         assert result.exit_code == 0
         lines = [
@@ -379,10 +342,10 @@ class TestList:
         ]
         assert len(lines) == 2
 
-    def test_quiet_mode(self, runner: CliRunner):
+    def test_quiet_mode(self, runner: CliRunner, make_task):
         """list -q prints only task IDs."""
-        _make_task("alpha")
-        _make_task("beta")
+        make_task("alpha")
+        make_task("beta")
         result = runner.invoke(main, ["list", "-q"])
         assert result.exit_code == 0
         lines = result.output.strip().splitlines()
@@ -394,30 +357,30 @@ class TestList:
         assert result.exit_code == 0
         assert result.output.strip() == ""
 
-    def test_quiet_with_status_filter(self, runner: CliRunner):
+    def test_quiet_with_status_filter(self, runner: CliRunner, make_task):
         """list -q --status filters and prints only IDs."""
-        t = _make_task("done-task")
+        t = make_task("done-task")
         t.status = TaskStatus.COMPLETED
         save_task(t)
-        _make_task("open-task")
+        make_task("open-task")
         result = runner.invoke(main, ["list", "-q", "--status", "completed"])
         assert result.exit_code == 0
         assert result.output.strip() == "done-task"
 
-    def test_count_mode(self, runner: CliRunner):
+    def test_count_mode(self, runner: CliRunner, make_task):
         """list -c prints the number of tasks."""
-        _make_task("count-a")
-        _make_task("count-b")
+        make_task("count-a")
+        make_task("count-b")
         result = runner.invoke(main, ["list", "-c"])
         assert result.exit_code == 0
         assert result.output.strip() == "2"
 
-    def test_count_with_filter(self, runner: CliRunner):
+    def test_count_with_filter(self, runner: CliRunner, make_task):
         """list -c --status filters then counts."""
-        t = _make_task("done-count")
+        t = make_task("done-count")
         t.status = TaskStatus.COMPLETED
         save_task(t)
-        _make_task("open-count")
+        make_task("open-count")
         result = runner.invoke(main, ["list", "-c", "--status", "completed"])
         assert result.exit_code == 0
         assert result.output.strip() == "1"
@@ -428,19 +391,19 @@ class TestList:
         assert result.exit_code == 0
         assert result.output.strip() == "0"
 
-    def test_no_header(self, runner: CliRunner):
+    def test_no_header(self, runner: CliRunner, make_task):
         """list --no-header omits the header row."""
-        _make_task("header-task")
+        make_task("header-task")
         result = runner.invoke(main, ["list", "--no-header"])
         assert result.exit_code == 0
         assert "ID" not in result.output
         assert "STATUS" not in result.output
         assert "header-task" in result.output
 
-    def test_recent(self, runner: CliRunner):
+    def test_recent(self, runner: CliRunner, make_task):
         """list --recent N shows only the N newest tasks."""
         for i in range(3):
-            t = _make_task(f"recent-{i}")
+            t = make_task(f"recent-{i}")
             t.created_at = f"2025-01-0{i + 1}T00:00:00Z"
             save_task(t)
         result = runner.invoke(main, ["list", "--recent", "2"])
@@ -449,25 +412,25 @@ class TestList:
         assert "recent-1" in result.output
         assert "recent-0" not in result.output
 
-    def test_recent_with_count(self, runner: CliRunner):
+    def test_recent_with_count(self, runner: CliRunner, make_task):
         """list --recent N --count shows filtered count."""
         for i in range(3):
-            t = _make_task(f"rc-{i}")
+            t = make_task(f"rc-{i}")
             t.created_at = f"2025-01-0{i + 1}T00:00:00Z"
             save_task(t)
         result = runner.invoke(main, ["list", "--recent", "2", "-c"])
         assert result.exit_code == 0
         assert result.output.strip() == "2"
 
-    def test_active_flag(self, runner: CliRunner):
+    def test_active_flag(self, runner: CliRunner, make_task):
         """list --active shows only running/active tasks."""
-        t1 = _make_task("active-1")
+        t1 = make_task("active-1")
         t1.status = TaskStatus.RUNNING
         save_task(t1)
-        t2 = _make_task("active-2")
+        t2 = make_task("active-2")
         t2.status = TaskStatus.COMPLETED
         save_task(t2)
-        t3 = _make_task("active-3")
+        t3 = make_task("active-3")
         t3.status = TaskStatus.ACKED
         save_task(t3)
         result = runner.invoke(main, ["list", "--active"])
@@ -476,25 +439,25 @@ class TestList:
         assert "active-3" in result.output
         assert "active-2" not in result.output
 
-    def test_active_count(self, runner: CliRunner):
+    def test_active_count(self, runner: CliRunner, make_task):
         """list --active -c shows count of active tasks."""
-        t1 = _make_task("ac-1")
+        t1 = make_task("ac-1")
         t1.status = TaskStatus.RUNNING
         save_task(t1)
-        _make_task("ac-2")  # CREATED, not active
+        make_task("ac-2")  # CREATED, not active
         result = runner.invoke(main, ["list", "--active", "-c"])
         assert result.exit_code == 0
         assert result.output.strip() == "1"
 
-    def test_finished_flag(self, runner: CliRunner):
+    def test_finished_flag(self, runner: CliRunner, make_task):
         """list --finished shows only completed/failed/escalated tasks."""
-        t1 = _make_task("fin-1")
+        t1 = make_task("fin-1")
         t1.status = TaskStatus.COMPLETED
         save_task(t1)
-        t2 = _make_task("fin-2")
+        t2 = make_task("fin-2")
         t2.status = TaskStatus.RUNNING
         save_task(t2)
-        t3 = _make_task("fin-3")
+        t3 = make_task("fin-3")
         t3.status = TaskStatus.FAILED
         save_task(t3)
         result = runner.invoke(main, ["list", "--finished"])
@@ -503,12 +466,12 @@ class TestList:
         assert "fin-3" in result.output
         assert "fin-2" not in result.output
 
-    def test_finished_count(self, runner: CliRunner):
+    def test_finished_count(self, runner: CliRunner, make_task):
         """list --finished -c shows count of finished tasks."""
-        t1 = _make_task("fc-1")
+        t1 = make_task("fc-1")
         t1.status = TaskStatus.COMPLETED
         save_task(t1)
-        _make_task("fc-2")  # CREATED, not finished
+        make_task("fc-2")  # CREATED, not finished
         result = runner.invoke(main, ["list", "--finished", "-c"])
         assert result.exit_code == 0
         assert result.output.strip() == "1"

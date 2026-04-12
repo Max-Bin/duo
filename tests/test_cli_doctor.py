@@ -35,57 +35,10 @@ from duo.cli.doctor import (
     _get_pid_kqueue_count,
 )
 from duo.protocol import (
-    Subtask,
     TaskStatus,
     append_event,
-    create_task,
     save_task,
 )
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli.doctor, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _make_task(task_id: str = "test-task", description: str = "Test task"):
-    """Create a task in the isolated TASKS_DIR and return it."""
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
-
-
-@pytest.fixture
-def make_task():
-    """Fixture wrapper around _make_task for use in test classes."""
-    return _make_task
 
 
 class TestDoctor:
@@ -1399,8 +1352,8 @@ class TestDoctorCheckCapiError:
         monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         assert _doctor_check_capi_error() == []
 
-    def test_no_capi_events(self, monkeypatch: pytest.MonkeyPatch):
-        task = _make_task()
+    def test_no_capi_events(self, monkeypatch: pytest.MonkeyPatch, make_task):
+        task = make_task()
         task.status = TaskStatus.RUNNING
         save_task(task)
         monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
@@ -1408,8 +1361,8 @@ class TestDoctorCheckCapiError:
         results = _doctor_check_capi_error()
         assert results == []
 
-    def test_capi_error_detected(self, monkeypatch: pytest.MonkeyPatch):
-        task = _make_task()
+    def test_capi_error_detected(self, monkeypatch: pytest.MonkeyPatch, make_task):
+        task = make_task()
         task.status = TaskStatus.RUNNING
         save_task(task)
         monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])

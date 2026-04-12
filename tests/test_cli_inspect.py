@@ -4,65 +4,16 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from click.testing import CliRunner
 
-import duo.cli
-import duo.protocol
 from duo.cli import (
     main,
 )
 from duo.protocol import (
-    Subtask,
-    create_task,
     save_task,
 )
-
-
-@pytest.fixture(autouse=True)
-def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Redirect TASKS_DIR and DUO_DIR to a temporary directory."""
-    tasks_dir = tmp_path / "tasks"
-    tasks_dir.mkdir()
-    monkeypatch.setattr(duo.protocol, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tasks_dir / "_corrupted")
-    monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
-    monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-    return tasks_dir
-
-
-@pytest.fixture
-def runner() -> CliRunner:
-    return CliRunner()
-
-
-def _make_task(task_id: str = "test-task", description: str = "Test task"):
-    """Create a task in the isolated TASKS_DIR and return it."""
-    return create_task(
-        task_id=task_id,
-        description=description,
-        worktree="/fake/worktree",
-        branch=f"duo/{task_id}",
-        base_commit="abc123",
-        subtasks=[
-            Subtask(
-                step_id=1,
-                description=description,
-                target_files=[],
-                writable_paths=["*"],
-            )
-        ],
-    )
-
-
-@pytest.fixture
-def make_task():
-    """Fixture wrapper around _make_task for use in test classes."""
-    return _make_task
 
 
 class TestInspect:
@@ -71,8 +22,8 @@ class TestInspect:
         assert result.exit_code != 0
         assert "not found" in result.output
 
-    def test_shows_task_details(self, runner: CliRunner):
-        _make_task("test-task")
+    def test_shows_task_details(self, runner: CliRunner, make_task):
+        make_task("test-task")
         result = runner.invoke(main, ["inspect", "test-task"])
         assert result.exit_code == 0
         assert "test-task" in result.output
@@ -80,13 +31,13 @@ class TestInspect:
         assert "Incarnation:" in result.output
         assert "Step:" in result.output
 
-    def test_shows_recent_events(self, runner: CliRunner):
-        _make_task("test-task")
+    def test_shows_recent_events(self, runner: CliRunner, make_task):
+        make_task("test-task")
         result = runner.invoke(main, ["inspect", "test-task"])
         assert "Recent Events" in result.output
 
-    def test_inspect_json_output(self, runner: CliRunner):
-        _make_task("json-inspect")
+    def test_inspect_json_output(self, runner: CliRunner, make_task):
+        make_task("json-inspect")
         result = runner.invoke(main, ["inspect", "json-inspect", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -96,22 +47,22 @@ class TestInspect:
         assert isinstance(data["subtasks"], list)
         assert data["branch"] == "duo/json-inspect"
 
-    def test_inspect_events_count(self, runner: CliRunner):
+    def test_inspect_events_count(self, runner: CliRunner, make_task):
         """inspect --events N shows N events."""
         from duo.protocol import append_event
 
-        task = _make_task("ev-count")
+        task = make_task("ev-count")
         for i in range(10):
             append_event(task, f"event_{i}", {"i": i})
         result = runner.invoke(main, ["inspect", "ev-count", "--events", "3"])
         assert result.exit_code == 0
         assert "showing 3" in result.output
 
-    def test_inspect_events_zero_shows_all(self, runner: CliRunner):
+    def test_inspect_events_zero_shows_all(self, runner: CliRunner, make_task):
         """inspect --events 0 shows all events."""
         from duo.protocol import append_event
 
-        task = _make_task("ev-all")
+        task = make_task("ev-all")
         for i in range(5):
             append_event(task, f"event_{i}", {"i": i})
         result = runner.invoke(main, ["inspect", "ev-all", "--events", "0"])
@@ -181,9 +132,9 @@ class TestInspectDetailed:
             assert "file1.py" in result.output
             assert "Implemented feature" in result.output
 
-    def test_inspect_with_last_prompt(self, runner: CliRunner):
+    def test_inspect_with_last_prompt(self, runner: CliRunner, make_task):
         """inspect shows last_prompt_sent_at when set."""
-        task = _make_task("insp-lp")
+        task = make_task("insp-lp")
         task.last_prompt_sent_at = "2024-01-01T12:05:00"
         save_task(task)
         result = runner.invoke(main, ["inspect", "insp-lp"])
@@ -198,11 +149,11 @@ class TestInspectDetailed:
 
 
 class TestInspectJsonWithFiles:
-    def test_inspect_json_with_heartbeat(self, runner: CliRunner):
+    def test_inspect_json_with_heartbeat(self, runner: CliRunner, make_task):
         """inspect --json-output includes heartbeat data when file exists."""
         from duo.protocol import write_json
 
-        task = _make_task("ins-hb")
+        task = make_task("ins-hb")
         write_json(
             task.heartbeat_path,
             {
@@ -223,11 +174,11 @@ class TestInspectJsonWithFiles:
         assert data["heartbeat"]["current_file"] == "src/app.py"
         assert data["heartbeat"]["incarnation"] == "inc-1"
 
-    def test_inspect_json_with_ack(self, runner: CliRunner):
+    def test_inspect_json_with_ack(self, runner: CliRunner, make_task):
         """inspect --json-output includes ack data when file exists."""
         from duo.protocol import write_json
 
-        task = _make_task("ins-ack")
+        task = make_task("ins-ack")
         write_json(
             task.ack_path(task.current_step, task.current_attempt),
             {
@@ -246,11 +197,11 @@ class TestInspectJsonWithFiles:
         assert data["ack"]["acked_at"] == "2025-01-01T12:01:00"
         assert data["ack"]["prompt_hash"] == "hash123"
 
-    def test_inspect_json_with_result(self, runner: CliRunner):
+    def test_inspect_json_with_result(self, runner: CliRunner, make_task):
         """inspect --json-output includes result data when file exists."""
         from duo.protocol import write_json
 
-        task = _make_task("ins-res")
+        task = make_task("ins-res")
         write_json(
             task.result_path(task.current_step, task.current_attempt),
             {
@@ -272,11 +223,11 @@ class TestInspectJsonWithFiles:
         assert data["result"]["files_changed"] == ["a.py", "b.py"]
         assert data["result"]["summary"] == "Done"
 
-    def test_inspect_json_with_all_files(self, runner: CliRunner):
+    def test_inspect_json_with_all_files(self, runner: CliRunner, make_task):
         """inspect --json-output includes all three when all files exist."""
         from duo.protocol import write_json
 
-        task = _make_task("ins-all")
+        task = make_task("ins-all")
         write_json(
             task.heartbeat_path,
             {
@@ -324,9 +275,9 @@ class TestInspectJsonWithFiles:
 
 
 class TestInspectIncludeFiles:
-    def test_inspect_include_files(self, runner: CliRunner):
+    def test_inspect_include_files(self, runner: CliRunner, make_task):
         """inspect --include-files shows changed and untracked files."""
-        _make_task("incl-files")
+        make_task("incl-files")
         changed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="src/a.py\nsrc/b.py\n", stderr=""
         )
@@ -356,16 +307,16 @@ class TestInspectIncludeFiles:
         assert "? new.txt" in result.output
         assert "Diff preview:" in result.output
 
-    def test_inspect_include_files_no_worktree(self, runner: CliRunner):
+    def test_inspect_include_files_no_worktree(self, runner: CliRunner, make_task):
         """inspect --include-files warns when worktree does not exist."""
-        _make_task("incl-nodir")
+        make_task("incl-nodir")
         result = runner.invoke(main, ["inspect", "incl-nodir", "--include-files"])
         assert result.exit_code == 0
         assert "Worktree not found" in result.output
 
-    def test_inspect_include_files_json(self, runner: CliRunner):
+    def test_inspect_include_files_json(self, runner: CliRunner, make_task):
         """inspect --json-output --include-files populates JSON keys."""
-        _make_task("incl-json")
+        make_task("incl-json")
         changed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="x.py\n", stderr=""
         )
@@ -396,9 +347,11 @@ class TestInspectIncludeFiles:
         assert data["untracked_files"] == []
         assert "diff content" in data["diff_preview"]
 
-    def test_inspect_json_include_files_truncates_diff(self, runner: CliRunner):
+    def test_inspect_json_include_files_truncates_diff(
+        self, runner: CliRunner, make_task
+    ):
         """inspect --json-output --include-files truncates diff > 500 chars."""
-        _make_task("incl-trunc")
+        make_task("incl-trunc")
         big_diff = "x" * 600
         changed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="a.py\n", stderr=""
@@ -429,9 +382,9 @@ class TestInspectIncludeFiles:
         assert data["diff_preview"].endswith("... (truncated)")
         assert len(data["diff_preview"].split("\n... (truncated)")[0]) == 500
 
-    def test_inspect_json_include_files_no_worktree(self, runner: CliRunner):
+    def test_inspect_json_include_files_no_worktree(self, runner: CliRunner, make_task):
         """inspect --json-output --include-files sets files_error when worktree missing."""
-        _make_task("incl-nodir-json")
+        make_task("incl-nodir-json")
         result = runner.invoke(
             main, ["inspect", "incl-nodir-json", "--json-output", "--include-files"]
         )
@@ -440,9 +393,11 @@ class TestInspectIncludeFiles:
         assert "files_error" in data
         assert "Worktree not found" in data["files_error"]
 
-    def test_inspect_text_include_files_truncates_diff(self, runner: CliRunner):
+    def test_inspect_text_include_files_truncates_diff(
+        self, runner: CliRunner, make_task
+    ):
         """inspect --include-files (text) truncates diff > 500 chars."""
-        _make_task("incl-trunc-text")
+        make_task("incl-trunc-text")
         big_diff = "y" * 600
         changed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout="b.py\n", stderr=""
@@ -478,9 +433,9 @@ class TestInspectIncludeFiles:
 
 
 class TestInspectEdgeCases:
-    def test_inspect_task_no_steps(self, runner: CliRunner):
+    def test_inspect_task_no_steps(self, runner: CliRunner, make_task):
         """inspect a task whose subtask list is empty — no Current Step section."""
-        task = _make_task("no-steps")
+        task = make_task("no-steps")
         # Clear subtasks after creation to simulate an edge case
         task.subtasks = []
         save_task(task)
@@ -491,9 +446,9 @@ class TestInspectEdgeCases:
         assert "Task: no-steps" in result.output
         assert "Current Step" not in result.output
 
-    def test_inspect_json_output_structure(self, runner: CliRunner):
+    def test_inspect_json_output_structure(self, runner: CliRunner, make_task):
         """Validate all expected top-level keys in JSON output."""
-        _make_task("json-struct")
+        make_task("json-struct")
         result = runner.invoke(main, ["inspect", "json-struct", "--json-output"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -518,11 +473,11 @@ class TestInspectEdgeCases:
         assert isinstance(data["step"], int)
         assert isinstance(data["attempt"], int)
 
-    def test_inspect_with_heartbeat_missing_fields(self, runner: CliRunner):
+    def test_inspect_with_heartbeat_missing_fields(self, runner: CliRunner, make_task):
         """Heartbeat JSON with missing fields still displays with defaults."""
         from duo.protocol import write_json
 
-        task = _make_task("hb-missing")
+        task = make_task("hb-missing")
         # Write heartbeat with only partial fields
         write_json(task.heartbeat_path, {"ts": "2025-01-01T10:00:00"})
 
@@ -531,11 +486,11 @@ class TestInspectEdgeCases:
         assert "Heartbeat:" in result.output
         assert "2025-01-01T10:00:00" in result.output
 
-    def test_inspect_step_with_ack_no_result(self, runner: CliRunner):
+    def test_inspect_step_with_ack_no_result(self, runner: CliRunner, make_task):
         """Step has ack but no result — only Ack section shown."""
         from duo.protocol import write_json
 
-        task = _make_task("ack-only")
+        task = make_task("ack-only")
         task.step_dir(1).mkdir(parents=True, exist_ok=True)
         write_json(
             task.ack_path(1, 1),
@@ -554,11 +509,11 @@ class TestInspectEdgeCases:
         assert "abc" in result.output
         assert "Result:" not in result.output
 
-    def test_inspect_step_with_result_no_ack(self, runner: CliRunner):
+    def test_inspect_step_with_result_no_ack(self, runner: CliRunner, make_task):
         """Step has result but no ack (unusual state) — only Result section shown."""
         from duo.protocol import write_json
 
-        task = _make_task("res-only")
+        task = make_task("res-only")
         task.step_dir(1).mkdir(parents=True, exist_ok=True)
         write_json(
             task.result_path(1, 1),
@@ -579,11 +534,11 @@ class TestInspectEdgeCases:
         assert "Result:" in result.output
         assert "Finished" in result.output
 
-    def test_inspect_multiple_attempts(self, runner: CliRunner):
+    def test_inspect_multiple_attempts(self, runner: CliRunner, make_task):
         """Task on attempt 2 — inspect reads ack/result for that attempt."""
         from duo.protocol import write_json
 
-        task = _make_task("multi-att")
+        task = make_task("multi-att")
         task.current_attempt = 2
         save_task(task)
         task.step_dir(1).mkdir(parents=True, exist_ok=True)
