@@ -10830,7 +10830,7 @@ class TestCliBranchGapsBatch7:
 
     def test_think_finalize_plan_not_exist_yet(self, monkeypatch, tmp_path: Path):
         """_think_finalize waits when plan.md doesn't exist yet."""
-        import duo.cli as cli_mod
+        import duo.cli.think_cmd as think_mod
 
         # time.time: first call sets deadline, then loop enters, then exceeds
         time_values = iter([100.0, 100.0, 100.0, 200.0, 300.0])
@@ -10844,8 +10844,8 @@ class TestCliBranchGapsBatch7:
             patch("time.time", side_effect=lambda: next(time_values)),
             patch("time.sleep"),
         ):
-            with pytest.raises(cli_mod.DuoUserError, match="didn't produce plan.md"):
-                cli_mod._think_finalize("test-think")
+            with pytest.raises(DuoUserError, match="didn't produce plan.md"):
+                think_mod._think_finalize("test-think")
 
 
 # ---------------------------------------------------------------------------
