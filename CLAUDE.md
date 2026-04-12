@@ -29,7 +29,7 @@ src/duo/
 ├── poller.py      — adaptive polling with exponential backoff (5s → 120s)
 ├── verifier.py    — quality gate checks (security scope, secret leak, acceptance test)
 ├── config.py      — persistent config management (~/.duo/config.json), type coercion, defaults
-└── cli.py         — Click CLI entry point (35 commands + config/events subgroups: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/stats/batch/queue/recover/resume/retry/export/audit/cleanup/init/doctor/config/version/completion/think/cost/events/go/ceo-wait/ceo-select/ceo-approve/ceo-status)
+└── cli.py         — Click CLI entry point (33 commands + config/events subgroups: start/send/stop/status/merge/diff/kill/list/monitor/watch/dashboard/logs/inspect/batch/queue/recover/resume/retry/audit/cleanup/init/doctor/config/version/completion/think/cost/events/go/ceo-wait/ceo-select/ceo-approve/ceo-status)
 ```
 
 ### transport.py — Protocol Classes

@@ -444,13 +444,6 @@ This sets up everything needed: checks tmux, creates panes, and starts both agen
 
 ## 11. Export & Events
 
-### Export task reports
-
-```bash
-duo export fix-auth                 # Export task report (events, files, summary)
-duo export fix-auth --json-output   # Machine-readable JSON export
-```
-
 ### Watch events
 
 The `events` subcommand manages watch-event signal files:

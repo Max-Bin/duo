@@ -54,7 +54,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "kill",
     ],
     "Thinking": ["think"],
-    "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect", "stats"],
+    "Monitoring": ["list", "monitor", "watch", "dashboard", "logs", "inspect"],
     "Batch & Queue": ["batch", "queue"],
     "CEO Workflow": [
         "ceo-wait",
@@ -63,7 +63,7 @@ _COMMAND_SECTIONS: dict[str, list[str]] = {
         "ceo-status",
     ],
     "Recovery": ["recover", "resume", "retry"],
-    "Data & Audit": ["export", "audit", "cost", "cleanup", "events"],
+    "Data & Audit": ["audit", "cost", "cleanup", "events"],
     "Setup": ["init", "doctor", "config"],
     "Misc": ["version", "completion"],
 }
@@ -2396,64 +2396,6 @@ def inspect(
 
 
 @main.command()
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("-q", "--quiet", is_flag=True, help="Print only the total task count")
-def stats(*, as_json: bool = False, quiet: bool = False) -> None:
-    """Show task statistics summary."""
-    from collections import Counter
-
-    tasks = list_tasks()
-    counts = Counter(t.status.value for t in tasks)
-    total = len(tasks)
-
-    if quiet:
-        click.echo(str(total))
-        return
-
-    if as_json:
-        oldest = min((t.created_at for t in tasks if t.created_at), default=None)
-        newest = max((t.created_at for t in tasks if t.created_at), default=None)
-        output: dict[str, Any] = {
-            "total": total,
-            "by_status": dict(counts),
-            "oldest_task_age": _fmt_age(oldest) if oldest else None,
-            "newest_task_age": _fmt_age(newest) if newest else None,
-        }
-        click.echo(json.dumps(output, indent=2))
-        return
-
-    click.echo(f"Tasks: {total}")
-    if total == 0:
-        return
-
-    for status_val in [
-        "running",
-        "queued",
-        "session_starting",
-        "blocked",
-        "prompt_sent",
-        "acked",
-        "result_reported",
-        "verifying",
-        "correcting",
-        "completed",
-        "failed",
-        "escalated",
-        "created",
-    ]:
-        count = counts.get(status_val, 0)
-        if count > 0:
-            click.echo(f"  {status_val}: {count}")
-
-    oldest = min((t.created_at for t in tasks if t.created_at), default=None)
-    newest = max((t.created_at for t in tasks if t.created_at), default=None)
-    if oldest:
-        click.echo(f"Oldest: {_fmt_age(oldest)}")
-    if newest:
-        click.echo(f"Newest: {_fmt_age(newest)}")
-
-
-@main.command()
 @click.option("--repo", default=".", help="Git repository path to initialize")
 @click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
 @click.option(
@@ -3715,104 +3657,6 @@ def config_validate(*, as_json: bool = False) -> None:
         click.echo("✓ Config is valid.")
 
 
-def _export_as_json(task: Task) -> str:
-    """Generate a JSON export string for the given task."""
-    from duo.protocol import read_heartbeat, read_jsonl, read_result_for_step
-
-    events = read_jsonl(task.journal_path)
-    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
-    report: dict[str, object] = {
-        "task_id": task.id,
-        "description": task.description,
-        "status": task.status.value,
-        "branch": task.branch,
-        "worktree": task.worktree,
-        "incarnation": task.incarnation_id,
-        "created_at": task.created_at,
-        "steps": task.current_step,
-        "total_steps": len(task.subtasks),
-        "attempt": task.current_attempt,
-        "pr_consumed": pr_count,
-        "subtasks": [
-            {
-                "step_id": s.step_id,
-                "description": s.description,
-                "target_files": s.target_files,
-            }
-            for s in task.subtasks
-        ],
-        "events": events,
-    }
-    results = []
-    for s in task.subtasks:
-        if s.step_id == task.current_step:
-            attempt_list = list(range(1, task.current_attempt + 1))
-        else:
-            step_dir = task.step_dir(s.step_id)
-            attempt_list = (
-                sorted(
-                    int(p.stem.split("-")[-1])
-                    for p in step_dir.glob("result-attempt-*.json")
-                )
-                if step_dir.is_dir()
-                else []
-            )
-        for attempt in attempt_list:
-            result = read_result_for_step(task, s.step_id, attempt)
-            if result:
-                results.append(
-                    {
-                        "step": result.step,
-                        "attempt": result.attempt,
-                        "status": result.status,
-                        "summary": result.summary,
-                        "files_changed": result.files_changed,
-                    }
-                )
-    report["results"] = results
-    hb = read_heartbeat(task)
-    if hb:
-        report["heartbeat"] = {
-            "ts": hb.ts,
-            "status": hb.status,
-            "current_file": hb.current_file,
-        }
-    return json.dumps(report, ensure_ascii=False, indent=2)
-
-
-def _export_as_text(task: Task) -> str:
-    """Generate a plain-text export string for the given task."""
-    from duo.protocol import read_jsonl
-
-    events = read_jsonl(task.journal_path)
-    pr_count = sum(1 for ev in events if ev.get("event") == "pr_consumed")
-    lines: list[str] = []
-    lines.append(f"Task Report: {task.id}")
-    lines.append(f"{'=' * 40}")
-    lines.append(f"Description: {task.description}")
-    lines.append(f"Status:      {task.status.value}")
-    lines.append(f"Branch:      {task.branch}")
-    lines.append(f"Created:     {task.created_at}")
-    lines.append(f"Step:        {task.current_step}/{len(task.subtasks)}")
-    lines.append(f"Attempt:     {task.current_attempt}")
-    lines.append(f"PR Used:     {pr_count}")
-    lines.append("")
-
-    lines.append("Steps:")
-    for s in task.subtasks:
-        lines.append(f"  {s.step_id}. {s.description}")
-        if s.target_files:
-            lines.append(f"     Files: {', '.join(s.target_files)}")
-    lines.append("")
-
-    lines.append(f"Events ({len(events)} total):")
-    for ev in events[-20:]:
-        ts = _fmt_ts(ev.get("ts", "?"))
-        lines.append(f"  {ts} {ev.get('event', '?')}")
-
-    return "\n".join(lines)
-
-
 # ---------------------------------------------------------------------------
 # duo events — watch-event signal file management
 # ---------------------------------------------------------------------------
@@ -4337,61 +4181,6 @@ def ceo_status(task: str, assert_in_dialog: bool) -> None:
     click.echo(json.dumps({"task": task, "state": "idle"}))
     if assert_in_dialog:
         raise SystemExit(1)
-
-
-@main.command()
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option(
-    "--format",
-    "fmt",
-    type=click.Choice(["text", "json", "jsonl"]),
-    default="text",
-    help="Output format",
-)
-@click.option(
-    "-o",
-    "--output",
-    "outfile",
-    type=click.Path(),
-    help="Write to file instead of stdout",
-)
-@click.option("-q", "--quiet", is_flag=True, help="Print only the event count")
-def export(name: str, fmt: str, outfile: str | None, quiet: bool) -> None:
-    """Export task report (events, files changed, summary)."""
-    task = _load_task_or_fail(name)
-
-    if quiet:
-        events = read_jsonl(task.journal_path) if task.journal_path.exists() else []
-        click.echo(str(len(events)))
-        return
-
-    if fmt == "jsonl":
-        events = read_jsonl(task.journal_path) if task.journal_path.exists() else []
-        lines = []
-        for ev in events:
-            line = {
-                "task_id": task.id,
-                "timestamp": ev.get("ts", ""),
-                "event": ev.get("event", ""),
-                "data": ev.get("data", {}),
-            }
-            lines.append(json.dumps(line, ensure_ascii=False))
-        output = "\n".join(lines)
-        if outfile:
-            atomic_write_text(Path(outfile), output + "\n" if output else "")
-            click.echo(f"Report written to {outfile}")
-        else:
-            for l in lines:
-                click.echo(l)
-        return
-
-    output = _export_as_json(task) if fmt == "json" else _export_as_text(task)
-
-    if outfile:
-        atomic_write_text(Path(outfile), output + "\n")
-        click.echo(f"Report written to {outfile}")
-    else:
-        click.echo(output)
 
 
 def _parse_age(age_str: str) -> int:

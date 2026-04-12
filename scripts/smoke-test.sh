@@ -53,11 +53,11 @@ run_test "duo version" duo version
 echo ""
 echo "🔎 Command completeness check"
 EXPECTED_CMDS="start send stop status merge diff kill \
-think list monitor watch dashboard logs inspect stats \
+think list monitor watch dashboard logs inspect \
 batch queue \
 ceo-wait ceo-select ceo-approve ceo-status \
 recover resume retry \
-export audit cost cleanup events \
+audit cost cleanup events \
 init doctor config completion go version"
 HELP_OUTPUT=$(duo --help 2>&1)
 MISSING=""
@@ -77,11 +77,11 @@ echo ""
 echo "📋 Command Help (wiring check)"
 for cmd in \
     start send stop status merge diff kill \
-    think list monitor watch dashboard logs inspect stats \
+    think list monitor watch dashboard logs inspect \
     batch queue \
     ceo-wait ceo-select ceo-approve ceo-status \
     recover resume retry \
-    export audit cost cleanup events \
+    audit cost cleanup events \
     init doctor config completion go; do
     run_test "duo $cmd --help" duo "$cmd" --help
 done
@@ -157,8 +157,6 @@ run_test_expect_fail "send no-task" duo send nonexistent-task "hello"
 run_test_expect_fail "inspect no-task" duo inspect nonexistent-task
 run_test_expect_fail "diff no-task" duo diff nonexistent-task
 run_test_expect_fail "logs no-task" duo logs nonexistent-task
-run_test_expect_fail "stats no-task" duo stats nonexistent-task
-run_test_expect_fail "export no-task" duo export nonexistent-task
 run_test_expect_fail "retry no-task" duo retry nonexistent-task
 
 # === Data commands on empty state ===
@@ -167,7 +165,6 @@ echo "📊 Data commands (empty state)"
 run_test "audit empty" duo audit
 run_test "cost empty" duo cost
 run_test "recover empty" duo recover
-run_test "stats empty" duo stats
 run_test "cleanup empty" duo cleanup --force
 run_test "events list empty" duo events list
 run_test "queue empty" duo queue
@@ -202,7 +199,6 @@ run_test_json "config get --json-output" duo config get poll_base_interval --jso
 run_test_json "queue --json-output" duo queue --json-output
 run_test_json "cost --json-output" duo cost --json-output
 run_test_json "audit --json-output" duo audit --json-output
-run_test_json "stats --json-output" duo stats --json-output
 run_test_json "recover --json-output" duo recover --json-output
 run_test_json "cleanup --json-output" duo cleanup --force --json-output
 run_test_json "events list --json-output" duo events list --json-output

@@ -631,7 +631,7 @@ validation.
 
 ### Monitoring
 
-`list` · `monitor` · `watch` · `dashboard` · `logs` · `inspect` · `stats`
+`list` · `monitor` · `watch` · `dashboard` · `logs` · `inspect`
 
 ### Batch & Queue
 
@@ -647,7 +647,7 @@ validation.
 
 ### Data & Audit
 
-`export` · `audit` · `cost` · `cleanup` · `events` (subcommands: `list` · `show` · `tail` · `clear`)
+`audit` · `cost` · `cleanup` · `events` (subcommands: `list` · `show` · `tail` · `clear`)
 
 ### Planning & Setup
 

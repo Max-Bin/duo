@@ -124,7 +124,6 @@ duo list --wide                       # include description column
 duo status my-task -q                 # print just the status value (e.g. "running")
 duo inspect my-task -q                # print just the status value
 duo cost -q                           # print total PR count only
-duo stats -q                          # print total task count only
 duo audit -q                          # print total PR consumed only
 duo audit my-task -q                  # print task-specific PR count
 duo doctor -q                         # print only failures (empty = all pass)
@@ -140,7 +139,6 @@ duo merge my-task -q                  # print merged branch name only
 duo merge my-task --dry-run -q        # print changed file count only
 duo queue -q                          # print queue length only
 duo config get copilot_model -q       # print raw value (for shell vars)
-duo export my-task -q                 # print event count only
 duo list --finished                   # only completed/failed/escalated
 duo list --active -c                  # count active tasks
 duo status my-task --wait completed   # block until status reached

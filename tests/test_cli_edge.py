@@ -219,11 +219,11 @@ class TestCommandSectionsComplete:
         assert phantom == set(), f"Phantom entries in _COMMAND_SECTIONS: {phantom}"
 
     def test_command_count_matches_docs(self) -> None:
-        """CLAUDE.md says '35 commands' — verify this matches reality."""
+        """CLAUDE.md says '33 commands' — verify this matches reality."""
         ctx = click.Context(main)
         registered = main.list_commands(ctx)
-        assert len(registered) == 35, (
-            f"CLAUDE.md says 35 commands but found {len(registered)}. "
+        assert len(registered) == 33, (
+            f"CLAUDE.md says 33 commands but found {len(registered)}. "
             "Update CLAUDE.md if commands were added/removed."
         )
 
