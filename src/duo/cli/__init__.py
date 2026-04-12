@@ -208,6 +208,22 @@ _TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
 _MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
 
 
+def _send_to_pane_direct(pane_id: str, command: str) -> None:
+    """Send a shell command to a pane using its raw ID, bypassing label resolution.
+
+    This avoids the cross-session pollution bug where resolve_label()
+    finds a stale pane with the same label in a different tmux session.
+    """
+    subprocess.run(
+        ["tmux", "send-keys", "-t", pane_id, "-l", "--", command],
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+    subprocess.run(
+        ["tmux", "send-keys", "-t", pane_id, "-H", "0d"],
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+
+
 def _complete_task_names(
     ctx: click.Context, param: click.Parameter, incomplete: str
 ) -> list[click.shell_completion.CompletionItem]:
@@ -2093,101 +2109,11 @@ def dashboard(names: tuple[str, ...], refresh: float) -> None:
     run_dashboard(task_ids, refresh_rate=refresh)
 
 
-@main.command()
-@click.argument("name", shell_complete=_complete_task_names)
-@click.option(
-    "-n", "--lines", default=20, type=click.IntRange(1), help="Number of recent events"
+from duo.cli.logs_cmd import (  # noqa: E402
+    logs as logs_command,
 )
-@click.option("--all", "show_all", is_flag=True, help="Show all events")
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option(
-    "--filter", "event_filter", default=None, help="Filter by event type substring"
-)
-@click.option(
-    "--step", "step_filter", default=None, type=int, help="Filter events by step number"
-)
-@click.option(
-    "-c", "--count", "show_count", is_flag=True, help="Print only the event count"
-)
-@click.option("-q", "--quiet", is_flag=True, help="Print one event type per line")
-@click.pass_context
-def logs(
-    ctx: click.Context,
-    name: str,
-    lines: int,
-    show_all: bool,
-    as_json: bool,
-    event_filter: str | None,
-    step_filter: int | None,
-    show_count: bool,
-    quiet: bool,
-) -> None:
-    """Show task journal events."""
-    from duo.protocol import read_jsonl
 
-    task = _load_task_or_fail(name)
-
-    events = read_jsonl(task.journal_path)
-    if not events:
-        click.echo("No events recorded.")
-        return
-
-    if event_filter:
-        events = [ev for ev in events if event_filter in ev.get("event", "")]
-
-    if step_filter is not None:
-        events = [
-            ev
-            for ev in events
-            if ev.get("data", {}).get("step") == step_filter
-            or ev.get("step") == step_filter
-        ]
-
-    if show_count:
-        click.echo(str(len(events)))
-        return
-
-    if not show_all:
-        events = events[-lines:]
-
-    if quiet:
-        for ev in events:
-            click.echo(ev.get("event", "unknown"))
-        return
-
-    if as_json:
-        click.echo(json.dumps(events, indent=2))
-        return
-
-    for ev in events:
-        ts = _fmt_ts(ev.get("ts", "?"))
-        event_type = ev.get("event", "?")
-        data = ev.get("data", {})
-
-        # Color-code by event type
-        if "error" in event_type or "failed" in event_type or "violation" in event_type:
-            symbol = "✗"
-        elif "completed" in event_type or "passed" in event_type:
-            symbol = "✓"
-        elif "warning" in event_type:
-            symbol = "⚠"
-        else:
-            symbol = "·"
-
-        # Format data compactly
-        data_str = ""
-        if data:
-            parts = []
-            for k, v in data.items():
-                if isinstance(v, list) and len(str(v)) > 40:
-                    parts.append(f"{k}=[{len(v)} items]")
-                elif isinstance(v, str) and len(v) > 50:
-                    parts.append(f"{k}={v[:47]}...")
-                else:
-                    parts.append(f"{k}={v}")
-            data_str = " " + " ".join(parts)
-
-        click.echo(f"  {ts} {symbol} {event_type}{data_str}")
+main.add_command(logs_command, "logs")
 
 
 def _inspect_gather_worktree_files(worktree: str) -> dict[str, Any]:
@@ -2646,7 +2572,10 @@ def go(repo: str) -> None:
         if get_config("bypass_permissions"):
             copilot_cmd += " --yolo"
 
-        time.sleep(1.0)  # Wait for shell to fully start in new pane
+        time.sleep(1.5)  # Wait for shell to fully start in new pane
+        # CRITICAL: Use pane_id directly, NOT standby_label.
+        # resolve_label searches ALL sessions and may find a stale pane
+        # from a previous duo go in a different tmux session.
         try:
             send_shell_command(standby_label, f"cd {shlex.quote(str(repo_path))}")
             time.sleep(0.5)
@@ -2914,493 +2843,36 @@ def _load_task_or_fail(name: str) -> Task:
     return task
 
 
-def _log_pr_budget_warning(label: str, flag: str) -> None:
-    """Append a warning line to ~/.duo/pr-budget.log when safety is bypassed."""
-    from duo.protocol import DUO_DIR, now_iso
-
-    log_path = DUO_DIR / "pr-budget.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(f"{now_iso()} WARNING {flag} used on pane '{label}'\n")
-        f.flush()
-        os.fsync(f.fileno())
-
-
-def _enforce_not_at_main_prompt(label: str, force_new_session: bool) -> None:
-    """Check main prompt guard; bypass only with force_new_session (+ log)."""
-    if force_new_session:
-        _log_pr_budget_warning(label, "--force-new-session")
-    else:
-        assert_not_at_main_prompt(label)
-
-
-def assert_not_at_main_prompt(label: str) -> None:
-    """Raise ClickException if the pane is at Copilot's main ❯ prompt.
-
-    ANY input at the main prompt creates a new Premium Request.  This is a
-    hard safety gate — callers must abort or require ``--force-new-session``.
-    """
-    from duo.transport import is_at_main_prompt, read_pane
-
-    content = read_pane(label, 20)
-    if is_at_main_prompt(content):
-        raise DuoUserError(
-            f"REFUSED: '{label}' is at Copilot main ❯ prompt. "
-            "Sending any input here would create a NEW Premium Request "
-            "and burn budget.",
-            fix="Wait for a new dialog or use --force-new-session.",
-        )
-
-
-@main.command("ceo-wait")
-@click.argument("task", shell_complete=_complete_task_names)
-@click.option(
-    "--timeout", default=300, type=float, help="Max seconds to wait (default: 300)."
+from duo.cli.ceo_cmd import (  # noqa: E402
+    _enforce_not_at_main_prompt as _enforce_not_at_main_prompt,  # noqa: F401 — re-export
 )
-@click.option(
-    "--interval", default=5, type=float, help="Poll interval in seconds (default: 5)."
+from duo.cli.ceo_cmd import (  # noqa: E402
+    _log_pr_budget_warning as _log_pr_budget_warning,  # noqa: F401 — re-export
 )
-def ceo_wait(task: str, timeout: float, interval: float) -> None:
-    """Wait for a dialog to appear in a task's pane.
-
-    Blocks until the pane shows a stable dialog box, then prints the
-    dialog content to stdout, writes a watch-event signal file, and
-    exits 0. On timeout, exits 1.
-    """
-    from duo.commander import _write_watch_event
-    from duo.transport import is_process_alive, read_pane, wait_for_dialog
-
-    t = _load_task_or_fail(task)
-    if not is_process_alive(t.pane_label):
-        raise DuoUserError(
-            f"Pane '{t.pane_label}' is not alive",
-            fix=f"Run 'duo status {task}' to check task state, or 'duo resume {task}' to restart.",
-        )
-    found = wait_for_dialog(t.pane_label, timeout=timeout, interval=interval)
-    if not found:
-        raise DuoUserError(
-            f"Timeout after {timeout}s: no dialog detected in '{task}'",
-            fix=f"Check pane manually or increase --timeout. Run 'duo status {task}' for current state.",
-        )
-    content = read_pane(t.pane_label, 40)
-    click.echo(content)
-    _write_watch_event(t, content)
-    _session_id = os.environ.get("DUO_CEO_SESSION")
-    if _session_id:
-        from duo.ceo_log import log_dialog_detected
-
-        log_dialog_detected(_session_id, task, content, "dialog")
-
-
-@main.command("ceo-select")
-@click.argument("task", shell_complete=_complete_task_names)
-@click.argument("option", required=False, default=None)
-@click.option(
-    "--other",
-    "other_text",
-    default=None,
-    help="Navigate to the 'Other' option and type this text instead",
+from duo.cli.ceo_cmd import (  # noqa: E402
+    assert_not_at_main_prompt as assert_not_at_main_prompt,  # noqa: F401 — re-export
 )
-@click.option(
-    "--force-new-session",
-    is_flag=True,
-    default=False,
-    help="Bypass main-prompt safety check (WARNING: creates a new PR)",
+from duo.cli.ceo_cmd import (  # noqa: E402
+    ceo_approve,
+    ceo_select,
+    ceo_status,
+    ceo_wait,
 )
-def ceo_select(
-    task: str,
-    option: str | None,
-    other_text: str | None,
-    force_new_session: bool,
-) -> None:
-    """Select a dialog option in a task's pane.
 
-    OPTION is a number (1-9) to pick that option directly.
-    Use --other TEXT instead to navigate to the last option
-    ("Other"/"type your answer") and type custom text.
-    OPTION and --other are mutually exclusive.
-
-    Safety: refuses to act if the pane is at the main ❯ prompt (would
-    create a new Premium Request). Override with --force-new-session.
-    """
-    from duo.transport import (
-        DialogKind,
-        get_dialog_kind,
-        is_in_dialog_stable,
-        select_dialog_option,
-        send_option_other_message,
-        send_text_dialog_message,
-    )
-
-    if option is not None and other_text is not None:
-        raise click.UsageError("Cannot specify both OPTION and --other. Pick one.")
-    if option is None and other_text is None:
-        raise click.UsageError("Must specify OPTION or --other TEXT.")
-
-    if option is not None and not option.isdigit():
-        raise DuoUserError(
-            f"OPTION must be a number (1-9), got '{option}'",
-            fix="Run 'duo ceo-select TASK 1' to select the first option.",
-        )
-
-    t = _load_task_or_fail(task)
-    _enforce_not_at_main_prompt(t.pane_label, force_new_session)
-    if not is_in_dialog_stable(t.pane_label):
-        raise DuoUserError(
-            f"Pane '{t.pane_label}' is not in a stable dialog",
-            fix=f"Wait for the dialog to appear, then retry. Run 'duo ceo-wait {task}' to wait.",
-        )
-    kind = get_dialog_kind(t.pane_label)
-    if kind == DialogKind.TEXT:
-        # Text-input dialog: no numbered options
-        if option is not None:
-            raise DuoUserError(
-                "This is a text-input dialog with no numbered options",
-                fix="Use --other TEXT to type a response.",
-            )
-        if other_text is None:  # pragma: no cover — guarded by mutual-exclusion above
-            raise click.ClickException(
-                "Internal error: expected --other TEXT for text dialog."
-            )
-        success = send_text_dialog_message(t.pane_label, other_text)
-        if success:
-            click.echo(f"Typed text: {other_text}")
-        else:
-            click.echo(
-                f"Typed text: {other_text} (dialog may still be active — check manually)"
-            )
-    elif kind == DialogKind.BULLET:
-        from duo.transport import select_bullet_option
-
-        if option is not None:
-            select_bullet_option(t.pane_label, int(option))
-            click.echo(f"Selected bullet option {option}")
-        elif other_text is not None:
-            # BULLET last item is usually "Type your answer..."
-            send_text_dialog_message(t.pane_label, other_text)
-            click.echo(f"Typed text in bullet dialog: {other_text}")
-        else:  # pragma: no cover — unreachable: Click mutual-exclusion ensures option or other_text is set
-            raise click.ClickException("Internal error: expected OPTION or --other.")
-    elif other_text is not None:
-        success = send_option_other_message(t.pane_label, other_text)
-        if success:
-            click.echo(f"Selected 'Other' with text: {other_text}")
-        else:
-            click.echo(
-                f"Selected 'Other' with text: {other_text} (dialog may still be active)"
-            )
-    else:
-        if option is None:  # pragma: no cover — guarded by mutual-exclusion above
-            raise click.ClickException("Internal error: expected OPTION number.")
-        select_dialog_option(t.pane_label, option)
-        click.echo(f"Selected option {option}")
-    _session_id = os.environ.get("DUO_CEO_SESSION")
-    if _session_id:
-        from duo.ceo_log import log_decision
-
-        chosen = other_text if other_text is not None else (option or "?")
-        log_decision(_session_id, task, "select", f"selected {chosen}", elapsed_ms=0)
+main.add_command(ceo_wait, "ceo-wait")
+main.add_command(ceo_select, "ceo-select")
+main.add_command(ceo_approve, "ceo-approve")
+main.add_command(ceo_status, "ceo-status")
 
 
-@main.command("ceo-approve")
-@click.argument("task", shell_complete=_complete_task_names)
-@click.option(
-    "--force-new-session",
-    is_flag=True,
-    default=False,
-    help="Bypass main-prompt safety check (WARNING: creates a new PR)",
+from duo.cli.cleanup_cmd import (  # noqa: E402
+    _parse_age as _parse_age,  # noqa: F401 — re-export
 )
-def ceo_approve(task: str, force_new_session: bool) -> None:
-    """Auto-approve a permission dialog in a task's pane.
-
-    Only works on permission dialogs (e.g. "Do you want to run this
-    command?"). For ask-user dialogs, use ceo-select instead.
-
-    Reads the dialog options and picks the "most positive" yes option:
-    prefers "Yes + approve for session" over plain "Yes", skips "No".
-
-    Safety: refuses to act if the pane is at the main ❯ prompt (would
-    create a new Premium Request). Override with --force-new-session.
-    """
-    from duo.transport import approve_permission, is_permission_dialog
-
-    t = _load_task_or_fail(task)
-    _enforce_not_at_main_prompt(t.pane_label, force_new_session)
-    if not is_permission_dialog(t.pane_label):
-        raise DuoUserError(
-            f"'{task}' is not showing a permission dialog",
-            fix="Use 'duo ceo-select' for other dialog types, or 'duo ceo-wait' to wait for a dialog.",
-        )
-    approve_permission(t.pane_label)
-    click.echo(f"Approved dialog in '{task}'")
-    _session_id = os.environ.get("DUO_CEO_SESSION")
-    if _session_id:
-        from duo.ceo_log import log_decision
-
-        log_decision(_session_id, task, "approve", "permission approved", elapsed_ms=0)
-
-
-@main.command("ceo-status")
-@click.argument("task", shell_complete=_complete_task_names)
-@click.option(
-    "--assert-in-dialog",
-    is_flag=True,
-    default=False,
-    help="Exit non-zero if pane is NOT in a dialog (for scripting)",
+from duo.cli.cleanup_cmd import (  # noqa: E402
+    cleanup as cleanup_command,
 )
-def ceo_status(task: str, assert_in_dialog: bool) -> None:
-    """Print the current pane state as a single JSON line.
 
-    States: idle, processing, dialog, text_dialog, dead.
-
-    \b
-    Output examples:
-      {"task":"e2e-test","state":"dialog","options":5}
-      {"task":"e2e-test","state":"text_dialog"}
-
-    Use --assert-in-dialog in scripts:
-      duo ceo-status my-task --assert-in-dialog || handle_no_dialog
-    """
-    from duo.transport import (
-        DialogKind,
-        get_dialog_kind,
-        is_process_alive,
-        read_pane,
-        strip_ansi,
-    )
-
-    t = _load_task_or_fail(task)
-    label = t.pane_label
-
-    if not is_process_alive(label):
-        click.echo(json.dumps({"task": task, "state": "dead"}))
-        if assert_in_dialog:
-            raise SystemExit(1)
-        return
-
-    content = read_pane(label, 30)
-    kind = get_dialog_kind(label)
-
-    # Check dialog first (most specific)
-    if kind == DialogKind.OPTION:
-        # Count options only within the dialog box boundaries (╭─ … ╰─)
-        lines = content.split("\n")
-        in_box = False
-        opt_count = 0
-        for line in lines:  # pragma: no cover — split("\n") always yields ≥1 element
-            if "╭─" in line:
-                in_box = True
-                continue
-            if "╰─" in line:
-                break
-            if in_box and re.match(r"\s*[│]?\s*(❯\s*)?\d+\.\s", line):
-                opt_count += 1
-        click.echo(json.dumps({"task": task, "state": "dialog", "options": opt_count}))
-        return
-
-    if kind == DialogKind.TEXT:
-        click.echo(json.dumps({"task": task, "state": "text_dialog"}))
-        return
-
-    if kind == DialogKind.BULLET:
-        from duo.transport import count_bullet_items
-
-        total, cursor = count_bullet_items(strip_ansi(content))
-        click.echo(
-            json.dumps(
-                {
-                    "task": task,
-                    "state": "bullet_dialog",
-                    "items": total,
-                    "cursor": cursor,
-                }
-            )
-        )
-        return
-
-    # Check spinner (processing)
-    if any(m in content for m in ("◉ ", "◎ ", "○ ")):
-        click.echo(json.dumps({"task": task, "state": "processing"}))
-        if assert_in_dialog:
-            raise SystemExit(1)
-        return
-
-    # Otherwise idle
-    click.echo(json.dumps({"task": task, "state": "idle"}))
-    if assert_in_dialog:
-        raise SystemExit(1)
-
-
-def _parse_age(age_str: str) -> int:
-    """Parse age string like '7d', '24h', '30m' into seconds."""
-    import re
-
-    match = re.match(r"^(\d+)([dhms])$", age_str)
-    if not match:
-        raise click.UsageError("invalid age format. Use: 7d, 24h, 30m, 3600s")
-    value, unit = int(match.group(1)), match.group(2)
-    if value == 0:
-        raise click.UsageError("age value must be > 0")
-    seconds = value * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
-    if seconds > _MAX_AGE_SECONDS:
-        raise click.UsageError(f"age '{age_str}' too large (max ~1000 years).")
-    return seconds
-
-
-@main.command()
-@click.option(
-    "--all",
-    "clean_all",
-    is_flag=True,
-    help="Clean all finished tasks (completed + failed)",
-)
-@click.option("--force", is_flag=True, help="Skip confirmation")
-@click.option(
-    "--dry-run", is_flag=True, help="Show what would be cleaned without doing it"
-)
-@click.option("--keep-journal", is_flag=True, help="Keep journal files")
-@click.option(
-    "--age",
-    type=str,
-    default=None,
-    help="Only clean tasks older than duration (e.g., 7d, 24h, 30m)",
-)
-@click.option(
-    "--corrupted", is_flag=True, help="List and purge quarantined corrupted tasks"
-)
-@click.option("--json-output", "as_json", is_flag=True, help="Output as JSON")
-@click.option("-q", "--quiet", is_flag=True, help="Print only the cleaned count")
-def cleanup(
-    clean_all: bool,
-    force: bool,
-    dry_run: bool,
-    keep_journal: bool,
-    age: str | None,
-    corrupted: bool,
-    *,
-    as_json: bool = False,
-    quiet: bool = False,
-) -> None:
-    """Clean up completed and failed tasks."""
-    import shutil
-
-    if corrupted:
-        from duo.protocol import list_corrupted
-
-        items = list_corrupted()
-        if not items:
-            if as_json:
-                click.echo(json.dumps({"cleaned": 0, "tasks": [], "corrupted": True}))
-            else:
-                click.echo("No quarantined tasks.")
-            return
-        if not as_json:
-            click.echo(f"Quarantined tasks ({len(items)}):")
-            for p in items:
-                click.echo(f"  {p.name}")
-        if not force and not as_json:
-            click.confirm("Delete all quarantined tasks?", abort=True)
-        for p in items:
-            shutil.rmtree(p, ignore_errors=True)
-        if as_json:
-            click.echo(
-                json.dumps(
-                    {
-                        "cleaned": len(items),
-                        "tasks": [p.name for p in items],
-                        "corrupted": True,
-                    }
-                )
-            )
-        else:
-            click.echo(f"Purged {len(items)} quarantined task(s).")
-        return
-
-    tasks = list_tasks()
-
-    if clean_all:
-        targets = [
-            t
-            for t in tasks
-            if t.status
-            in (
-                TaskStatus.COMPLETED,
-                TaskStatus.FAILED,
-            )
-        ]
-    else:
-        targets = [t for t in tasks if t.status == TaskStatus.COMPLETED]
-
-    if age:
-        max_age = _parse_age(age)
-        from duo.poller import age as task_age
-
-        targets = [t for t in targets if task_age(t.created_at) > max_age]
-
-    if not targets:
-        if quiet:
-            click.echo("0")
-            return
-        if as_json:
-            click.echo(json.dumps({"cleaned": 0, "tasks": [], "dry_run": dry_run}))
-        else:
-            click.echo("No tasks to clean up.")
-        return
-
-    if dry_run:
-        if as_json:
-            click.echo(
-                json.dumps(
-                    {
-                        "cleaned": len(targets),
-                        "tasks": [t.id for t in targets],
-                        "dry_run": True,
-                    }
-                )
-            )
-        else:
-            click.echo(f"Would clean up {len(targets)} task(s):")
-            for t in targets:
-                click.echo(f"  {t.id} ({t.status.value})")
-        return
-
-    if not as_json and not quiet:
-        click.echo(f"Tasks to clean up ({len(targets)}):")
-        for t in targets:
-            click.echo(f"  {t.id} ({t.status.value})")
-
-    if not force and not as_json and not quiet:
-        click.confirm("Proceed?", abort=True)
-
-    cleaned = 0
-    cleaned_ids: list[str] = []
-    warn = not as_json and not quiet
-    for task in targets:
-        _remove_worktree_and_branch(task, warn=warn)
-
-        if keep_journal:
-            for item in task.dir.iterdir():
-                if item.name != "journal.jsonl":
-                    if item.is_symlink():
-                        item.unlink()
-                    elif item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
-        else:
-            shutil.rmtree(task.dir)
-
-        cleaned += 1
-        cleaned_ids.append(task.id)
-        if not as_json and not quiet:
-            click.echo(f"  ✓ {task.id}")
-
-    if quiet:
-        click.echo(str(cleaned))
-    elif as_json:
-        click.echo(json.dumps({"cleaned": cleaned, "tasks": cleaned_ids}))
-    else:
-        click.echo(f"\nCleaned {cleaned} tasks.")
+main.add_command(cleanup_command, "cleanup")
 
 
 @main.command("diff")

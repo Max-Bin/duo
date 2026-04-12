@@ -599,9 +599,14 @@ def split_window_horizontal() -> str:
     try:
         result = subprocess.run(
             [
-                "tmux", "split-window", "-h",
-                "-t", session_target,
-                "-P", "-F", "#{pane_id}",
+                "tmux",
+                "split-window",
+                "-h",
+                "-t",
+                session_target,
+                "-P",
+                "-F",
+                "#{pane_id}",
             ],
             capture_output=True,
             text=True,

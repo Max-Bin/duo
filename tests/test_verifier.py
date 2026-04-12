@@ -525,7 +525,7 @@ class TestCheckSecretLeak:
             ("glpat-", "+GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx"),
             ("pypi-AgEIcHlwaS", "+PYPI_TOKEN=pypi-AgEIcHlwaSOmeLongToken"),
             ("npm_", "+NPM_TOKEN=npm_xxxxxxxxxxxxxxxxxxxx"),
-            ("AIZA", "+GOOGLE_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXX"),
+            ("AIzaSy", "+GOOGLE_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXX"),
             (
                 "-----BEGIN ENCRYPTED PRIVATE KEY",
                 "+-----BEGIN ENCRYPTED PRIVATE KEY-----",
@@ -539,7 +539,7 @@ class TestCheckSecretLeak:
             ("xoxa-", "+SLACK_APP=xoxa-xxxxxxxxxxxx"),
             ("ya29.", "+GOOGLE_OAUTH=ya29.a0ARrdaM_xxxxxxx"),
             ("sk-svcacct-", "+OPENAI_SVC=sk-svcacct-xxxxxxxxxxxx"),
-            ("AIza", "+FIREBASE_KEY=AIzaSyCxxxxxxxxxxxx"),
+            ("AIzaSy", "+FIREBASE_KEY=AIzaSyCxxxxxxxxxxxx"),
             ("SG.", "+SENDGRID_KEY=SG.xxxxxxxxxxxx"),
             ("sq0csp-", "+SQUARE_SECRET=sq0csp-xxxxxxxxxxxx"),
             ("sq0atp-", "+SQUARE_TOKEN=sq0atp-xxxxxxxxxxxx"),
