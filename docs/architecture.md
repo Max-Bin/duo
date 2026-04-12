@@ -44,9 +44,9 @@ from a previous session from corrupting current state.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                      CLI (cli.py)                   │
-│           Click entry point · 52 commands           │
-│              + config / events subgroups             │
+│                   CLI (cli/ package)                │
+│       16 submodules · 33 commands · Click           │
+│         config / events / think subgroups            │
 └──────┬───────────────┬──────────────┬───────────────┘
        │               │              │
        ▼               ▼              ▼
@@ -88,7 +88,7 @@ from a previous session from corrupting current state.
 
 | Module | Stmts | Role |
 |--------|------:|------|
-| `cli.py` | ~4 900 | Click CLI entry point — 35 commands + `config` / `events` subgroups, CEO commands |
+| `cli/` | ~5 200 | Click CLI package — 16 submodules, 33 commands + `config` / `events` / `think` subgroups |
 | `protocol.py` | ~990 | FSM (13 states), dataclasses (`Task`, `Subtask`, `SecurityPolicy`), atomic file I/O, journal |
 | `commander.py` | ~1 800 | Orchestration brain — prompt construction, session lifecycle, verification loop, watch/dialog handling, Claude Commander pane |
 | `transport.py` | ~1 700 | tmux-bridge wrapper — `read_pane`, `send_keys`, dialog detection, read-guard enforcement, PR tracking |

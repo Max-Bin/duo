@@ -60,7 +60,7 @@ These allow easy mocking in tests and future transport backends.
 ### Security Guards
 
 - **Path traversal protection** — verifier rejects changes outside `writable_paths` (fnmatch)
-- **Label sanitization** — `_validate_label()` in transport.py enforces `^[a-zA-Z0-9_.-]+$`; `_validate_task_name()` in cli/__init__.py enforces `^[a-zA-Z0-9_-]+$`
+- **Label sanitization** — `_validate_label()` in transport.py enforces `^[a-zA-Z0-9_.-]+$`; `_validate_task_name()` in cli/_helpers.py enforces `^[a-zA-Z0-9_-]+$`
 - **Secret detection** — verifier scans diffs for sensitive patterns
 - **`shell=False`** — all subprocess calls use list-form arguments
 
@@ -92,7 +92,7 @@ Legal transitions are defined in `protocol.TRANSITIONS` dict. All transitions ar
 - Journal is append-only JSONL — never modify existing entries
 - Atomic writes: `write_json` uses tmp+rename pattern for crash safety
 - Incarnation ID (16-char hex) isolates sessions — ack/heartbeat/result must match current incarnation
-- Tests use `monkeypatch` to isolate `TASKS_DIR` to `tmp_path`
+- Tests use shared `_isolate_tasks_dir` fixture in `conftest.py` to isolate `TASKS_DIR` to `tmp_path`
 - Prompts sent to executor are in Chinese (the executor agents understand Chinese)
 
 ## Data Models
@@ -117,11 +117,12 @@ All defined in `protocol.py` as dataclasses:
 
 ## Testing
 
-- 3053+ tests, **100% test coverage required** (enforced via `make coverage`)
-- Tests organized by module in `tests/test_*.py` (22 test files)
+- 2275+ tests, **100% test coverage required** (enforced via `make coverage`)
+- Tests organized by module in `tests/test_*.py` (35 test files)
+- CLI tests split to match cli/ package: `test_cli_doctor.py`, `test_cli_lifecycle.py`, etc.
 - Mock `subprocess.run` for git/tmux-bridge calls
 - Use `click.testing.CliRunner` for CLI tests
-- Fixture `_isolate_tasks_dir` monkeypatches `TASKS_DIR` to `tmp_path` for isolation
+- Shared fixtures in `conftest.py`: `_isolate_tasks_dir` (autouse), `isolated_tasks`, `runner`, `make_task`
 - Every new feature needs tests — coverage must not drop
 - Tests are organized by class per function/component under test
 
