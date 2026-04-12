@@ -4615,3 +4615,76 @@ class TestCommanderEdgeCases:
         for i in range(50):
             append_event(task, "correction_sent", {"step": 1, "attempt": i + 2})
         assert _count_corrections(task, 1) == 50
+
+    def test_detect_project_context_unknown_type(self, tmp_path):
+        """Unknown project type when no recognizable files exist."""
+        result = _detect_project_context(str(tmp_path))
+        assert "Unknown" in result
+
+    def test_detect_project_context_go_project(self, tmp_path):
+        """Go project detected from go.mod."""
+        (tmp_path / "go.mod").write_text("module example.com/test\n")
+        result = _detect_project_context(str(tmp_path))
+        assert "Go" in result
+
+    def test_detect_project_context_java_project(self, tmp_path):
+        """Java Maven project detected from pom.xml."""
+        (tmp_path / "pom.xml").write_text("<project></project>\n")
+        result = _detect_project_context(str(tmp_path))
+        assert "Java" in result
+
+    def test_detect_project_context_rust_project(self, tmp_path):
+        """Rust project detected from Cargo.toml."""
+        (tmp_path / "Cargo.toml").write_text("[package]\n")
+        result = _detect_project_context(str(tmp_path))
+        assert "Rust" in result
+
+    def test_detect_project_context_with_instructions(self, tmp_path):
+        """Project instructions from .duo/instructions.md are included."""
+        (tmp_path / ".duo").mkdir()
+        (tmp_path / ".duo" / "instructions.md").write_text("Custom instructions here")
+        result = _detect_project_context(str(tmp_path))
+        assert "Custom instructions here" in result
+
+    def test_detect_project_context_instructions_with_html_comment(self, tmp_path):
+        """Instructions starting with HTML comment are skipped."""
+        (tmp_path / ".duo").mkdir()
+        (tmp_path / ".duo" / "instructions.md").write_text(
+            "<!-- This is a template -->\nContent"
+        )
+        result = _detect_project_context(str(tmp_path))
+        assert "Custom instructions" not in result
+
+    def test_detect_project_context_readme_rst(self, tmp_path):
+        """README.rst is found when README.md doesn't exist."""
+        (tmp_path / "README.rst").write_text("RST README content")
+        result = _detect_project_context(str(tmp_path))
+        assert "RST README content" in result
+
+    def test_get_copilot_model_invalid_env(self, monkeypatch):
+        """DUO_COPILOT_MODEL with invalid chars falls back to config."""
+        monkeypatch.setenv("DUO_COPILOT_MODEL", "model;injection")
+        result = _get_copilot_model()
+        assert ";" not in result
+
+    def test_get_copilot_model_too_long(self, monkeypatch):
+        """DUO_COPILOT_MODEL exceeding 64 chars falls back to config."""
+        monkeypatch.setenv("DUO_COPILOT_MODEL", "a" * 65)
+        result = _get_copilot_model()
+        assert len(result) <= 64
+
+    def test_check_pr_budget_unlimited(self):
+        """Budget 0 means unlimited — always OK."""
+        task = _make_task("budget-unlim")
+        assert _check_pr_budget(task) is True
+
+    def test_check_pr_budget_at_limit(self):
+        """Exactly at budget — should fail (not OK)."""
+        from duo.config import set_config
+
+        set_config("pr_budget", "2")
+        task = _make_task("budget-limit")
+        append_event(task, "pr_consumed", {"pr": 1})
+        append_event(task, "pr_consumed", {"pr": 2})
+        assert _check_pr_budget(task) is False
+        set_config("pr_budget", "0")

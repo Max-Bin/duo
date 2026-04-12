@@ -832,3 +832,105 @@ class TestExtractResponseEdgeCases:
         after = "prompt\n这是中文回答 🚀"
         result = extract_response(before, after, "q")
         assert "这是中文回答 🚀" in result
+
+
+class TestThinkingEdgeCasesRound5:
+    """Additional edge case value coverage for thinking module."""
+
+    def test_extract_response_edit_line_filtered(self) -> None:
+        """Lines starting with ● Edit are filtered as noise."""
+        before = "prompt"
+        after = "prompt\n● Edit src/foo.py\nActual response"
+        result = extract_response(before, after, "q")
+        assert "● Edit" not in result
+        assert "Actual response" in result
+
+    def test_extract_response_read_line_filtered(self) -> None:
+        """Lines starting with ● Read are filtered."""
+        before = "prompt"
+        after = "prompt\n● Read src/bar.py\nReal content"
+        result = extract_response(before, after, "q")
+        assert "● Read" not in result
+        assert "Real content" in result
+
+    def test_extract_response_bash_grep_lines_filtered(self) -> None:
+        """Lines starting with ● Bash and ● Grep are filtered."""
+        before = "prompt"
+        after = "prompt\n● Bash echo hello\n● Grep pattern\nThe answer"
+        result = extract_response(before, after, "q")
+        assert "● Bash" not in result
+        assert "● Grep" not in result
+        assert "The answer" in result
+
+    def test_extract_response_identical_content(self) -> None:
+        """Before and after identical produces empty result."""
+        content = "line1\nline2\nprompt"
+        result = extract_response(content, content, "q")
+        assert result == ""
+
+    def test_extract_response_user_message_exact_match_filtered(self) -> None:
+        """Exact user message in delta is filtered."""
+        before = "prompt"
+        after = "prompt\nhello world\nReply"
+        result = extract_response(before, after, "hello world")
+        assert "hello world" not in result
+        assert "Reply" in result
+
+    def test_validate_name_empty_string(self) -> None:
+        """Empty name is rejected."""
+        from duo.thinking import _validate_name
+
+        with pytest.raises(ValueError, match="Invalid thinking session name"):
+            _validate_name("")
+
+    def test_validate_name_dot_dot(self) -> None:
+        """Path traversal attempt is rejected."""
+        from duo.thinking import _validate_name
+
+        with pytest.raises(ValueError):
+            _validate_name("../escape")
+
+    def test_validate_name_starts_with_underscore(self) -> None:
+        """Name starting with underscore is rejected."""
+        from duo.thinking import _validate_name
+
+        with pytest.raises(ValueError):
+            _validate_name("_hidden")
+
+    def test_validate_name_valid_with_hyphen(self) -> None:
+        """Name with hyphens and underscores is valid."""
+        from duo.thinking import _validate_name
+
+        _validate_name("my-session_2")  # should not raise
+
+    def test_pane_label_format(self) -> None:
+        """_pane_label produces expected format."""
+        label = _pane_label("review")
+        assert "review" in label
+
+    def test_list_sessions_ignores_files(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """list_sessions skips non-directory entries."""
+        import duo.thinking
+
+        monkeypatch.setattr(duo.thinking, "THINKING_DIR", tmp_path)
+        (tmp_path / "not-a-session.txt").write_text("file")
+        (tmp_path / "real-session").mkdir()
+        with patch.object(duo.thinking, "_pane_exists", return_value=False):
+            sessions = list_sessions()
+        assert len(sessions) == 1
+        assert sessions[0]["name"] == "real-session"
+
+    def test_append_session_log_creates_file(self, tmp_path: Path) -> None:
+        """append_session_log creates session.log if it doesn't exist."""
+        import duo.thinking
+
+        name = "log-test"
+        tdir = tmp_path / name
+        tdir.mkdir()
+        with patch.object(duo.thinking, "_ensure_thinking_dir", return_value=tdir):
+            append_session_log(name, "question", "answer")
+        log = (tdir / "session.log").read_text()
+        assert "[user] question" in log
+        assert "[response]\nanswer" in log
