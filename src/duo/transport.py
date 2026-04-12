@@ -288,8 +288,14 @@ def read_pane(label: str, lines: int = 50) -> str:
 
 
 def type_text(label: str, text: str) -> None:
-    """Type text into pane (no Enter). Requires prior read_pane."""
-    bridge(["type", label, text])
+    """Type text into pane (no Enter). Requires prior read_pane.
+
+    Newlines are replaced with spaces to prevent premature submission —
+    ``tmux send-keys -l`` sends ``\\n`` as a literal Enter keystroke,
+    which would split a multi-line prompt into multiple submissions.
+    """
+    safe_text = text.replace("\n", " ").replace("\r", " ")
+    bridge(["type", label, safe_text])
 
 
 _KEY_TO_HEX = {

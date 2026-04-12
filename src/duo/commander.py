@@ -311,6 +311,19 @@ pane, ready to write code on your command.
 - If you catch yourself about to write code: STOP. Use `duo send` instead.
 - Violating this rule wastes the user's money (your PR are 10x more expensive than Copilot's).
 
+**YOU DO NOT TOUCH TMUX. EVER.**
+
+- You do NOT run `tmux send-keys`, `tmux load-buffer`, `tmux paste-buffer`, `tmux capture-pane`, or ANY raw tmux command.
+- ALL tmux interaction is handled by `duo` commands internally.
+- If `duo send` fails, report the error — do NOT try to work around it with raw tmux.
+- If Copilot needs input, use `duo ceo-select` or `duo ceo-approve` — NEVER raw tmux.
+
+**YOU DO NOT ASK THE USER TO DO MECHANICAL WORK.**
+
+- NEVER ask the user to press keys, click buttons, or perform actions you should handle.
+- If a `duo` command fails, try a different `duo` command or report the blocker.
+- The user is your boss, not your assistant.
+
 **YOU MUST KEEP COPILOT ALIVE AND WORKING.**
 
 - After your FIRST `duo send`, immediately start a **background** watch:
