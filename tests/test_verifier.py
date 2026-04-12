@@ -1023,3 +1023,51 @@ class TestRemainingSecretPatterns:
         for pattern, diff_line in patterns_and_diffs:
             result = _check_secret_leak(task, diff_line + "\n", DEFAULT_SECRET_PATTERNS)
             assert isinstance(result, Correction), f"{pattern} not detected in diff"
+
+
+class TestVerifierEdgeCases:
+    """Edge case value coverage for verifier functions."""
+
+    def test_secret_leak_no_added_lines(self) -> None:
+        """Diff with only removed lines (no +) returns None."""
+        task = _make_task()
+        diff = "-removed_secret=leaked\n-another=line"
+        result = _check_secret_leak(task, diff, ["secret="])
+        assert result is None
+
+    def test_secret_leak_header_lines_ignored(self) -> None:
+        """Lines starting with +++ (diff headers) are not checked."""
+        task = _make_task()
+        diff = "+++ b/config.py\n+safe_line=value"
+        result = _check_secret_leak(task, diff, ["config.py"])
+        assert result is None  # +++ header filtered out
+
+    def test_secret_leak_case_insensitive(self) -> None:
+        """Secret pattern matching is case-insensitive."""
+        task = _make_task()
+        diff = "+APIKEY=leaked"
+        result = _check_secret_leak(task, diff, ["apikey="])
+        assert isinstance(result, Correction)
+
+    def test_secret_leak_empty_diff(self) -> None:
+        """Empty diff content returns None."""
+        task = _make_task()
+        result = _check_secret_leak(task, "", ["secret="])
+        assert result is None
+
+    def test_security_scope_empty_changed_set(self) -> None:
+        """Empty changed files set passes security scope check."""
+        task = _make_task()
+        result = _check_security_scope(task, set(), ["*"], "/tmp")
+        assert result is None
+
+    def test_security_scope_multiple_traversal_variants(self) -> None:
+        """Various path traversal patterns are all rejected."""
+        task = _make_task()
+        for bad_path in [
+            "../etc/passwd",
+            "../../root/.ssh/id_rsa",
+            "../../../etc/shadow",
+        ]:
+            result = _check_security_scope(task, {bad_path}, ["*"], "/tmp/worktree")
+            assert isinstance(result, Correction), f"{bad_path} not rejected"

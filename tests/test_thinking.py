@@ -792,3 +792,43 @@ class TestBypassPermissions:
         ):
             ensure_pane("bp-off")
             mock_cmd.assert_called_once_with("think-bp-off", "claude")
+
+
+class TestExtractResponseEdgeCases:
+    """Deeper edge cases for extract_response."""
+
+    def test_completely_different_before_after(self) -> None:
+        """When before and after share no common prefix, all after is delta."""
+        before = "completely\ndifferent\ncontent"
+        after = "nothing\nin\ncommon\nResponse!"
+        result = extract_response(before, after, "q")
+        assert "Response!" in result
+
+    def test_after_shorter_than_before(self) -> None:
+        """When after has fewer lines than before (pane cleared)."""
+        before = "line1\nline2\nline3\nline4\nline5"
+        after = "fresh\nResponse here"
+        result = extract_response(before, after, "q")
+        assert "Response here" in result
+
+    def test_multiline_user_message_not_filtered(self) -> None:
+        """Multi-line user message — only exact match filtered."""
+        before = "prompt"
+        after = "prompt\nhello world\nResponse"
+        result = extract_response(before, after, "hello\nworld")
+        # "hello world" != "hello\nworld".strip(), so it stays
+        assert "hello world" in result
+
+    def test_all_noise_returns_empty(self) -> None:
+        """When delta is entirely noise lines, result is empty."""
+        before = "prompt"
+        after = "prompt\n\n  \n❯\n>\n"
+        result = extract_response(before, after, "q")
+        assert result == ""
+
+    def test_unicode_response_preserved(self) -> None:
+        """Unicode content in response is preserved."""
+        before = "prompt"
+        after = "prompt\n这是中文回答 🚀"
+        result = extract_response(before, after, "q")
+        assert "这是中文回答 🚀" in result

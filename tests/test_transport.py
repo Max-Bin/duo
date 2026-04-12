@@ -2953,6 +2953,35 @@ class TestParseDialogOptionsEdgeCases:
         assert "1" not in options
         assert cursor == 4
 
+    def test_box_with_no_options(self):
+        """Box markers present but no numbered options inside."""
+        from duo.transport import _parse_dialog_options
+
+        content = "╭─ Empty ─╮\nJust text here\n╰─────────╯"
+        options, cursor = _parse_dialog_options(content)
+        assert options == {}
+        assert cursor == 0
+
+    def test_cursor_without_number(self):
+        """❯ marker present but not followed by a digit — no cursor position."""
+        from duo.transport import _parse_dialog_options
+
+        content = "╭─ Test ─╮\n❯ Option A\n  1. Real option\n╰────────╯"
+        options, cursor = _parse_dialog_options(content)
+        assert "1" in options
+        assert cursor == 0  # ❯ not followed by digit pattern
+
+    def test_option_text_with_special_characters(self):
+        """Option text containing Unicode and special chars preserved."""
+        from duo.transport import _parse_dialog_options
+
+        content = "╭─ Test ─╮\n❯ 1. 选项一 (默认)\n  2. Option β — special!\n╰────╯"
+        options, cursor = _parse_dialog_options(content)
+        assert "1" in options
+        assert "选项一 (默认)" in options["1"]
+        assert "2" in options
+        assert cursor == 1
+
 
 # ── _retry_enter_until_dismissed edge cases ────────────────────────────
 

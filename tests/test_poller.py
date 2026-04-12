@@ -388,3 +388,65 @@ class TestPollerHardening:
         for _ in range(100):
             poller._ramp()
         assert poller.interval == 10.0
+
+
+class TestPollerEdgeCases:
+    """Edge case value coverage for AdaptivePoller."""
+
+    def test_zero_base_interval(self) -> None:
+        """base_interval=0 creates degenerate poller that always resets to 0."""
+        poller = AdaptivePoller(base_interval=0.0, max_interval=10.0)
+        assert poller.interval == 0.0
+        poller._ramp()
+        assert poller.interval == 0.0  # 0 * RAMP_FACTOR = 0
+
+    def test_equal_base_and_max(self) -> None:
+        """base == max means ramp never changes interval."""
+        poller = AdaptivePoller(base_interval=5.0, max_interval=5.0)
+        poller._ramp()
+        assert poller.interval == 5.0
+        poller._ramp()
+        assert poller.interval == 5.0
+
+    def test_ramp_stability_at_max_many_iterations(self) -> None:
+        """Ramp stays exactly at max after many iterations (no float drift)."""
+        poller = AdaptivePoller(base_interval=1.0, max_interval=100.0)
+        for _ in range(1000):
+            poller._ramp()
+        assert poller.interval == 100.0
+
+    def test_negative_heartbeat_timeout(self, tmp_path: Path) -> None:
+        """Negative heartbeat_timeout causes immediate timeout on any heartbeat."""
+        task = _make_task(tmp_path)
+        write_json(
+            task.heartbeat_path,
+            {
+                "ts": _now_iso(),
+                "incarnation": task.incarnation_id,
+                "step": 1,
+                "status": "working",
+                "current_file": "x.py",
+            },
+        )
+        poller = AdaptivePoller(heartbeat_timeout=-1.0)
+        result = poller.poll(task)
+        assert result == PollResult.HEARTBEAT_TIMEOUT
+
+    def test_age_with_naive_timestamp(self) -> None:
+        """age() handles naive timestamps (no timezone) by assuming UTC."""
+        ts = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")  # no TZ info
+        result = age(ts)
+        assert result >= 0.0
+        assert result < 5.0  # should be recent
+
+    def test_age_with_offset_timezone(self) -> None:
+        """age() handles +HH:MM timezone offsets."""
+        ts = datetime.now(UTC).isoformat().replace("+00:00", "+05:30")
+        result = age(ts)
+        # Will be offset by ~5.5 hours — just verify it returns a number
+        assert isinstance(result, float)
+        assert result >= 0.0
+
+    def test_age_with_integer_input(self) -> None:
+        """age() with non-string non-None returns inf via TypeError."""
+        assert age(12345) == float("inf")  # type: ignore[arg-type]

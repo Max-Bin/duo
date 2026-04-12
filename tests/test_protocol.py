@@ -2179,6 +2179,81 @@ class TestTaskLock:
                 pass  # pragma: no cover
 
 
+class TestProtocolEdgeCases:
+    """Edge case value coverage beyond line/branch coverage."""
+
+    def test_create_task_empty_description(self, _isolate_tasks_dir):
+        """Empty description is allowed."""
+        task = create_task("empty-desc", "", "/w", "b", "c", [_make_subtask()])
+        assert task.description == ""
+
+    def test_create_task_unicode_description(self, _isolate_tasks_dir):
+        """Unicode description including emoji and CJK."""
+        desc = "🚀 部署任务 — テスト"
+        create_task("uni-desc", desc, "/w", "b", "c", [_make_subtask()])
+        loaded = load_task("uni-desc")
+        assert loaded is not None
+        assert loaded.description == desc
+
+    def test_journal_rotation_at_exact_boundary(
+        self, _isolate_tasks_dir, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Journal at exactly MAX_JOURNAL_BYTES triggers rotation."""
+        import duo.protocol
+
+        task = create_task("exact-boundary", "d", "/w", "b", "c", [_make_subtask()])
+        # Write events until we have content
+        for i in range(10):
+            append_event(task, f"e{i}", {"data": "x" * 50})
+        size = task.journal_path.stat().st_size
+        # Set threshold to exactly current size - 1 so next write triggers rotation
+        monkeypatch.setattr(duo.protocol, "MAX_JOURNAL_BYTES", size - 1)
+        lines_before = len(task.journal_path.read_text().splitlines())
+        append_event(task, "trigger", {"final": True})
+        lines_after = len(task.journal_path.read_text().splitlines())
+        assert lines_after < lines_before
+
+    def test_write_json_with_nested_empty_structures(self, tmp_path: Path):
+        """write_json handles deeply nested empty dicts/lists."""
+        path = tmp_path / "nested.json"
+        data = {"a": {"b": {"c": []}}, "d": [], "e": {}}
+        write_json(path, data)
+        result = read_json(path)
+        assert result == data
+
+    def test_write_json_infinity_produces_non_standard_json(self, tmp_path: Path):
+        """write_json allows float('inf') — json.dumps doesn't reject it by default."""
+        path = tmp_path / "inf.json"
+        # Python's json.dumps allows Infinity (non-standard JSON)
+        # This documents the behavior — it does NOT raise
+        write_json(path, {"val": float("inf")})
+        content = path.read_text()
+        assert "Infinity" in content
+
+    def test_load_task_with_extra_fields_in_json(self, _isolate_tasks_dir):
+        """Extra unknown fields in task.json are ignored gracefully."""
+        task = create_task("extra-fields", "d", "/w", "b", "c", [_make_subtask()])
+        # Add extra field to the saved JSON
+        task_json = task.dir / "task.json"
+        data = json.loads(task_json.read_text())
+        data["unknown_future_field"] = "some value"
+        task_json.write_text(json.dumps(data))
+        _clear_task_cache()
+        loaded = load_task("extra-fields")
+        assert loaded is not None
+        assert loaded.id == "extra-fields"
+
+    def test_append_event_with_large_data(self, _isolate_tasks_dir):
+        """append_event handles reasonably large event data."""
+        task = create_task("large-evt", "d", "/w", "b", "c", [_make_subtask()])
+        large_data = {"lines": ["x" * 200 for _ in range(100)]}
+        append_event(task, "big_event", large_data)
+        events = read_jsonl(task.journal_path)
+        big_events = [e for e in events if e.get("event") == "big_event"]
+        assert len(big_events) == 1
+        assert len(big_events[0]["data"]["lines"]) == 100
+
+
 class TestPublicAPI:
     """Verify the top-level ``duo`` package exports are stable."""
 

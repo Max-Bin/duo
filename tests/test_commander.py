@@ -4584,3 +4584,34 @@ class TestBranchCoverageCommander:
             verify_and_advance(task, result=result)
         # No crash — function exits after the if/elif without action
         assert task.status == TaskStatus.VERIFYING
+
+
+class TestCommanderEdgeCases:
+    """Edge case value coverage for commander functions."""
+
+    def test_count_corrections_step_zero(self):
+        """_count_corrections with step=0 (invalid step) returns 0."""
+        task = _make_task("corr-zero")
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        assert _count_corrections(task, 0) == 0
+
+    def test_count_corrections_large_step(self):
+        """_count_corrections with step=999 (no matching events) returns 0."""
+        task = _make_task("corr-large")
+        append_event(task, "correction_sent", {"step": 1, "attempt": 2})
+        assert _count_corrections(task, 999) == 0
+
+    def test_count_corrections_malformed_event_data(self):
+        """_count_corrections handles events with missing/bad data fields."""
+        task = _make_task("corr-bad")
+        # Event with no 'data' key
+        append_event(task, "correction_sent", {})
+        # Event with non-dict data (the data.get("step") would fail if not dict)
+        assert _count_corrections(task, 1) == 0
+
+    def test_count_corrections_many_events(self):
+        """_count_corrections correctly counts within tail=200 window."""
+        task = _make_task("corr-many")
+        for i in range(50):
+            append_event(task, "correction_sent", {"step": 1, "attempt": i + 2})
+        assert _count_corrections(task, 1) == 50
