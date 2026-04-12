@@ -429,6 +429,18 @@ class TestCheckSecurityScope:
         result = _check_security_scope(task, {"nonexistent.py"}, ["*"], str(worktree))
         assert result is None
 
+    def test_lstat_non_enoent_error_rejected(self, tmp_path):
+        """Non-ENOENT OSError from lstat returns Correction (fail-closed)."""
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        (worktree / "test.py").write_text("x")
+
+        task = _make_task()
+        with patch("duo.verifier.os.lstat", side_effect=PermissionError("EACCES")):
+            result = _check_security_scope(task, {"test.py"}, ["*"], str(worktree))
+        assert isinstance(result, Correction)
+        assert "Security check failed" in result.reason
+
 
 # ---------------------------------------------------------------------------
 # _check_task_scope
@@ -757,6 +769,26 @@ class TestRunInWorktreeShlex:
             result = run_in_worktree(str(tmp_path), "echo 'unterminated")
         assert result == 127
         assert "Failed to parse" in caplog.text
+
+    def test_empty_command_returns_127(self, tmp_path, caplog):
+        """Empty/whitespace-only command returns 127 without crashing."""
+        with caplog.at_level(logging.WARNING, logger="duo.verifier"):
+            result = run_in_worktree(str(tmp_path), "   ")
+        assert result == 127
+        assert "Empty command" in caplog.text
+
+    def test_os_error_returns_127(self, tmp_path, caplog):
+        """OSError during subprocess execution returns 127."""
+        with (
+            caplog.at_level(logging.WARNING, logger="duo.verifier"),
+            patch(
+                "duo.verifier.subprocess.run",
+                side_effect=PermissionError("Permission denied"),
+            ),
+        ):
+            result = run_in_worktree(str(tmp_path), "some-command")
+        assert result == 127
+        assert "OS error" in caplog.text
 
 
 # ---------------------------------------------------------------------------

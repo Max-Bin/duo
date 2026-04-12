@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 from collections import deque
@@ -554,7 +555,11 @@ def transition(task: Task, new_status: TaskStatus) -> bool:
     task.status = new_status
     # Save task.json first so a save failure keeps journal consistent
     # (journal won't record a transition that didn't persist to task.json).
-    save_task(task)
+    try:
+        save_task(task)
+    except OSError:
+        task.status = old  # rollback in-memory on save failure
+        raise
     append_event(
         task,
         "status_changed",
@@ -581,6 +586,10 @@ def create_task(
     """Create a new task with initial state."""
     if not subtasks:
         raise ValueError("Task must have at least one subtask")
+    if not re.match(r"^[a-zA-Z0-9_-]+\Z", task_id) or len(task_id) > 63:
+        raise ValueError(
+            f"Invalid task ID '{task_id}': must be 1-63 alphanumeric/dash/underscore characters"
+        )
 
     task_dir = TASKS_DIR / task_id
     if task_dir.exists() and (task_dir / "task.json").exists():

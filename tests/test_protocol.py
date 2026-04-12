@@ -1945,6 +1945,16 @@ class TestTransitionSaveBeforeJournal:
         status_events = [e for e in events if e.get("event") == "status_changed"]
         assert len(status_events) == 0
 
+    def test_save_failure_rolls_back_status(self, tmp_path: Path):
+        """If save_task raises, in-memory task.status must be rolled back."""
+        task = create_task("rollback", "d", "/w", "b", "c", [_make_subtask()])
+        assert task.status == TaskStatus.CREATED
+        with patch("duo.protocol.save_task", side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                transition(task, TaskStatus.SESSION_STARTING)
+        # In-memory status should be rolled back to CREATED
+        assert task.status == TaskStatus.CREATED
+
     def test_successful_transition_has_both(self, tmp_path: Path):
         """Normal transition persists both task.json and journal."""
         task = create_task("sav-ok", "d", "/w", "b", "c", [_make_subtask()])
@@ -2396,3 +2406,32 @@ class TestProtocolEdgeCasesRound7:
         h1 = prompt_hash("hello")
         h2 = prompt_hash("world")
         assert h1 != h2
+
+
+class TestCreateTaskIdValidation:
+    """create_task rejects dangerous task IDs at the protocol level."""
+
+    def test_slash_rejected(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="Invalid task ID"):
+            create_task("foo/bar", "d", "/w", "b", "c", [_make_subtask()])
+
+    def test_dotdot_rejected(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="Invalid task ID"):
+            create_task("foo..bar", "d", "/w", "b", "c", [_make_subtask()])
+
+    def test_absolute_path_rejected(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="Invalid task ID"):
+            create_task("/etc/passwd", "d", "/w", "b", "c", [_make_subtask()])
+
+    def test_too_long_rejected(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="Invalid task ID"):
+            create_task("a" * 64, "d", "/w", "b", "c", [_make_subtask()])
+
+    def test_empty_rejected(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="Invalid task ID"):
+            create_task("", "d", "/w", "b", "c", [_make_subtask()])
+
+    def test_valid_ids_accepted(self, tmp_path: Path):
+        for tid in ["my-task", "task_123", "A", "a" * 63]:
+            task = create_task(tid, "d", "/w", "b", "c", [_make_subtask()])
+            assert task.id == tid

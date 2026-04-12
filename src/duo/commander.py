@@ -416,6 +416,8 @@ Use for: architectural decisions, security code, multi-file changes.
 2. **CAPIError = context full** — restart the Copilot session
 3. **No parallel same-file edits** — don't let sub-agents edit one file concurrently
 4. **One task at a time** recommended for best results
+5. **Ctrl+Q submits at Copilot prompt** — `tmux send-keys -l` triggers multi-line mode where Enter inserts newline. Use `tmux send-keys -t <pane> C-q` to submit. Ctrl+S opens slash menu (WRONG).
+6. **Copilot input freezes after long run** — `tmux send-keys` silently fails. Fix: Ctrl+C twice → `copilot --resume=<id>`. Ctrl+Q only works on freshly resumed sessions.
 
 ## Iron Rules
 

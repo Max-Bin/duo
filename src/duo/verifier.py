@@ -164,11 +164,17 @@ def run_in_worktree(worktree: str, command: str) -> int:
     except ValueError as exc:
         logger.warning("Failed to parse command %r: %s", command, exc)
         return 127
+    if not argv:
+        logger.warning("Empty command after parsing: %r", command)
+        return 127
     try:
         proc = subprocess.run(
             argv, shell=False, cwd=worktree, timeout=_TEST_SUITE_TIMEOUT
         )
     except FileNotFoundError:
+        return 127
+    except OSError as exc:
+        logger.warning("Acceptance test OS error: %s — %s", command, exc)
         return 127
     except subprocess.TimeoutExpired:
         logger.warning(
@@ -258,8 +264,11 @@ def _check_security_scope(
                     {"file": path, "nlink": st.st_nlink, "reason": "hardlink"},
                 )
                 return Correction(reason)
-        except OSError:
+        except FileNotFoundError:
             pass  # File may not exist on disk (staged deletion)
+        except OSError as exc:
+            reason = f"Security check failed for '{path}': {exc}"
+            return Correction(reason)
 
         # Match resolved relative path against writable_paths (root-anchored)
         rel_real = os.path.relpath(real_path, real_worktree)
