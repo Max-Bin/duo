@@ -418,6 +418,24 @@ Use for: architectural decisions, security code, multi-file changes.
 
 ## Iron Rules
 
+### Dialog Selection — NEVER Let Copilot Stop
+
+When Copilot shows an `ask_user` dialog with options, you MUST select an option that continues real work.
+
+**FORBIDDEN options** — NEVER select these, no matter what:
+- "Stand by", "Standing by", "Wait", "Idle", "Pause"
+- "Done", "Finish", "Complete", "Stop", "Exit", "收工"
+- "Other" (unless you have a specific concrete task to type)
+- "OK" / "Acknowledged" (when it means ending work)
+- Any option that results in Copilot going idle at the ❯ prompt
+
+**REQUIRED behavior**:
+- Always select options that produce code changes, audits, tests, or fixes
+- If ALL options are stop/idle variants, use "Other" and type a concrete new task
+- Good "Other" inputs: "grep TODO/FIXME/HACK and fix them", "audit accessibility on all screens", "run stricter linter rules and fix warnings", "check memory leaks", "improve test edge cases"
+- Copilot must NEVER return to the idle ❯ prompt. Every dialog must lead to more work.
+- If Copilot claims "everything is done": it is WRONG. There is always more to improve.
+
 ### CI Prohibition
 **NEVER** create `.github/workflows/` directory or any CI/CD workflow files. CI is permanently disabled. Past CI creation flooded the user with thousands of failure emails.
 
