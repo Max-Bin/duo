@@ -303,6 +303,7 @@ _KEY_TO_HEX = {
     "Enter": "0d",
     "Return": "0d",
     "C-m": "0d",
+    "C-q": "11",  # Copilot multi-line submit (enqueue)
     "Tab": "09",
     "C-i": "09",
     "Escape": "1b",
@@ -1631,7 +1632,8 @@ def send_slash_command(label: str, command: str) -> None:
             )
         type_text(label, command)
         read_pane(label, 5)
-        send_keys(label, "Enter")
+        # Slash commands also trigger multi-line mode via tmux injection
+        send_keys(label, "C-q")
 
 
 def send_bootstrap(label: str, prompt: str) -> None:
@@ -1660,7 +1662,11 @@ def send_bootstrap(label: str, prompt: str) -> None:
                 _BOOTSTRAP_DONE.discard(label)
             raise
         read_pane(label, 5)
-        send_keys(label, "Enter")
+        # Copilot enters multi-line mode when text is injected via tmux
+        # send-keys -l (treats it as "pasted" content). In multi-line mode
+        # Enter inserts a newline; Ctrl+Q (enqueue, 0x11) submits.
+        # Try Ctrl+Q first, fall back to Enter for non-Copilot panes.
+        send_keys(label, "C-q")
         _record_pr(label, "bootstrap", prompt[:80])
 
 
