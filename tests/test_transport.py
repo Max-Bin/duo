@@ -3689,44 +3689,78 @@ class TestIsPaneAlive:
 class TestSplitWindowHorizontal:
     """Tests for split_window_horizontal()."""
 
-    def test_success_returns_pane_id(self):
+    def test_success_returns_new_pane_id(self):
         from duo.transport import split_window_horizontal
 
+        call_count = {"list": 0}
+
+        def mock_run_side_effect(cmd, **kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "list-panes" in cmd_str:
+                call_count["list"] += 1
+                if call_count["list"] == 1:
+                    return MagicMock(returncode=0, stdout="%0\n", stderr="")
+                return MagicMock(returncode=0, stdout="%0\n%42\n", stderr="")
+            if "split-window" in cmd_str:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
         with (
-            patch("duo.transport.subprocess.run") as mock_run,
+            patch("duo.transport.subprocess.run", side_effect=mock_run_side_effect),
             patch("duo.transport.get_tmux_session_target", return_value="$0"),
         ):
-            mock_run.return_value = MagicMock(returncode=0, stdout="%42\n", stderr="")
             result = split_window_horizontal()
             assert result == "%42"
-            args = mock_run.call_args[0][0]
-            assert args == [
-                "tmux",
-                "split-window",
-                "-h",
-                "-t",
-                "$0",
-                "-P",
-                "-F",
-                "#{pane_id}",
-            ]
 
     def test_failure_raises_runtime_error(self):
         from duo.transport import split_window_horizontal
 
-        with patch("duo.transport.subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stderr="no room for split")
+        def mock_run_side_effect(cmd, **kwargs):
+            if "list-panes" in cmd:
+                return MagicMock(returncode=0, stdout="%0\n", stderr="")
+            if "split-window" in cmd:
+                return MagicMock(returncode=1, stderr="no room for split")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with (
+            patch("duo.transport.subprocess.run", side_effect=mock_run_side_effect),
+            patch("duo.transport.get_tmux_session_target", return_value="$0"),
+        ):
             with pytest.raises(RuntimeError, match="split-window failed"):
                 split_window_horizontal()
 
     def test_timeout_raises_runtime_error(self):
         from duo.transport import split_window_horizontal
 
-        with patch(
-            "duo.transport.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="tmux", timeout=10),
+        def mock_run_side_effect(cmd, **kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "list-panes" in cmd_str:
+                return MagicMock(returncode=0, stdout="%0\n", stderr="")
+            raise subprocess.TimeoutExpired(cmd="tmux", timeout=10)
+
+        with (
+            patch("duo.transport.subprocess.run", side_effect=mock_run_side_effect),
+            patch("duo.transport.get_tmux_session_target", return_value="$0"),
         ):
             with pytest.raises(RuntimeError, match="timed out"):
+                split_window_horizontal()
+
+    def test_no_new_pane_detected_raises(self):
+        from duo.transport import split_window_horizontal
+
+        def mock_run_side_effect(cmd, **kwargs):
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            if "list-panes" in cmd_str:
+                return MagicMock(returncode=0, stdout="%0\n", stderr="")
+            if "split-window" in cmd_str:
+                return MagicMock(returncode=0, stdout="", stderr="")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        with (
+            patch("duo.transport.subprocess.run", side_effect=mock_run_side_effect),
+            patch("duo.transport.get_tmux_session_target", return_value="$0"),
+        ):
+            with pytest.raises(RuntimeError, match="no new pane detected"):
                 split_window_horizontal()
 
 

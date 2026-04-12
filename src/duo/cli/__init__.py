@@ -208,22 +208,6 @@ _TMUX_TIMEOUT = 10  # seconds for tmux kill/health operations
 _MAX_AGE_SECONDS = 1000 * 365 * 86400  # ~1000 years upper bound
 
 
-def _send_to_pane_direct(pane_id: str, command: str) -> None:
-    """Send a shell command to a pane using its raw ID, bypassing label resolution.
-
-    This avoids the cross-session pollution bug where resolve_label()
-    finds a stale pane with the same label in a different tmux session.
-    """
-    subprocess.run(
-        ["tmux", "send-keys", "-t", pane_id, "-l", "--", command],
-        check=True, capture_output=True, text=True, timeout=10,
-    )
-    subprocess.run(
-        ["tmux", "send-keys", "-t", pane_id, "-H", "0d"],
-        check=True, capture_output=True, text=True, timeout=10,
-    )
-
-
 def _complete_task_names(
     ctx: click.Context, param: click.Parameter, incomplete: str
 ) -> list[click.shell_completion.CompletionItem]:

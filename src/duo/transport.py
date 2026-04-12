@@ -586,28 +586,31 @@ def is_pane_alive(target: str) -> bool:
 def split_window_horizontal() -> str:
     """Create a new tmux pane via horizontal split and return its pane ID.
 
-    Uses :func:`get_tmux_session_target` to ensure the split happens in the
-    **caller's** tmux session, not whichever session happens to be "active"
-    on the tmux server.  Without ``-t``, ``tmux split-window`` targets the
-    server's most-recently-active pane, which may be in a completely different
-    session — causing cross-session pollution.
+    Uses a before/after pane-list diff to reliably identify the NEW pane.
+    The ``-P -F #{pane_id}`` approach proved unreliable — it sometimes
+    returns the ORIGINAL pane's ID instead of the new one, causing
+    commands to be sent to the wrong pane.
 
     Returns the new pane ID (e.g. ``%42``).
     Raises ``RuntimeError`` if the split fails.
     """
     session_target = get_tmux_session_target()
+
+    # Snapshot pane IDs BEFORE split
+    before = subprocess.run(
+        ["tmux", "list-panes", "-a", "-F", "#{pane_id}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    before_ids = (
+        set(before.stdout.strip().split("\n")) if before.stdout.strip() else set()
+    )
+
+    # Do the split
     try:
         result = subprocess.run(
-            [
-                "tmux",
-                "split-window",
-                "-h",
-                "-t",
-                session_target,
-                "-P",
-                "-F",
-                "#{pane_id}",
-            ],
+            ["tmux", "split-window", "-h", "-t", session_target],
             capture_output=True,
             text=True,
             timeout=10,
@@ -616,7 +619,21 @@ def split_window_horizontal() -> str:
         raise RuntimeError("tmux split-window timed out") from None
     if result.returncode != 0:
         raise RuntimeError(f"tmux split-window failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+
+    # Snapshot pane IDs AFTER split
+    after = subprocess.run(
+        ["tmux", "list-panes", "-a", "-F", "#{pane_id}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    after_ids = set(after.stdout.strip().split("\n")) if after.stdout.strip() else set()
+
+    # New pane = difference
+    new_panes = after_ids - before_ids
+    if not new_panes:
+        raise RuntimeError("split-window succeeded but no new pane detected")
+    return new_panes.pop()
 
 
 def _validate_label(label: str) -> None:
