@@ -6,7 +6,10 @@ are queued and started automatically as slots free up.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ACTIVE_STATUSES",
@@ -63,9 +66,15 @@ def enqueue_or_start(task: Task) -> str:
     if has_slot():
         return "started"
     if not transition(task, TaskStatus.QUEUED):
-        # Transition failed — task may already be started by another process.
+        # Transition failed — task may already be started by another process,
+        # or is in a terminal state where QUEUED is not valid.
         # Return "started" so the caller proceeds with its normal start path;
         # start_session will perform its own FSM validation.
+        logger.info(
+            "Task '%s' not queued (status=%s) — proceeding as started",
+            task.id,
+            task.status.value,
+        )
         return "started"
     append_event(
         task,

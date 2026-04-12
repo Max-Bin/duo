@@ -416,12 +416,12 @@ class TestPollerEdgeCases:
         assert poller.interval == 100.0
 
     def test_negative_heartbeat_timeout(self, tmp_path: Path) -> None:
-        """Negative heartbeat_timeout causes immediate timeout on any heartbeat."""
+        """Negative heartbeat_timeout is clamped to 1.0 — stale heartbeat still times out."""
         task = _make_task(tmp_path)
         write_json(
             task.heartbeat_path,
             {
-                "ts": _now_iso(),
+                "ts": _ago_iso(5),  # 5 seconds ago — older than clamped 1.0s timeout
                 "incarnation": task.incarnation_id,
                 "step": 1,
                 "status": "working",
@@ -429,6 +429,7 @@ class TestPollerEdgeCases:
             },
         )
         poller = AdaptivePoller(heartbeat_timeout=-1.0)
+        assert poller.heartbeat_timeout == 1.0  # clamped
         result = poller.poll(task)
         assert result == PollResult.HEARTBEAT_TIMEOUT
 
@@ -450,3 +451,27 @@ class TestPollerEdgeCases:
     def test_age_with_integer_input(self) -> None:
         """age() with non-string non-None returns inf via TypeError."""
         assert age(12345) == float("inf")  # type: ignore[arg-type]
+
+
+class TestPollerConstructorDefenses:
+    """AdaptivePoller constructor validates and clamps inputs."""
+
+    def test_custom_ramp_factor(self) -> None:
+        """Custom ramp_factor is used instead of module constant."""
+        poller = AdaptivePoller(base_interval=1.0, max_interval=100.0, ramp_factor=2.0)
+        poller._ramp()
+        assert poller.interval == 2.0  # 1.0 * 2.0
+        poller._ramp()
+        assert poller.interval == 4.0  # 2.0 * 2.0
+
+    def test_max_interval_clamped_to_base(self) -> None:
+        """max_interval < base_interval is clamped to base_interval."""
+        poller = AdaptivePoller(base_interval=10.0, max_interval=5.0)
+        assert poller.max_interval == 10.0
+
+    def test_heartbeat_timeout_clamped_to_one(self) -> None:
+        """heartbeat_timeout <= 0 is clamped to 1.0."""
+        poller = AdaptivePoller(heartbeat_timeout=0.0)
+        assert poller.heartbeat_timeout == 1.0
+        poller2 = AdaptivePoller(heartbeat_timeout=-5.0)
+        assert poller2.heartbeat_timeout == 1.0

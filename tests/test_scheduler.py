@@ -496,7 +496,7 @@ class TestSchedulerTransitionEdgeCases:
     """Edge case value coverage for scheduler."""
 
     def test_enqueue_when_transition_fails(self) -> None:
-        """enqueue_or_start returns 'started' if transition to QUEUED fails."""
+        """enqueue_or_start returns 'started' and logs if transition to QUEUED fails."""
         t = _make_task("queue-fail")
         # Force into COMPLETED — transition to QUEUED is illegal
         _force_status(t, TaskStatus.COMPLETED)

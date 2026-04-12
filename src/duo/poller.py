@@ -80,6 +80,7 @@ class AdaptivePoller:
         base_interval: float = BASE_INTERVAL,
         max_interval: float = MAX_INTERVAL,
         heartbeat_timeout: float = HEARTBEAT_TIMEOUT,
+        ramp_factor: float = RAMP_FACTOR,
     ) -> None:
         """Initialize poller with configurable timing parameters.
 
@@ -87,15 +88,17 @@ class AdaptivePoller:
             base_interval: Starting poll interval in seconds.
             max_interval: Upper bound for the poll interval.
             heartbeat_timeout: Seconds without a heartbeat before timeout.
+            ramp_factor: Multiplier for interval each cycle during active heartbeats.
         """
         self.base_interval = base_interval
-        self.max_interval = max_interval
-        self.heartbeat_timeout = heartbeat_timeout
+        self.max_interval = max(max_interval, base_interval)
+        self.heartbeat_timeout = max(heartbeat_timeout, 1.0)
+        self.ramp_factor = ramp_factor
         self.interval = base_interval
 
     def _ramp(self) -> None:
         """Increase interval toward max."""
-        self.interval = min(self.interval * RAMP_FACTOR, self.max_interval)
+        self.interval = min(self.interval * self.ramp_factor, self.max_interval)
 
     def _reset(self) -> None:
         """Reset interval to base (something changed, poll fast)."""
