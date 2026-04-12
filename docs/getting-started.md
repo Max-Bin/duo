@@ -503,5 +503,5 @@ See [`docs/ceo-workflow.md`](ceo-workflow.md) for full details.
 
 - **[`docs/ceo-workflow.md`](ceo-workflow.md)** — CEO command reference with bash loop examples and safety model documentation
 - **[`docs/architecture.md`](architecture.md)** — Deep dive into the FSM, file-based protocol, and security model
-- **`duo --help`** — Full CLI reference with all 52 commands
+- **`duo --help`** — Full CLI reference with all 33 commands
 - **`examples/tasks.json`** — Example batch file with multiple task definitions

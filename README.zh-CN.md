@@ -92,7 +92,7 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 | `duo merge <task>` | 将 worktree fast-forward 合并到目标分支 |
 | `duo watch` | 阻塞等待弹窗出现，打印后退出 |
 | `duo ceo-approve <task>` | 批准权限弹窗 |
-| `duo ceo-loop <task>` | 按策略文件自动处理弹窗 |
+| `duo ceo-select <task>` | 按编号选择弹窗选项 |
 | `duo think <name> --ask "问题"` | 用 Claude Code 在花 PR 之前先头脑风暴 |
 | `duo cost` | 查看各任务的 Premium Request 消耗 |
 | `duo doctor` | 检查所有依赖是否已安装 |
@@ -105,12 +105,11 @@ duo merge fix-auth       # 完成后 fast-forward 合并
 | `duo list -q --status running` | 仅输出运行中的任务 ID（方便脚本使用） |
 | `duo list --recent 5` | 只显示最近创建的 5 个任务 |
 | `duo diff <task>` | 查看任务 worktree 的 git diff |
-| `duo bench` | 运行性能基准测试 |
 
 ## 完整命令参考
 
 ```bash
-duo --help               # 10 组共 52 个命令
+duo --help               # 10 组共 33 个命令
 ```
 
 ### 脚本助手

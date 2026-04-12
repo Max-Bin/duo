@@ -92,7 +92,7 @@ duo merge fix-auth       # fast-forward merge when done
 | `duo merge <task>` | Fast-forward merge the worktree into the target branch |
 | `duo watch` | Block until a dialog appears, print it, then exit |
 | `duo ceo-approve <task>` | Approve a permission dialog |
-| `duo ceo-loop <task>` | Automated dialog handling with policy files |
+| `duo ceo-select <task>` | Select a dialog option by number |
 | `duo think <name> --ask "question"` | Brainstorm with Claude Code before spending PRs |
 | `duo cost` | Show Premium Request consumption across tasks |
 | `duo doctor` | Check that all dependencies are installed |
@@ -105,12 +105,11 @@ duo merge fix-auth       # fast-forward merge when done
 | `duo list -q --status running` | Print only running task IDs (for scripting) |
 | `duo list --recent 5` | Show only the 5 most recently created tasks |
 | `duo diff <task>` | Show git diff for a task's worktree |
-| `duo bench` | Run performance benchmarks |
 
 ## Full Command Reference
 
 ```bash
-duo --help               # 52 commands in 10 groups
+duo --help               # 33 commands in 10 groups
 ```
 
 ### Scripting Helpers
