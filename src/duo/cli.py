@@ -341,6 +341,23 @@ def _remove_worktree_and_branch(
     return wt_removed, branch_deleted
 
 
+def _find_main_worktree(task_worktree: str) -> str | None:
+    """Find the main (non-duo) worktree from a git repo.
+
+    Returns the main worktree path, or None if not found.
+    """
+    cwd = task_worktree if os.path.exists(task_worktree) else "."
+    r = _run_git(["worktree", "list", "--porcelain"], cwd=cwd, check=False)
+    for line in r.stdout.split("\n"):
+        if (
+            line.startswith("worktree ")
+            and get_config("worktree_base_path") not in line
+        ):
+            parts = line.split(" ", 1)
+            return parts[1] if len(parts) > 1 else parts[0]
+    return None
+
+
 @click.group(cls=_OrderedGroup)
 @click.option("-v", "--verbose", is_flag=True, help="Verbose output")
 @click.version_option(package_name="duo", prog_name="duo")
@@ -990,12 +1007,7 @@ def list_cmd(
         tasks = [t for t in tasks if t.status in _ACTIVE_STATUSES]
 
     if finished:
-        _FINISHED_STATUSES = {
-            TaskStatus.COMPLETED,
-            TaskStatus.FAILED,
-            TaskStatus.ESCALATED,
-        }
-        tasks = [t for t in tasks if t.status in _FINISHED_STATUSES]
+        tasks = [t for t in tasks if t.status in _TERMINAL_STATES]
 
     if status_filter:
         valid_statuses = {s.value for s in TaskStatus}
@@ -1295,16 +1307,7 @@ def merge(
         )
 
     # Get parent repo from worktree
-    main_worktree: str | None = None
-    r = _run_git(["worktree", "list", "--porcelain"], cwd=worktree, check=False)
-    for line in r.stdout.split("\n"):
-        if (
-            line.startswith("worktree ")
-            and get_config("worktree_base_path") not in line
-        ):
-            parts = line.split(" ", 1)
-            main_worktree = parts[1] if len(parts) > 1 else parts[0]
-            break
+    main_worktree = _find_main_worktree(worktree)
 
     if main_worktree is None:
         raise DuoUserError(
@@ -1550,21 +1553,7 @@ def kill(
     cleanup_pane_state(task.pane_label)
 
     # Find parent repo
-    main_worktree = None
-    r = _run_git(
-        ["worktree", "list", "--porcelain"],
-        cwd=task.worktree if os.path.exists(task.worktree) else ".",
-        check=False,
-    )
-    for line in r.stdout.split("\n"):
-        if (
-            line.startswith("worktree ")
-            and get_config("worktree_base_path") not in line
-        ):
-            parts = line.split(" ", 1)
-            main_worktree = parts[1] if len(parts) > 1 else parts[0]
-            break
-    repo_cwd = main_worktree or "."
+    repo_cwd = _find_main_worktree(task.worktree) or "."
 
     warn = not as_json and not quiet
     wt_removed, branch_deleted = _remove_worktree_and_branch(
