@@ -145,7 +145,7 @@ class TestHappyPath:
 
         # 6. duo start my-idea --from-thinking
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):
@@ -589,7 +589,7 @@ class TestFromThinkingEdgeCases:
         (tdir / "plan.md").write_text("# From thinking plan", encoding="utf-8")
 
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):

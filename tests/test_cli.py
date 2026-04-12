@@ -987,7 +987,7 @@ class TestStart:
                 return None  # first check passes
             return _make_task(name)  # re-check finds task
 
-        with patch("duo.cli.load_task", side_effect=load_side_effect):
+        with patch("duo.cli.lifecycle_cmd.load_task", side_effect=load_side_effect):
             result = runner.invoke(
                 main, ["start", "race-task", "--repo", str(repo), "--desc", "t"]
             )
@@ -2409,7 +2409,7 @@ class TestStartSuccess:
     def test_start_and_run(self, runner: CliRunner, tmp_path: Path):
         """start creates task + worktree, starts session in defer mode by default."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.cli.subprocess.run"),
             patch("duo.commander.start_session") as mock_start,
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
@@ -2430,7 +2430,7 @@ class TestStartSuccess:
     def test_start_immediate(self, runner: CliRunner, tmp_path: Path):
         """start --immediate sends bootstrap immediately (old behavior)."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.cli.subprocess.run"),
             patch("duo.commander.start_session") as mock_start,
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
@@ -2457,7 +2457,7 @@ class TestStartSuccess:
     def test_start_queued(self, runner: CliRunner, tmp_path: Path):
         """start queues task when slots are full."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.cli.subprocess.run"),
             patch("duo.commander.start_session") as mock_start,
             patch("duo.scheduler.enqueue_or_start", return_value="queued"),
@@ -6636,7 +6636,7 @@ class TestStartFlags:
     def test_start_with_queue(self, runner: CliRunner, tmp_path: Path):
         """start --queue creates task in QUEUED state without starting a session."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session") as mock_start,
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "q-task"), "abc123")
@@ -6655,7 +6655,7 @@ class TestStartFlags:
     def test_start_queue_transition_failure(self, runner: CliRunner, tmp_path: Path):
         """start --queue with failed transition warns the user."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.protocol.transition", return_value=False),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "qtf"), "abc123")
@@ -6671,7 +6671,7 @@ class TestStartFlags:
     ):
         """start --queue --json-output with failed transition returns error."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.protocol.transition", return_value=False),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "qtfj"), "abc123")
@@ -6695,7 +6695,7 @@ class TestStartFlags:
     ):
         """start --model sets DUO_COPILOT_MODEL env var."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):
@@ -6723,7 +6723,7 @@ class TestStartFlags:
 
         monkeypatch.setattr("duo.thinking.THINKING_DIR", fake_thinking)
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
             patch("duo.scheduler.enqueue_or_start", return_value="started"),
         ):
@@ -6773,7 +6773,7 @@ class TestStartFlags:
     def test_start_queue_json_output(self, runner: CliRunner, tmp_path: Path):
         """start --queue --json-output returns structured JSON."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "q-json"), "abc123")
@@ -6798,7 +6798,7 @@ class TestStartFlags:
     def test_start_json_output(self, runner: CliRunner, tmp_path: Path):
         """start --json-output returns structured JSON without human-readable preamble."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "s-json"), "abc123")
@@ -6819,7 +6819,7 @@ class TestStartFlags:
     def test_start_auto_queued_json_output(self, runner: CliRunner, tmp_path: Path):
         """start --json-output when auto-queued (slots full) returns queued status."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.scheduler.enqueue_or_start", return_value="queued"),
             patch(
                 "duo.scheduler.queue_status",
@@ -6847,7 +6847,7 @@ class TestStartFlags:
     def test_start_reuse_pane(self, runner: CliRunner, tmp_path: Path):
         """start --reuse-pane passes pane ID to start_session."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session") as mock_start,
             patch("duo.scheduler.enqueue_or_start", return_value="start"),
         ):
@@ -6871,7 +6871,7 @@ class TestStartFlags:
     def test_start_quiet(self, runner: CliRunner, tmp_path: Path):
         """start -q prints only the task name."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.commander.start_session"),
             patch("duo.scheduler.enqueue_or_start", return_value="start"),
         ):
@@ -6885,7 +6885,7 @@ class TestStartFlags:
 
     def test_start_quiet_queued(self, runner: CliRunner, tmp_path: Path):
         """start -q --queue prints only the task name."""
-        with patch("duo.cli._create_worktree") as mock_wt:
+        with patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt:
             mock_wt.return_value = (str(tmp_path / "wt" / "qq-task"), "abc123")
             result = runner.invoke(
                 main,
@@ -6897,7 +6897,7 @@ class TestStartFlags:
     def test_start_quiet_queue_transition_fail(self, runner: CliRunner, tmp_path: Path):
         """start -q --queue prints name even when transition fails."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.protocol.transition", return_value=False),
         ):
             mock_wt.return_value = (str(tmp_path / "wt" / "qqf-task"), "abc123")
@@ -6911,7 +6911,7 @@ class TestStartFlags:
     def test_start_quiet_auto_queued(self, runner: CliRunner, tmp_path: Path):
         """start -q prints name when auto-queued by scheduler."""
         with (
-            patch("duo.cli._create_worktree") as mock_wt,
+            patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt,
             patch("duo.scheduler.enqueue_or_start", return_value="queued"),
             patch(
                 "duo.scheduler.queue_status",
@@ -10189,7 +10189,7 @@ class TestMultiProjectIsolation:
             ],
         )
         # Attempt to start "fix" from repo-b — should fail with worktree info
-        with patch("duo.cli._create_worktree") as mock_wt:
+        with patch("duo.cli.lifecycle_cmd._create_worktree") as mock_wt:
             mock_wt.return_value = ("/projects/repo-b/worktrees/fix", "bbb222")
             result = runner.invoke(
                 main,
