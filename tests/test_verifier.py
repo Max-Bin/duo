@@ -1071,3 +1071,46 @@ class TestVerifierEdgeCases:
         ]:
             result = _check_security_scope(task, {bad_path}, ["*"], "/tmp/worktree")
             assert isinstance(result, Correction), f"{bad_path} not rejected"
+
+    def test_match_writable_unicode_normalization(self) -> None:
+        """NFC normalization ensures different Unicode forms match."""
+        from duo.verifier import _match_writable
+
+        # NFC vs NFD form of 'é'
+        nfc = "\u00e9"  # é as single codepoint
+        nfd = "e\u0301"  # e + combining accent
+        assert _match_writable(f"src/{nfc}.py", f"src/{nfd}.py") is True
+
+    def test_validate_writable_patterns_empty_and_absolute(self) -> None:
+        """Empty and absolute patterns are filtered out."""
+        from duo.verifier import _validate_writable_patterns
+
+        result = _validate_writable_patterns(["", "  ", "/etc/passwd", "src/*"])
+        assert result == ["src/*"]
+
+    def test_validate_writable_patterns_all_valid(self) -> None:
+        """All valid patterns pass through."""
+        from duo.verifier import _validate_writable_patterns
+
+        patterns = ["src/*", "tests/*", "*.md"]
+        assert _validate_writable_patterns(patterns) == patterns
+
+    def test_match_writable_nested_star(self) -> None:
+        """Single * matches nested paths via fnmatch."""
+        from duo.verifier import _match_writable
+
+        assert _match_writable("src/duo/cli.py", "src/*") is True
+        assert _match_writable("docs/README.md", "src/*") is False
+
+    def test_secret_leak_multiple_patterns_first_match(self) -> None:
+        """First matching pattern triggers the correction."""
+        task = _make_task()
+        diff = "+password=secret123"
+        result = _check_secret_leak(task, diff, ["password=", "secret="])
+        assert isinstance(result, Correction)
+
+    def test_security_scope_dot_prefix_file(self) -> None:
+        """Files starting with . but no traversal are allowed if matched."""
+        task = _make_task()
+        result = _check_security_scope(task, {".env"}, [".*"], "/tmp/worktree")
+        assert result is None  # .* matches .env

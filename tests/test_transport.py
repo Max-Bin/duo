@@ -3723,3 +3723,106 @@ class TestSplitWindowHorizontal:
         ):
             with pytest.raises(RuntimeError, match="timed out"):
                 split_window_horizontal()
+
+
+# ── Additional Transport Edge Cases ─────────────────────────────────
+
+
+class TestTransportEdgeCasesRound6:
+    """Additional edge case value coverage for transport module."""
+
+    def test_count_bullet_items_empty_content(self):
+        """count_bullet_items on empty content returns (0, 0)."""
+        from duo.transport import count_bullet_items
+
+        assert count_bullet_items("") == (0, 0)
+
+    def test_count_bullet_items_with_hint_lines(self):
+        """Lines with ↑↓ or ctrl+ are excluded from count."""
+        from duo.transport import count_bullet_items
+
+        content = "╭── Q ──╮\n│ ❯ First │\n│   Second │\n│ ↑↓ navigate │\n╰────────╯"
+        total, cursor = count_bullet_items(content)
+        assert total == 2
+        assert cursor == 1
+
+    def test_count_bullet_items_no_cursor(self):
+        """No ❯ prefix means cursor position is 0."""
+        from duo.transport import count_bullet_items
+
+        content = "╭── Q ──╮\n│   First │\n│   Second │\n╰────────╯"
+        total, cursor = count_bullet_items(content)
+        assert total == 2
+        assert cursor == 0
+
+    def test_normalize_pane_content_trailing_blanks(self):
+        """Trailing blank lines are stripped."""
+        from duo.transport import _normalize_pane_content
+
+        result = _normalize_pane_content("hello\nworld\n\n\n  \n")
+        assert result == "hello\nworld"
+
+    def test_normalize_pane_content_trailing_whitespace(self):
+        """Trailing whitespace per line is stripped."""
+        from duo.transport import _normalize_pane_content
+
+        result = _normalize_pane_content("hello   \nworld  ")
+        assert result == "hello\nworld"
+
+    def test_normalize_pane_content_empty(self):
+        """Empty input returns empty string."""
+        from duo.transport import _normalize_pane_content
+
+        assert _normalize_pane_content("") == ""
+
+    def test_validate_label_empty(self):
+        """Empty label is rejected."""
+        from duo.transport import _validate_label
+
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            _validate_label("")
+
+    def test_validate_label_with_semicolon(self):
+        """Semicolons are rejected as shell injection risk."""
+        from duo.transport import _validate_label
+
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            _validate_label("foo;rm-rf")
+
+    def test_validate_label_with_spaces(self):
+        """Spaces are rejected."""
+        from duo.transport import _validate_label
+
+        with pytest.raises(ValueError, match="Unsafe pane label"):
+            _validate_label("foo bar")
+
+    def test_validate_label_valid(self):
+        """Valid label with dots and hyphens passes."""
+        from duo.transport import _validate_label
+
+        _validate_label("my-pane.v2")  # should not raise
+
+    def test_detect_copilot_api_error_false_for_normal(self):
+        """Normal pane content does not trigger CAPI detection."""
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("Hello world\nprompt >") is False
+
+    def test_detect_copilot_api_error_case_insensitive(self):
+        """CAPIError detection is case-insensitive."""
+        from duo.transport import detect_copilot_api_error
+
+        assert detect_copilot_api_error("capierror: bad request") is True
+
+    def test_is_capi_context_error_exact(self):
+        """is_capi_context_error requires exact 'CAPIError' string."""
+        from duo.transport import is_capi_context_error
+
+        assert is_capi_context_error("Error: CAPIError 400 Bad Request") is True
+        assert is_capi_context_error("capierror 400") is False  # case-sensitive
+
+    def test_dialog_kind_none_for_empty(self):
+        """Empty content detects no dialog."""
+        from duo.transport import detect_dialog_kind
+
+        assert detect_dialog_kind("") == DialogKind.NONE
