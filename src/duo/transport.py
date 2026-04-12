@@ -95,6 +95,7 @@ __all__ = [
     "send_option_other_message",
     "send_prompt",
     "send_shell_command",
+    "send_slash_command",
     "send_text_dialog_message",
     "set_pr_callback",
     "split_window_horizontal",
