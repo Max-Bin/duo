@@ -11641,3 +11641,40 @@ class TestCliEdgeCases:
             result = runner.invoke(main, ["diff", "diff-empty"])
         assert result.exit_code == 0
         assert "No changes" in result.output
+
+
+# --- Architectural guard tests ---
+
+
+class TestArchitecturalGuards:
+    """Prevent regression toward God File and other anti-patterns."""
+
+    def test_cli_py_line_count(self):
+        """cli.py must not grow back into a God File."""
+        import pathlib
+
+        cli_path = pathlib.Path(__file__).parent.parent / "src" / "duo" / "cli.py"
+        lines = cli_path.read_text().count("\n")
+        assert lines < 6000, f"cli.py is {lines} lines — split before it grows"
+
+    def test_transport_py_line_count(self):
+        """transport.py must stay under control."""
+        import pathlib
+
+        path = pathlib.Path(__file__).parent.parent / "src" / "duo" / "transport.py"
+        lines = path.read_text().count("\n")
+        assert lines < 2500, f"transport.py is {lines} lines — split if growing"
+
+    def test_no_github_workflows(self):
+        """Never create .github/workflows/ — causes email floods."""
+        import pathlib
+
+        workflows = pathlib.Path(__file__).parent.parent / ".github" / "workflows"
+        assert not workflows.exists(), "Do NOT create .github/workflows/"
+
+    def test_command_count_bounded(self):
+        """Top-level command count should not silently grow."""
+        from duo.cli import main
+
+        top_level = len(main.commands)
+        assert top_level <= 40, f"Too many top-level commands: {top_level}"
