@@ -3617,7 +3617,7 @@ class TestBatchCommand:
         )
 
         with (
-            patch("duo.cli._create_single_task") as mock_create,
+            patch("duo.cli.batch_cmd._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -3650,7 +3650,7 @@ class TestBatchCommand:
         )
 
         with (
-            patch("duo.cli._create_single_task") as mock_create,
+            patch("duo.cli.batch_cmd._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -3673,7 +3673,7 @@ class TestBatchCommand:
         f.write_text(json.dumps({"tasks": [{"name": "q1"}]}))
 
         with (
-            patch("duo.cli._create_single_task") as mock_create,
+            patch("duo.cli.batch_cmd._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -3706,7 +3706,7 @@ class TestBatchCommand:
         )
 
         with (
-            patch("duo.cli._create_single_task") as mock_create,
+            patch("duo.cli.batch_cmd._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -3732,7 +3732,7 @@ class TestBatchCommand:
         f.write_text(json.dumps({"tasks": [{"name": "j1"}, {"name": "j2"}]}))
 
         with (
-            patch("duo.cli._create_single_task") as mock_create,
+            patch("duo.cli.batch_cmd._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -3787,7 +3787,7 @@ class TestBatchCommand:
         f = tmp_path / "tasks.json"
         f.write_text(json.dumps({"tasks": [{"name": "bq1", "description": "D"}]}))
         with (
-            patch("duo.cli._create_single_task", return_value="bq1"),
+            patch("duo.cli.batch_cmd._create_single_task", return_value="bq1"),
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
@@ -8595,7 +8595,7 @@ class TestBatchBareArray:
             )
         )
         with (
-            patch("duo.cli._create_single_task") as mock_create,
+            patch("duo.cli.batch_cmd._create_single_task") as mock_create,
             patch(
                 "duo.scheduler.queue_status",
                 return_value={
