@@ -987,9 +987,10 @@ class TestDuoGo:
         ):
             result = runner.invoke(main, ["go", "--repo", str(tmp_path)])
             assert result.exit_code == 0
-            mock_exec.assert_called_once_with(
-                "claude", ["claude", "--dangerously-skip-permissions"]
-            )
+            args = mock_exec.call_args[0]
+            assert args[0] == "claude"
+            assert "--dangerously-skip-permissions" in args[1]
+            assert "--prompt" in args[1]
 
     def test_copilot_not_at_prompt_continues(
         self, runner: CliRunner, tmp_path: Path, monkeypatch
