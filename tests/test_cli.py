@@ -20,11 +20,20 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import duo.cli
+import duo.cli.doctor
 import duo.protocol
 from duo.ceo_log import start_ceo_session
 from duo.cli import (
-    CheckResult,
     _create_worktree,
+    _fmt_ts,
+    _load_batch_file,
+    _parse_age,
+    _safe_join,
+    _validate_task_name,
+    main,
+)
+from duo.cli.doctor import (
+    CheckResult,
     _doctor_check_capi_error,
     _doctor_check_claude_cli,
     _doctor_check_config,
@@ -39,15 +48,9 @@ from duo.cli import (
     _doctor_check_tmux_bridge,
     _doctor_check_tmux_session,
     _emit_restart_signal,
-    _fmt_ts,
     _get_pid_child_count,
     _get_pid_fd_count,
     _get_pid_kqueue_count,
-    _load_batch_file,
-    _parse_age,
-    _safe_join,
-    _validate_task_name,
-    main,
 )
 from duo.errors import DuoUserError
 from duo.protocol import (
@@ -76,6 +79,8 @@ def isolated_tasks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(duo.protocol, "DUO_DIR", tmp_path)
     monkeypatch.setattr(duo.cli, "TASKS_DIR", tasks_dir)
     monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+    monkeypatch.setattr(duo.cli.doctor, "TASKS_DIR", tasks_dir)
+    monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
     return tasks_dir
 
 
@@ -4977,7 +4982,7 @@ class TestDoctor:
             "version_info", ["major", "minor", "micro", "releaselevel", "serial"]
         )
         fake_vi = FakeVI(3, 11, 0, "final", 0)
-        monkeypatch.setattr("duo.cli.sys.version_info", fake_vi)
+        monkeypatch.setattr("duo.cli.doctor.sys.version_info", fake_vi)
         r = _doctor_check_python()
         assert r.status == "fail"
         assert "3.11" in r.message
@@ -4985,10 +4990,11 @@ class TestDoctor:
     def test_check_tmux_pass(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check passes with version >= 3.0."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="tmux 3.4\n", returncode=0),
         )
         r = _doctor_check_tmux()
@@ -4998,10 +5004,11 @@ class TestDoctor:
     def test_check_tmux_warn_old_version(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check warns when version < 3.0."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="tmux 2.9\n", returncode=0),
         )
         r = _doctor_check_tmux()
@@ -5010,7 +5017,7 @@ class TestDoctor:
 
     def test_check_tmux_fail_missing(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check fails when not installed."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         r = _doctor_check_tmux()
         assert r.status == "fail"
         assert "not found" in r.message
@@ -5018,13 +5025,14 @@ class TestDoctor:
     def test_check_tmux_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check passes (graceful) on subprocess timeout."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
 
         def _timeout(*a: object, **kw: object) -> None:
             raise subprocess.TimeoutExpired("tmux", 10)
 
-        monkeypatch.setattr("duo.cli.subprocess.run", _timeout)
+        monkeypatch.setattr("duo.cli.doctor.subprocess.run", _timeout)
         r = _doctor_check_tmux()
         assert r.status == "pass"
         assert r.message == "installed"
@@ -5032,10 +5040,11 @@ class TestDoctor:
     def test_check_tmux_unparseable_version(self, monkeypatch: pytest.MonkeyPatch):
         """tmux check passes (graceful) when version string cannot be parsed."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="tmux next-server\n", returncode=0),
         )
         r = _doctor_check_tmux()
@@ -5045,7 +5054,7 @@ class TestDoctor:
     def test_check_tmux_bridge_in_path(self, monkeypatch: pytest.MonkeyPatch):
         """tmux-bridge found in PATH."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which",
+            "duo.cli.doctor.shutil.which",
             lambda n: "/usr/bin/tmux-bridge" if n == "tmux-bridge" else None,
         )
         r = _doctor_check_tmux_bridge()
@@ -5055,13 +5064,13 @@ class TestDoctor:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """tmux-bridge found at ~/.smux/bin/tmux-bridge fallback."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         smux_bin = tmp_path / ".smux" / "bin"
         smux_bin.mkdir(parents=True)
         bridge = smux_bin / "tmux-bridge"
         bridge.touch()
         bridge.chmod(0o755)
-        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.Path.home", lambda: tmp_path)
         r = _doctor_check_tmux_bridge()
         assert r.status == "pass"
         assert "found at" in r.message
@@ -5070,14 +5079,14 @@ class TestDoctor:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """tmux-bridge found but not executable."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         smux_bin = tmp_path / ".smux" / "bin"
         smux_bin.mkdir(parents=True)
         bridge = smux_bin / "tmux-bridge"
         bridge.touch()
         bridge.chmod(0o644)
-        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: False)
+        monkeypatch.setattr("duo.cli.doctor.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: False)
         r = _doctor_check_tmux_bridge()
         assert r.status == "fail"
         assert "not executable" in r.message
@@ -5086,8 +5095,8 @@ class TestDoctor:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """tmux-bridge missing everywhere."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
-        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.Path.home", lambda: tmp_path)
         r = _doctor_check_tmux_bridge()
         assert r.status == "fail"
         assert "not found" in r.message
@@ -5095,7 +5104,7 @@ class TestDoctor:
     def test_check_claude_cli_pass(self, monkeypatch: pytest.MonkeyPatch):
         """claude CLI found."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which",
+            "duo.cli.doctor.shutil.which",
             lambda n: "/usr/bin/claude" if n == "claude" else None,
         )
         r = _doctor_check_claude_cli()
@@ -5103,14 +5112,14 @@ class TestDoctor:
 
     def test_check_claude_cli_warn(self, monkeypatch: pytest.MonkeyPatch):
         """claude CLI not found → warn."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         r = _doctor_check_claude_cli()
         assert r.status == "warn"
 
     def test_check_copilot_cli_pass_copilot(self, monkeypatch: pytest.MonkeyPatch):
         """Copilot CLI found via 'copilot'."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which",
+            "duo.cli.doctor.shutil.which",
             lambda n: "/usr/bin/copilot" if n == "copilot" else None,
         )
         r = _doctor_check_copilot_cli()
@@ -5119,7 +5128,7 @@ class TestDoctor:
     def test_check_copilot_cli_pass_github(self, monkeypatch: pytest.MonkeyPatch):
         """Copilot CLI found via 'github-copilot-cli'."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which",
+            "duo.cli.doctor.shutil.which",
             lambda n: (
                 "/usr/bin/github-copilot-cli" if n == "github-copilot-cli" else None
             ),
@@ -5129,16 +5138,17 @@ class TestDoctor:
 
     def test_check_copilot_cli_warn(self, monkeypatch: pytest.MonkeyPatch):
         """Copilot CLI not found → warn."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         r = _doctor_check_copilot_cli()
         assert r.status == "warn"
 
     def test_check_duo_dir_pass(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """~/.duo directory exists, writable, with space."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=500 * 1024 * 1024)  # 500MB
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         r = _doctor_check_duo_dir()
         assert r.status == "pass"
         assert "writable" in r.message
@@ -5148,6 +5158,7 @@ class TestDoctor:
     ):
         """~/.duo directory missing → fail."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path / "nonexistent")
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path / "nonexistent")
         r = _doctor_check_duo_dir()
         assert r.status == "fail"
         assert "missing" in r.message
@@ -5157,7 +5168,8 @@ class TestDoctor:
     ):
         """~/.duo directory not writable → fail."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: False)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: False)
         r = _doctor_check_duo_dir()
         assert r.status == "fail"
         assert "not writable" in r.message
@@ -5167,9 +5179,10 @@ class TestDoctor:
     ):
         """~/.duo directory low disk space → warn."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=50 * 1024 * 1024)  # 50MB
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         r = _doctor_check_duo_dir()
         assert r.status == "warn"
         assert "50 MB" in r.message
@@ -5179,12 +5192,13 @@ class TestDoctor:
     ):
         """~/.duo disk_usage raises OSError → pass gracefully."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
 
         def _raise(*a: object) -> None:
             raise OSError("disk error")
 
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", _raise)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", _raise)
         r = _doctor_check_duo_dir()
         assert r.status == "pass"
         assert r.message == "writable"
@@ -5194,6 +5208,7 @@ class TestDoctor:
         import duo.config as config_mod
 
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
         monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
         (tmp_path / "config.json").write_text('{"max_corrections": 5}')
         r = _doctor_check_config()
@@ -5205,6 +5220,7 @@ class TestDoctor:
     ):
         """Missing config.json → warn."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
         r = _doctor_check_config()
         assert r.status == "warn"
         assert "missing" in r.message
@@ -5214,6 +5230,7 @@ class TestDoctor:
     ):
         """Invalid JSON → warn."""
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
         (tmp_path / "config.json").write_text("{{{invalid")
         r = _doctor_check_config()
         assert r.status == "warn"
@@ -5226,6 +5243,7 @@ class TestDoctor:
         import duo.config as config_mod
 
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
         monkeypatch.setattr(config_mod, "CONFIG_PATH", tmp_path / "config.json")
         (tmp_path / "config.json").write_text('{"unknown_key": true}')
         r = _doctor_check_config()
@@ -5236,10 +5254,11 @@ class TestDoctor:
     def test_check_tmux_session_pass(self, monkeypatch: pytest.MonkeyPatch):
         """Active tmux session → pass."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0),
         )
         r = _doctor_check_tmux_session()
@@ -5248,10 +5267,11 @@ class TestDoctor:
     def test_check_tmux_session_warn_no_session(self, monkeypatch: pytest.MonkeyPatch):
         """No active tmux session → warn."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=1),
         )
         r = _doctor_check_tmux_session()
@@ -5262,7 +5282,7 @@ class TestDoctor:
         self, monkeypatch: pytest.MonkeyPatch
     ):
         """tmux not installed → warn for session check."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         r = _doctor_check_tmux_session()
         assert r.status == "warn"
         assert "not installed" in r.message
@@ -5270,40 +5290,41 @@ class TestDoctor:
     def test_check_tmux_session_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """tmux list-sessions times out → warn."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/tmux" if n == "tmux" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/tmux" if n == "tmux" else None,
         )
 
         def _timeout(*a: object, **kw: object) -> None:
             raise subprocess.TimeoutExpired("tmux", 10)
 
-        monkeypatch.setattr("duo.cli.subprocess.run", _timeout)
+        monkeypatch.setattr("duo.cli.doctor.subprocess.run", _timeout)
         r = _doctor_check_tmux_session()
         assert r.status == "warn"
 
     def test_check_task_timeout_pass(self, monkeypatch: pytest.MonkeyPatch):
         """Valid task_timeout → pass."""
-        monkeypatch.setattr("duo.cli.get_config", lambda k: 300)
+        monkeypatch.setattr("duo.cli.doctor.get_config", lambda k: 300)
         r = _doctor_check_task_timeout()
         assert r.status == "pass"
         assert "300s" in r.message
 
     def test_check_task_timeout_pass_disabled(self, monkeypatch: pytest.MonkeyPatch):
         """task_timeout = 0 → pass (disabled)."""
-        monkeypatch.setattr("duo.cli.get_config", lambda k: 0)
+        monkeypatch.setattr("duo.cli.doctor.get_config", lambda k: 0)
         r = _doctor_check_task_timeout()
         assert r.status == "pass"
         assert "disabled" in r.message
 
     def test_check_task_timeout_warn_invalid(self, monkeypatch: pytest.MonkeyPatch):
         """Invalid task_timeout → warn."""
-        monkeypatch.setattr("duo.cli.get_config", lambda k: -1)
+        monkeypatch.setattr("duo.cli.doctor.get_config", lambda k: -1)
         r = _doctor_check_task_timeout()
         assert r.status == "warn"
         assert "invalid" in r.message
 
     def test_check_task_timeout_warn_none(self, monkeypatch: pytest.MonkeyPatch):
         """task_timeout is None → warn."""
-        monkeypatch.setattr("duo.cli.get_config", lambda k: None)
+        monkeypatch.setattr("duo.cli.doctor.get_config", lambda k: None)
         r = _doctor_check_task_timeout()
         assert r.status == "warn"
 
@@ -5328,10 +5349,11 @@ class TestDoctor:
     def test_check_git_pass(self, monkeypatch: pytest.MonkeyPatch):
         """git found with version → pass."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/git" if n == "git" else None,
         )
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(stdout="git version 2.44.0\n", returncode=0),
         )
         r = _doctor_check_git()
@@ -5340,7 +5362,7 @@ class TestDoctor:
 
     def test_check_git_warn_missing(self, monkeypatch: pytest.MonkeyPatch):
         """git not found → warn."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: None)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: None)
         r = _doctor_check_git()
         assert r.status == "warn"
         assert "not found" in r.message
@@ -5348,13 +5370,14 @@ class TestDoctor:
     def test_check_git_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """git --version times out → pass gracefully."""
         monkeypatch.setattr(
-            "duo.cli.shutil.which", lambda n: "/usr/bin/git" if n == "git" else None
+            "duo.cli.doctor.shutil.which",
+            lambda n: "/usr/bin/git" if n == "git" else None,
         )
 
         def _timeout(*a: object, **kw: object) -> None:
             raise subprocess.TimeoutExpired("git", 10)
 
-        monkeypatch.setattr("duo.cli.subprocess.run", _timeout)
+        monkeypatch.setattr("duo.cli.doctor.subprocess.run", _timeout)
         r = _doctor_check_git()
         assert r.status == "pass"
         assert r.message == "installed"
@@ -5363,19 +5386,19 @@ class TestDoctor:
 
     def _setup_all_pass(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Configure monkeypatches for all checks to pass."""
-        monkeypatch.setattr("duo.cli.DUO_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.DUO_DIR", tmp_path)
         config_path = tmp_path / "config.json"
         config_path.write_text('{"copilot_model": "claude-opus-4.6"}\n')
 
         def fake_which(name: str) -> str | None:
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(
                 returncode=0,
                 stdout="tmux 3.4\n"
@@ -5406,7 +5429,7 @@ class TestDoctor:
                 return None
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code != 0
         assert "brew install tmux" in result.output
@@ -5430,14 +5453,14 @@ class TestDoctor:
                 return None
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
         smux_bin = tmp_path / "fakehome" / ".smux" / "bin"
         smux_bin.mkdir(parents=True)
         bridge = smux_bin / "tmux-bridge"
         bridge.touch()
         bridge.chmod(0o755)
-        monkeypatch.setattr("duo.cli.Path.home", lambda: tmp_path / "fakehome")
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.Path.home", lambda: tmp_path / "fakehome")
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
         assert "tmux-bridge" in result.output
@@ -5481,7 +5504,7 @@ class TestDoctor:
                 return None
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
         result = runner.invoke(main, ["doctor", "--strict"])
         assert result.exit_code != 0
 
@@ -5504,7 +5527,7 @@ class TestDoctor:
                 return None
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
         result = runner.invoke(main, ["doctor"])
         assert result.exit_code == 0
         assert "warning" in result.output.lower()
@@ -5520,7 +5543,7 @@ class TestDoctor:
                 return None
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
         result = runner.invoke(main, ["doctor", "--json-output"])
         assert result.exit_code != 0
         data = json.loads(result.output)
@@ -5562,7 +5585,7 @@ class TestDoctor:
                 return None
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
         result = runner.invoke(main, ["doctor", "-q"])
         assert result.exit_code != 0
         assert "tmux" in result.output.lower()
@@ -7868,12 +7891,12 @@ class TestDoctorTaskTimeout:
         def fake_which(name: str) -> str | None:
             return f"/usr/bin/{name}"
 
-        monkeypatch.setattr("duo.cli.shutil.which", fake_which)
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", fake_which)
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
@@ -7884,17 +7907,17 @@ class TestDoctorTaskTimeout:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """doctor reports invalid task_timeout value."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(
-            "duo.cli.get_config", lambda k: -1 if k == "task_timeout" else 0
+            "duo.cli.doctor.get_config", lambda k: -1 if k == "task_timeout" else 0
         )
         result = runner.invoke(main, ["doctor"])
         assert "task_timeout" in result.output
@@ -7906,16 +7929,16 @@ class TestDoctorStaleLocks:
 
     def test_no_stale_locks(self):
         """No lock files → pass."""
-        from duo.cli import _doctor_check_stale_locks
+        from duo.cli.doctor import _doctor_check_stale_locks
 
         result = _doctor_check_stale_locks()
         assert result.status == "pass"
 
     def test_stale_locks_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """Lock files present → warn."""
-        from duo.cli import _doctor_check_stale_locks
+        from duo.cli.doctor import _doctor_check_stale_locks
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         (tmp_path / ".my-task.lock").touch()
         (tmp_path / ".other.lock").touch()
 
@@ -7929,13 +7952,13 @@ class TestDoctorOrphanWorktrees:
 
     def test_no_orphans(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         """No orphan worktrees → pass."""
-        from duo.cli import _doctor_check_orphan_worktrees
+        from duo.cli.doctor import _doctor_check_orphan_worktrees
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         (tmp_path / "my-task").mkdir()
         porcelain = "worktree /repo\n\nworktree /repo/duo-my-task\nbranch refs/heads/duo/my-task\n"
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout=porcelain),
         )
         result = _doctor_check_orphan_worktrees()
@@ -7943,12 +7966,12 @@ class TestDoctorOrphanWorktrees:
 
     def test_orphan_found(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         """Worktree exists but task dir does not → warn."""
-        from duo.cli import _doctor_check_orphan_worktrees
+        from duo.cli.doctor import _doctor_check_orphan_worktrees
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         porcelain = "worktree /repo\n\nworktree /repo/duo-ghost-task\nbranch refs/heads/duo/ghost-task\n"
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout=porcelain),
         )
         result = _doctor_check_orphan_worktrees()
@@ -7957,10 +7980,10 @@ class TestDoctorOrphanWorktrees:
 
     def test_git_unavailable(self, monkeypatch: pytest.MonkeyPatch):
         """Git failure → skip gracefully."""
-        from duo.cli import _doctor_check_orphan_worktrees
+        from duo.cli.doctor import _doctor_check_orphan_worktrees
 
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: (_ for _ in ()).throw(OSError("no git")),
         )
         result = _doctor_check_orphan_worktrees()
@@ -7969,10 +7992,10 @@ class TestDoctorOrphanWorktrees:
 
     def test_not_git_repo(self, monkeypatch: pytest.MonkeyPatch):
         """git worktree list fails (not a repo) → skip."""
-        from duo.cli import _doctor_check_orphan_worktrees
+        from duo.cli.doctor import _doctor_check_orphan_worktrees
 
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=128, stdout=""),
         )
         result = _doctor_check_orphan_worktrees()
@@ -7989,15 +8012,15 @@ class TestDoctorAutoFix:
         """--fix removes stale .lock files (only if older than 1 hour)."""
         import os
 
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         lock_file = tmp_path / ".my-task.lock"
         lock_file.touch()
         os.utime(lock_file, (0, 0))
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=128, stdout=""),
         )
         fixed = _doctor_auto_fix()
@@ -8008,9 +8031,9 @@ class TestDoctorAutoFix:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """Lock files that raise OSError on stat are silently skipped."""
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         lock_file = tmp_path / ".bad.lock"
         lock_file.touch()
         # Remove the file so stat fails, but glob still finds it via race
@@ -8019,7 +8042,7 @@ class TestDoctorAutoFix:
         lock_file.symlink_to(tmp_path / "nonexistent-target")
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=128, stdout=""),
         )
         fixed = _doctor_auto_fix()
@@ -8029,14 +8052,14 @@ class TestDoctorAutoFix:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """Lock files less than 1 hour old are NOT removed."""
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         lock_file = tmp_path / ".fresh.lock"
         lock_file.touch()  # mtime = now (fresh)
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=128, stdout=""),
         )
         fixed = _doctor_auto_fix()
@@ -8047,14 +8070,14 @@ class TestDoctorAutoFix:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """--fix purges quarantined tasks."""
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         qdir = tmp_path / "bad-task"
         qdir.mkdir()
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [qdir])
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=128, stdout=""),
         )
         fixed = _doctor_auto_fix()
@@ -8062,12 +8085,12 @@ class TestDoctorAutoFix:
 
     def test_fix_nothing_to_fix(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """--fix with nothing broken returns empty list."""
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=128, stdout=""),
         )
         fixed = _doctor_auto_fix()
@@ -8075,9 +8098,9 @@ class TestDoctorAutoFix:
 
     def test_fix_orphan_worktree(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """--fix removes orphan duo-* worktrees."""
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         porcelain = "worktree /repo\n\nworktree /repo/duo-orphan\nbranch refs/heads/duo/orphan\n"
         calls: list[list[str]] = []
@@ -8089,7 +8112,7 @@ class TestDoctorAutoFix:
                 return MagicMock(returncode=0, stdout=porcelain)
             return MagicMock(returncode=0, stdout="")
 
-        monkeypatch.setattr("duo.cli.subprocess.run", fake_run)
+        monkeypatch.setattr("duo.cli.doctor.subprocess.run", fake_run)
         fixed = _doctor_auto_fix()
         assert any("orphan worktree" in f for f in fixed)
 
@@ -8097,15 +8120,15 @@ class TestDoctorAutoFix:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """--fix handles git errors gracefully during orphan scan."""
-        from duo.cli import _doctor_auto_fix
+        from duo.cli.doctor import _doctor_auto_fix
 
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
 
         def raise_os_error(*a: object, **kw: object) -> None:
             raise OSError("no git")
 
-        monkeypatch.setattr("duo.cli.subprocess.run", raise_os_error)
+        monkeypatch.setattr("duo.cli.doctor.subprocess.run", raise_os_error)
         fixed = _doctor_auto_fix()
         assert not any("orphan" in f for f in fixed)
 
@@ -8113,18 +8136,18 @@ class TestDoctorAutoFix:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """doctor --fix shows fixed items in output."""
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         lock_file = tmp_path / ".stale.lock"
         lock_file.touch()
         import os
 
         os.utime(lock_file, (0, 0))
-        monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
@@ -8136,18 +8159,18 @@ class TestDoctorAutoFix:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """doctor --fix --json-output includes fixed list."""
-        monkeypatch.setattr("duo.cli.TASKS_DIR", tmp_path)
+        monkeypatch.setattr("duo.cli.doctor.TASKS_DIR", tmp_path)
         lock_file = tmp_path / ".old.lock"
         lock_file.touch()
         import os
 
         os.utime(lock_file, (0, 0))
-        monkeypatch.setattr("duo.cli.shutil.which", lambda _: "/usr/bin/fake")
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda _: "/usr/bin/fake")
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
@@ -8168,7 +8191,7 @@ class TestGetPidFdCount:
         header = "COMMAND PID FD TYPE"
         lines = "\n".join([header] + [f"line{i}" for i in range(10)])
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout=lines),
         )
         assert _get_pid_fd_count(1234) == 10
@@ -8176,7 +8199,7 @@ class TestGetPidFdCount:
     def test_lsof_fails(self, monkeypatch: pytest.MonkeyPatch):
         """lsof returns non-zero → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=1, stdout=""),
         )
         assert _get_pid_fd_count(1234) == -1
@@ -8184,7 +8207,7 @@ class TestGetPidFdCount:
     def test_lsof_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """Timeout → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: (_ for _ in ()).throw(
                 subprocess.TimeoutExpired("lsof", 10)
             ),
@@ -8194,7 +8217,7 @@ class TestGetPidFdCount:
     def test_lsof_oserror(self, monkeypatch: pytest.MonkeyPatch):
         """OSError → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: (_ for _ in ()).throw(OSError("no lsof")),
         )
         assert _get_pid_fd_count(1234) == -1
@@ -8202,7 +8225,7 @@ class TestGetPidFdCount:
     def test_empty_output(self, monkeypatch: pytest.MonkeyPatch):
         """Empty output → 0."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout=""),
         )
         assert _get_pid_fd_count(1234) == 0
@@ -8215,7 +8238,7 @@ class TestGetPidKqueueCount:
         """Should count lines containing KQUEUE."""
         output = "HEADER\nnode 123 KQUEUE\nnode 124 FD\nnode 125 KQUEUE\n"
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout=output),
         )
         assert _get_pid_kqueue_count(1234) == 2
@@ -8223,7 +8246,7 @@ class TestGetPidKqueueCount:
     def test_no_kqueues(self, monkeypatch: pytest.MonkeyPatch):
         """No KQUEUE lines → 0."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="HEADER\nfd\nfd\n"),
         )
         assert _get_pid_kqueue_count(1234) == 0
@@ -8231,7 +8254,7 @@ class TestGetPidKqueueCount:
     def test_lsof_fails(self, monkeypatch: pytest.MonkeyPatch):
         """lsof non-zero → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=1, stdout=""),
         )
         assert _get_pid_kqueue_count(1234) == -1
@@ -8239,7 +8262,7 @@ class TestGetPidKqueueCount:
     def test_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """Timeout → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: (_ for _ in ()).throw(
                 subprocess.TimeoutExpired("lsof", 10)
             ),
@@ -8253,7 +8276,7 @@ class TestGetPidChildCount:
     def test_counts_children(self, monkeypatch: pytest.MonkeyPatch):
         """Should count non-empty output lines."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="111\n222\n333\n"),
         )
         assert _get_pid_child_count(1234) == 3
@@ -8261,7 +8284,7 @@ class TestGetPidChildCount:
     def test_no_children(self, monkeypatch: pytest.MonkeyPatch):
         """pgrep returns non-zero → 0."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=1, stdout=""),
         )
         assert _get_pid_child_count(1234) == 0
@@ -8269,7 +8292,7 @@ class TestGetPidChildCount:
     def test_timeout(self, monkeypatch: pytest.MonkeyPatch):
         """Timeout → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: (_ for _ in ()).throw(
                 subprocess.TimeoutExpired("pgrep", 5)
             ),
@@ -8279,7 +8302,7 @@ class TestGetPidChildCount:
     def test_oserror(self, monkeypatch: pytest.MonkeyPatch):
         """OSError → -1."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: (_ for _ in ()).throw(OSError("no pgrep")),
         )
         assert _get_pid_child_count(1234) == -1
@@ -8287,7 +8310,7 @@ class TestGetPidChildCount:
     def test_blank_lines_ignored(self, monkeypatch: pytest.MonkeyPatch):
         """Blank lines in pgrep output should be ignored."""
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="111\n\n222\n\n"),
         )
         assert _get_pid_child_count(1234) == 2
@@ -8298,13 +8321,13 @@ class TestDoctorCheckCopilotHealth:
 
     def test_no_active_tasks(self, monkeypatch: pytest.MonkeyPatch):
         """No active tasks → empty list."""
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [])
         assert _doctor_check_copilot_health() == []
 
     def test_list_tasks_exception(self, monkeypatch: pytest.MonkeyPatch):
         """list_tasks raises → empty list."""
         monkeypatch.setattr(
-            "duo.cli.list_tasks",
+            "duo.cli.doctor.list_tasks",
             lambda: (_ for _ in ()).throw(OSError("fs error")),
         )
         assert _doctor_check_copilot_health() == []
@@ -8316,13 +8339,13 @@ class TestDoctorCheckCopilotHealth:
             MagicMock(status=TaskStatus.FAILED, pane_label="fail-pane"),
             MagicMock(status=TaskStatus.ESCALATED, pane_label="esc-pane"),
         ]
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: tasks)
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: tasks)
         assert _doctor_check_copilot_health() == []
 
     def test_pid_unavailable(self, monkeypatch: pytest.MonkeyPatch):
         """PID not found → warn."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="my-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: None)
         results = _doctor_check_copilot_health()
         assert len(results) == 1
@@ -8332,11 +8355,11 @@ class TestDoctorCheckCopilotHealth:
     def test_healthy_pane(self, monkeypatch: pytest.MonkeyPatch):
         """Low fd/kqueue/child counts → pass."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="healthy-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 50)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 50)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 2)
         results = _doctor_check_copilot_health()
         assert len(results) == 1
         assert results[0].status == "pass"
@@ -8345,11 +8368,11 @@ class TestDoctorCheckCopilotHealth:
     def test_critical_on_very_high_fds(self, monkeypatch: pytest.MonkeyPatch):
         """fds >= 2000 → fail."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="crit-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 3000)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 3000)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 2)
         results = _doctor_check_copilot_health()
         assert results[0].status == "fail"
         assert "restart" in results[0].fix.lower()
@@ -8357,44 +8380,44 @@ class TestDoctorCheckCopilotHealth:
     def test_warn_on_high_kqueue(self, monkeypatch: pytest.MonkeyPatch):
         """kqueue >= 50 → warn."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="kq-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 60)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 60)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 2)
         results = _doctor_check_copilot_health()
         assert results[0].status == "warn"
 
     def test_warn_on_high_children(self, monkeypatch: pytest.MonkeyPatch):
         """children >= 10 → warn."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="child-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 100)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 15)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 15)
         results = _doctor_check_copilot_health()
         assert results[0].status == "warn"
 
     def test_fail_overrides_warn(self, monkeypatch: pytest.MonkeyPatch):
         """If fds critical AND kqueue high → status is fail (worst wins)."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="both-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 2500)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 100)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 20)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 2500)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 100)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 20)
         results = _doctor_check_copilot_health()
         assert results[0].status == "fail"
 
     def test_negative_counts_ignored(self, monkeypatch: pytest.MonkeyPatch):
         """Negative counts (lsof unavailable) → pass with empty parts."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="neg-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: -1)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: -1)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: -1)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: -1)
         results = _doctor_check_copilot_health()
         assert results[0].status == "pass"
         assert "healthy" in results[0].message
@@ -8405,12 +8428,12 @@ class TestDoctorCheckCopilotHealth:
             MagicMock(status=TaskStatus.RUNNING, pane_label="pane-a"),
             MagicMock(status=TaskStatus.ACKED, pane_label="pane-b"),
         ]
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: tasks)
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: tasks)
         pids = {"pane-a": 111, "pane-b": 222}
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: pids.get(label))
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 10)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 1)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 0)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 10)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 1)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 0)
         results = _doctor_check_copilot_health()
         assert len(results) == 2
         names = {r.name for r in results}
@@ -8420,32 +8443,34 @@ class TestDoctorCheckCopilotHealth:
     def test_empty_pane_label_skipped(self, monkeypatch: pytest.MonkeyPatch):
         """Task with empty pane_label → skipped."""
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         assert _doctor_check_copilot_health() == []
 
     def test_doctor_integrates_health_checks(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         """doctor command includes copilot health check results."""
-        monkeypatch.setattr("duo.cli.shutil.which", lambda n: f"/usr/bin/{n}")
-        monkeypatch.setattr("duo.cli.os.access", lambda p, m: True)
+        monkeypatch.setattr("duo.cli.doctor.shutil.which", lambda n: f"/usr/bin/{n}")
+        monkeypatch.setattr("duo.cli.doctor.os.access", lambda p, m: True)
         usage = MagicMock(free=5 * 1024 * 1024 * 1024)
-        monkeypatch.setattr("duo.cli.shutil.disk_usage", lambda p: usage)
+        monkeypatch.setattr("duo.cli.doctor.shutil.disk_usage", lambda p: usage)
         monkeypatch.setattr(
-            "duo.cli.subprocess.run",
+            "duo.cli.doctor.subprocess.run",
             lambda *a, **kw: MagicMock(returncode=0, stdout="tmux 3.4\n"),
         )
         monkeypatch.setattr("duo.protocol.list_corrupted", lambda: [])
         monkeypatch.setattr(duo.cli, "DUO_DIR", tmp_path)
+        monkeypatch.setattr(duo.cli.doctor, "DUO_DIR", tmp_path)
         monkeypatch.setattr(duo.cli, "TASKS_DIR", tmp_path / "tasks")
+        monkeypatch.setattr(duo.cli.doctor, "TASKS_DIR", tmp_path / "tasks")
         (tmp_path / "tasks").mkdir(exist_ok=True)
 
         task = MagicMock(status=TaskStatus.RUNNING, pane_label="test-pane")
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 10)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 3)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 10)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 3)
 
         result = runner.invoke(main, ["doctor"])
         assert "pane:test-pane" in result.output
@@ -8478,11 +8503,11 @@ class TestEmitRestartSignal:
         task = make_task("signal-test")
         task.pane_label = "sig-pane"
         save_task(task)
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 3000)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 3000)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 2)
         results = _doctor_check_copilot_health()
         assert results[0].status == "fail"
         signal_path = task.dir / "restart-recommended"
@@ -8493,11 +8518,11 @@ class TestEmitRestartSignal:
         task = make_task("no-signal-test")
         task.pane_label = "nosig-pane"
         save_task(task)
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         monkeypatch.setattr("duo.transport.get_pane_pid", lambda label: 9999)
-        monkeypatch.setattr("duo.cli._get_pid_fd_count", lambda pid: 600)
-        monkeypatch.setattr("duo.cli._get_pid_kqueue_count", lambda pid: 5)
-        monkeypatch.setattr("duo.cli._get_pid_child_count", lambda pid: 2)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_fd_count", lambda pid: 600)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_kqueue_count", lambda pid: 5)
+        monkeypatch.setattr("duo.cli.doctor._get_pid_child_count", lambda pid: 2)
         results = _doctor_check_copilot_health()
         assert results[0].status == "warn"
         signal_path = task.dir / "restart-recommended"
@@ -8508,19 +8533,19 @@ class TestDoctorCheckCapiError:
     """Tests for _doctor_check_capi_error()."""
 
     def test_no_tasks(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [])
         assert _doctor_check_capi_error() == []
 
     def test_list_tasks_error(self, monkeypatch: pytest.MonkeyPatch):
         def _raise():
             raise FileNotFoundError
 
-        monkeypatch.setattr("duo.cli.list_tasks", _raise)
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", _raise)
         assert _doctor_check_capi_error() == []
 
     def test_no_active_tasks(self, monkeypatch: pytest.MonkeyPatch):
         task = MagicMock(status=TaskStatus.COMPLETED)
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         assert _doctor_check_capi_error() == []
 
     def test_no_journal(self, monkeypatch: pytest.MonkeyPatch):
@@ -8530,14 +8555,14 @@ class TestDoctorCheckCapiError:
             status=TaskStatus.RUNNING,
             journal_path=Path("/nonexistent/journal.jsonl"),
         )
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         assert _doctor_check_capi_error() == []
 
     def test_no_capi_events(self, monkeypatch: pytest.MonkeyPatch):
         task = _make_task()
         task.status = TaskStatus.RUNNING
         save_task(task)
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         append_event(task, "api_error", {"terminal": "rate limit"})
         results = _doctor_check_capi_error()
         assert results == []
@@ -8546,7 +8571,7 @@ class TestDoctorCheckCapiError:
         task = _make_task()
         task.status = TaskStatus.RUNNING
         save_task(task)
-        monkeypatch.setattr("duo.cli.list_tasks", lambda: [task])
+        monkeypatch.setattr("duo.cli.doctor.list_tasks", lambda: [task])
         append_event(task, "capi_error", {"terminal": "CAPIError: 400"})
         results = _doctor_check_capi_error()
         assert len(results) == 1
@@ -10604,12 +10629,12 @@ class TestCliBranchGapsBatch3:
     # -- cleanup/doctor: TASKS_DIR doesn't exist → skip lock cleanup (2423→2429) --
     def test_doctor_auto_fix_tasks_dir_absent(self, monkeypatch):
         """_doctor_auto_fix skips lock scan when TASKS_DIR gone (2423→2429)."""
-        import duo.cli as cli_mod
+        import duo.cli.doctor as doctor_mod
 
-        monkeypatch.setattr(cli_mod, "TASKS_DIR", Path("/nonexistent/tasks"))
+        monkeypatch.setattr(doctor_mod, "TASKS_DIR", Path("/nonexistent/tasks"))
         # Also mock subprocess to avoid git calls
-        with patch("duo.cli.subprocess.run", side_effect=OSError("no git")):
-            fixed = cli_mod._doctor_auto_fix()
+        with patch("duo.cli.doctor.subprocess.run", side_effect=OSError("no git")):
+            fixed = doctor_mod._doctor_auto_fix()
         # Should succeed without error, just skip lock cleanup
         assert isinstance(fixed, list)
 
@@ -10664,7 +10689,7 @@ class TestCliBranchGapsBatch5:
     # -- doctor orphan worktree removal fails (2463→2452 False branch) --
     def test_doctor_auto_fix_orphan_removal_fails(self, monkeypatch):
         """_doctor_auto_fix: orphan worktree removal fails (2463→2452 False)."""
-        import duo.cli as cli_mod
+        import duo.cli.doctor as doctor_mod
 
         calls = []
 
@@ -10680,8 +10705,8 @@ class TestCliBranchGapsBatch5:
                 m.stderr = "in use"
             return m
 
-        with patch("duo.cli.subprocess.run", side_effect=mock_run):
-            fixed = cli_mod._doctor_auto_fix()
+        with patch("duo.cli.doctor.subprocess.run", side_effect=mock_run):
+            fixed = doctor_mod._doctor_auto_fix()
         assert "removed orphan worktree" not in " ".join(fixed)
 
 
