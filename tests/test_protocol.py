@@ -20,6 +20,7 @@ from duo.protocol import (
     Heartbeat,
     StepResult,
     Subtask,
+    Task,
     TaskStatus,
     _clear_task_cache,
     append_event,
@@ -2284,3 +2285,114 @@ class TestPublicAPI:
             "__version__",
         }
         assert expected == set(duo.__all__)
+
+
+class TestProtocolEdgeCasesRound7:
+    """Round 7: deeper protocol edge cases."""
+
+    def _task(self, name: str) -> Task:
+        return create_task(name, "d", "/w", "b", "c", [_make_subtask()])
+
+    def test_read_heartbeat_non_dict_returns_none(self, tmp_path):
+        """read_heartbeat returns None for non-dict JSON."""
+        task = self._task("hb-nondict")
+        task.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        task.heartbeat_path.write_text(json.dumps([1, 2, 3]))
+        result = read_heartbeat(task)
+        assert result is None
+
+    def test_read_heartbeat_missing_fields_default(self, tmp_path):
+        """read_heartbeat fills defaults for missing fields."""
+        task = self._task("hb-minimal")
+        task.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
+        task.heartbeat_path.write_text(json.dumps({}))
+        hb = read_heartbeat(task)
+        assert hb is not None
+        assert hb.ts == ""
+        assert hb.incarnation == ""
+        assert hb.step == 0
+        assert hb.status == ""
+        assert hb.current_file == ""
+
+    def test_read_ack_missing_file_returns_none(self):
+        """read_ack_for_step returns None when file doesn't exist."""
+        task = self._task("ack-missing")
+        result = read_ack_for_step(task, 1, 1)
+        assert result is None
+
+    def test_read_result_missing_file_returns_none(self):
+        """read_result_for_step returns None when file doesn't exist."""
+        task = self._task("result-missing")
+        result = read_result_for_step(task, 1, 1)
+        assert result is None
+
+    def test_replay_state_no_journal(self):
+        """replay_state returns CREATED when journal doesn't exist."""
+        task = self._task("replay-empty2")
+        status = replay_state(task)
+        assert status == TaskStatus.CREATED
+
+    def test_replay_state_non_dict_events_skipped(self):
+        """replay_state ignores non-dict entries in journal."""
+        task = self._task("replay-bad")
+
+        path = task.journal_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as f:
+            f.write('"just a string"\n')
+            f.write(
+                json.dumps({"event": "status_changed", "data": {"to": "running"}})
+                + "\n"
+            )
+        status = replay_state(task)
+        assert status == TaskStatus.RUNNING
+
+    def test_quarantine_nonexistent_task(self):
+        """quarantine_task returns None for nonexistent task."""
+        result = quarantine_task("no-such-task-xyz")
+        assert result is None
+
+    def test_list_corrupted_empty(self, monkeypatch, tmp_path):
+        """list_corrupted returns empty list when dir doesn't exist."""
+        import duo.protocol
+
+        monkeypatch.setattr(duo.protocol, "_CORRUPTED_DIR", tmp_path / "nope")
+        result = list_corrupted()
+        assert result == []
+
+    def test_go_session_roundtrip(self, monkeypatch, tmp_path):
+        """save/load/clear go-session lifecycle."""
+        import duo.protocol
+
+        gs_file = tmp_path / "go-session.json"
+        monkeypatch.setattr(duo.protocol, "_GO_SESSION_FILE", gs_file)
+
+        save_go_session(pane_label="test-pane", repo_root="/tmp/repo")
+        data = load_go_session()
+        assert data is not None
+        assert data["pane_label"] == "test-pane"
+        assert data["repo_root"] == "/tmp/repo"
+
+        clear_go_session()
+        assert load_go_session() is None
+
+    def test_load_go_session_invalid_json(self, monkeypatch, tmp_path):
+        """load_go_session returns None for invalid JSON."""
+        import duo.protocol
+
+        gs_file = tmp_path / "go-session.json"
+        monkeypatch.setattr(duo.protocol, "_GO_SESSION_FILE", gs_file)
+        gs_file.write_text("{invalid")
+        assert load_go_session() is None
+
+    def test_prompt_hash_deterministic(self):
+        """Same input always produces same hash."""
+        h1 = prompt_hash("hello world")
+        h2 = prompt_hash("hello world")
+        assert h1 == h2
+
+    def test_prompt_hash_different_inputs(self):
+        """Different inputs produce different hashes."""
+        h1 = prompt_hash("hello")
+        h2 = prompt_hash("world")
+        assert h1 != h2
