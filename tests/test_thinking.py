@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shlex
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -219,6 +221,28 @@ class TestSpawnClaudePane:
             pane_id = _spawn_claude_pane("think-x", "/tmp/test")
             assert pane_id == "%99"
 
+    def test_timeout_expired_kills_pane(self) -> None:
+        """TimeoutExpired during select-layout kills orphaned pane."""
+        split_result = MagicMock(returncode=0, stdout="%99\n", stderr="")
+
+        def run_side_effect(cmd: list[str], **kwargs: object) -> MagicMock:
+            if "split-window" in cmd:
+                return split_result
+            if "select-layout" in cmd:
+                raise subprocess.TimeoutExpired(cmd, 10)
+            return MagicMock(returncode=0)
+
+        with (
+            patch("subprocess.run", side_effect=run_side_effect),
+            patch("duo.transport.name_pane"),
+            patch("duo.transport.kill_pane") as mock_kill,
+            patch("duo.config.get_config", return_value=True),
+            patch("time.sleep"),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to start Claude Code"):
+                _spawn_claude_pane("think-x", "/tmp/test")
+            mock_kill.assert_called_once_with("%99")
+
 
 # ---------------------------------------------------------------------------
 # ensure_pane
@@ -249,6 +273,7 @@ class TestEnsurePane:
     def test_recovers_dead_pane(self) -> None:
         write_thinking_claude_md("my-app")
         write_plan_template("my-app")
+        tdir_str = str(thinking_dir("my-app"))
         with (
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=False),
@@ -258,7 +283,9 @@ class TestEnsurePane:
         ):
             label = ensure_pane("my-app")
             assert label == "think-my-app"
-            mock_cmd.assert_called_once_with(
+            assert mock_cmd.call_count == 2
+            mock_cmd.assert_any_call("think-my-app", f"cd {shlex.quote(tdir_str)}")
+            mock_cmd.assert_any_call(
                 "think-my-app", "claude --dangerously-skip-permissions"
             )
 
@@ -270,11 +297,12 @@ class TestEnsurePane:
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=False),
             patch("duo.config.get_config", return_value=True),
-            patch("duo.transport.send_shell_command"),
+            patch("duo.transport.send_shell_command") as mock_cmd,
             patch("duo.transport.wait_for_idle", return_value=False),
         ):
             label = ensure_pane("my-app")
             assert label == "think-my-app"
+            assert mock_cmd.call_count == 2  # cd + claude
 
     def test_writes_scaffold_files(self) -> None:
         with (
@@ -768,6 +796,7 @@ class TestBypassPermissions:
     def test_ensure_pane_recover_with_bypass_enabled(self) -> None:
         write_thinking_claude_md("bp-test")
         write_plan_template("bp-test")
+        tdir_str = str(thinking_dir("bp-test"))
         with (
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=False),
@@ -776,13 +805,16 @@ class TestBypassPermissions:
             patch("duo.transport.wait_for_idle", return_value=True),
         ):
             ensure_pane("bp-test")
-            mock_cmd.assert_called_once_with(
+            assert mock_cmd.call_count == 2
+            mock_cmd.assert_any_call("think-bp-test", f"cd {shlex.quote(tdir_str)}")
+            mock_cmd.assert_any_call(
                 "think-bp-test", "claude --dangerously-skip-permissions"
             )
 
     def test_ensure_pane_recover_with_bypass_disabled(self) -> None:
         write_thinking_claude_md("bp-off")
         write_plan_template("bp-off")
+        tdir_str = str(thinking_dir("bp-off"))
         with (
             patch("duo.thinking._pane_exists", return_value=True),
             patch("duo.thinking._pane_alive", return_value=False),
@@ -791,7 +823,9 @@ class TestBypassPermissions:
             patch("duo.transport.wait_for_idle", return_value=True),
         ):
             ensure_pane("bp-off")
-            mock_cmd.assert_called_once_with("think-bp-off", "claude")
+            assert mock_cmd.call_count == 2
+            mock_cmd.assert_any_call("think-bp-off", f"cd {shlex.quote(tdir_str)}")
+            mock_cmd.assert_any_call("think-bp-off", "claude")
 
 
 class TestExtractResponseEdgeCases:

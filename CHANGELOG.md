@@ -235,11 +235,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 - `read_json` uses explicit UTF-8 encoding + catches `UnicodeDecodeError`
 - `read_jsonl` resilient to `OSError` (permission denied) and invalid byte sequences
 - `transition()` saves task.json before journal append (crash consistency)
+- `transition()` rolls back in-memory status on save failure (RAM/disk consistency)
 - 10 new modern secret patterns in `SecurityPolicy` defaults (encrypted PK, PGP, ghu_, xoxc/a, ya29, etc.)
 - `SecurityPolicy` patterns now merged with defaults on `load_task()` (older tasks get new patterns)
 - `verify_and_advance()` accepts pre-read result, eliminating double I/O in poll→verify path
 - `DUO_COPILOT_MODEL` env var length bounded to 64 chars
 - Path traversal protection: `_validate_task_name()` + `is_relative_to()` defense-in-depth on all task name inputs
+- Protocol-level `create_task()` validates task_id (alphanumeric/dash/underscore, 1-63 chars)
+- `load_task()` rejects `current_step` exceeding subtask count (prevents impossible state)
+- `_check_security_scope` fail-closed on non-ENOENT `OSError` (PermissionError etc.)
+- `run_in_worktree` handles empty commands and OSError gracefully (returns 127)
 - Lock file cleanup age-gated to 1 hour — prevents deletion of live locks
 - `cleanup --all` restricted to terminal states (COMPLETED/FAILED) — no longer removes BLOCKED/ESCALATED tasks
 - `ceo_restart` respects `bypass_permissions` config + `shlex.quote()` model name

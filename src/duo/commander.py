@@ -1803,11 +1803,13 @@ def _watch_loop(
             try:
                 idle_content = read_pane(label, 5)
                 if is_at_main_prompt(idle_content):
-                    _log_monitor("⚠", task.id, "Copilot IDLE at main prompt — needs new task")
+                    _log_monitor(
+                        "⚠", task.id, "Copilot IDLE at main prompt — needs new task"
+                    )
                     pane_content = read_pane(label, 40)
                     click.echo(f"\n[duo:watch] Copilot IDLE in '{task.id}':")
                     click.echo(pane_content)
-                    _write_watch_signal(task.id, "idle", pane_content)
+                    _write_watch_event(task, pane_content)
                     if once:
                         stop.set()
                         break

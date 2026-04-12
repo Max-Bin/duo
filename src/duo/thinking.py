@@ -231,7 +231,12 @@ def _spawn_claude_pane(label: str, working_dir: str) -> str:
         if get_config("bypass_permissions"):
             claude_cmd += " --dangerously-skip-permissions"
         send_shell_command(label, claude_cmd)
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+    except (
+        RuntimeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ) as exc:
         # Clean up orphaned pane
         from duo.transport import kill_pane
 
@@ -268,8 +273,11 @@ def ensure_pane(name: str) -> str:
 
     if _pane_exists(label):
         if not _pane_alive(label):
-            # Pane exists but Claude Code exited — restart
+            # Pane exists but Claude Code exited — restart from correct directory
             logger.info("Recovering dead thinking pane %s", label)
+            tdir_str = str(tdir)
+            send_shell_command(label, f"cd {shlex.quote(tdir_str)}")
+            time.sleep(_CD_WAIT)
             claude_cmd = "claude"
             if get_config("bypass_permissions"):
                 claude_cmd += " --dangerously-skip-permissions"

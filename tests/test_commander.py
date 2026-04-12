@@ -4713,6 +4713,129 @@ class TestBranchCoverageCommander:
             )
         # Loop never entered — exited immediately
 
+    def test_watch_loop_idle_at_prompt_writes_event(self):
+        """When Copilot is idle at main prompt, writes watch event and breaks if once=True."""
+        import threading
+
+        task = _make_task("watch-idle")
+        _advance_to_prompt_sent(task)
+        stop = threading.Event()
+
+        prompt_content = "some output\n❯ "
+
+        with (
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", return_value=False),
+            patch("duo.commander.read_pane", return_value=prompt_content),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
+            patch("duo.commander._write_watch_event") as mock_event,
+        ):
+            _watch_loop(
+                task,
+                stop,
+                timeout=1,
+                interval=0.01,
+                once=True,
+                auto_approve=False,
+            )
+        mock_event.assert_called_once_with(task, prompt_content)
+        assert stop.is_set()
+
+    def test_watch_loop_idle_read_pane_error_suppressed(self):
+        """OSError during idle check is suppressed, loop continues."""
+        import threading
+
+        task = _make_task("watch-idle-err")
+        _advance_to_prompt_sent(task)
+        stop = threading.Event()
+        call_count = 0
+
+        def _wait_side(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                stop.set()
+            return False
+
+        with (
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", side_effect=_wait_side),
+            patch("duo.commander.read_pane", side_effect=RuntimeError("pane error")),
+        ):
+            _watch_loop(
+                task,
+                stop,
+                timeout=1,
+                interval=0.01,
+                once=False,
+                auto_approve=False,
+            )
+
+    def test_watch_loop_idle_not_at_prompt_continues(self):
+        """When pane is alive but not at main prompt, loop continues."""
+        import threading
+
+        task = _make_task("watch-not-idle")
+        _advance_to_prompt_sent(task)
+        stop = threading.Event()
+        call_count = 0
+
+        def _wait_side(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                stop.set()
+            return False
+
+        with (
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", side_effect=_wait_side),
+            patch("duo.commander.read_pane", return_value="working on stuff..."),
+            patch("duo.commander.is_at_main_prompt", return_value=False),
+        ):
+            _watch_loop(
+                task,
+                stop,
+                timeout=1,
+                interval=0.01,
+                once=False,
+                auto_approve=False,
+            )
+
+    def test_watch_loop_idle_at_prompt_once_false_continues(self):
+        """When idle at prompt but once=False, writes event but continues."""
+        import threading
+
+        task = _make_task("watch-idle-nonce")
+        _advance_to_prompt_sent(task)
+        stop = threading.Event()
+        call_count = 0
+
+        def _wait_side(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                stop.set()
+            return False
+
+        with (
+            patch("duo.commander.is_process_alive", return_value=True),
+            patch("duo.commander.wait_for_dialog", side_effect=_wait_side),
+            patch("duo.commander.read_pane", return_value="❯ "),
+            patch("duo.commander.is_at_main_prompt", return_value=True),
+            patch("duo.commander._write_watch_event") as mock_event,
+        ):
+            _watch_loop(
+                task,
+                stop,
+                timeout=1,
+                interval=0.01,
+                once=False,
+                auto_approve=False,
+            )
+        assert mock_event.call_count >= 1
+        assert not stop.is_set() or call_count >= 2  # stopped by counter, not idle
+
     def test_verify_and_advance_unknown_verdict_type(self):
         """933->exit: verdict is neither Pass nor Correction — silent no-op."""
         from duo.protocol import StepResult
