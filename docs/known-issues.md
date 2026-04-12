@@ -52,3 +52,38 @@ may receive false success signals.
 **Severity**: Low — `start_session()` now bails early on FAILED status,
 so Claude commander and other post-start side effects are skipped. Only
 the caller's output message is affected.
+
+## Diff size limit enforced late in verifier
+
+`git_diff()` calls `subprocess.run()` which buffers the entire diff in memory
+before the byte-length check. A very large diff (e.g. binary file committed)
+could cause high memory usage before being rejected.
+
+**Severity**: Low — the `_MAX_DIFF_BYTES` check (5 MB) still rejects the diff,
+and git's own limits typically prevent extreme sizes.
+
+## Secret detection does not cover JSON/YAML key forms or base64
+
+The secret detection regex patterns check for `key=value` style patterns but
+miss JSON forms like `"api_key": "sk-..."` and base64-encoded secrets. This
+reduces detection coverage for config files.
+
+**Severity**: Medium — defense-in-depth measure; primary secret protection
+is via writable_paths scope restriction.
+
+## FSM bypass via direct status assignment
+
+Code that does `task.status = X; save_task(task)` bypasses the `TRANSITIONS`
+dict validation and journal logging. All production code uses `transition()`,
+but there is no runtime guard preventing direct assignment on the dataclass.
+
+**Severity**: Low — would require intentional misuse by a developer.
+Consider frozen status field or `__setattr__` guard in future.
+
+## Journal rotation can corrupt replayed state
+
+If journal rotation (archiving old entries) happens during a crash recovery,
+the replayed state may not match the actual task state. Currently journal
+rotation is not implemented, but the append-only design should be preserved.
+
+**Severity**: Low — theoretical; journal rotation is not yet implemented.
