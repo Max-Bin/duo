@@ -282,9 +282,12 @@ def resume(name: str | None, *, as_json: bool = False, quiet: bool = False) -> N
         from duo.commander import build_task_prompt, send_task_prompt
 
         prompt_path = task.prompt_path(task.current_step, task.current_attempt)
-        if prompt_path.exists():
-            prompt = prompt_path.read_text()
-        else:
+        try:
+            if prompt_path.exists():
+                prompt = prompt_path.read_text()
+            else:
+                prompt = build_task_prompt(task)
+        except (OSError, UnicodeDecodeError):
             prompt = build_task_prompt(task)
         try:
             send_task_prompt(task, prompt)

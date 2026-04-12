@@ -673,7 +673,12 @@ def start_claude_commander(task: Task) -> str | None:
 
     pane_id = result.stdout.strip()
     commander_label = f"duo-commander-{task.id}"
-    name_pane(pane_id, commander_label)
+    try:
+        name_pane(pane_id, commander_label)
+    except (RuntimeError, subprocess.CalledProcessError, OSError) as exc:
+        logger.warning("Failed to name commander pane: %s", exc)
+        kill_pane(pane_id)
+        return None
 
     # Tile layout — target the new pane to resolve correct window
     try:
@@ -847,7 +852,17 @@ def _prepare_pane(task: Task, reuse_pane: str) -> tuple[str, bool] | None:
             return None
         return reuse_pane, False
 
-    session_target = get_tmux_session_target()
+    try:
+        session_target = get_tmux_session_target()
+    except RuntimeError as exc:
+        transition(task, TaskStatus.FAILED)
+        append_event(
+            task,
+            "session_start_failed",
+            {"error": f"tmux session target: {exc}"},
+        )
+        return None
+
     try:
         result = subprocess.run(
             [
@@ -1024,15 +1039,36 @@ def start_session(task: Task, *, defer: bool = False, reuse_pane: str = "") -> N
         return
     pane_id, created = pane_result
 
+    if not os.path.isdir(task.worktree):
+        logger.error("Worktree does not exist: %s", task.worktree)
+        if created:
+            kill_pane(pane_id)
+        transition(task, TaskStatus.FAILED)
+        append_event(
+            task,
+            "session_start_failed",
+            {"error": f"Worktree directory does not exist: {task.worktree}"},
+        )
+        return
+
     time.sleep(_SESSION_SPLIT_WAIT)
     try:
         _start_and_prime_copilot(task, pane_id, defer=defer)
     except _TRANSPORT_ERRORS as exc:
-        kill_pane(pane_id)
+        if created:
+            kill_pane(pane_id)
         logger.warning("start_session transport error for '%s': %s", task.id, exc)
         transition(task, TaskStatus.FAILED)
         append_event(task, "session_start_failed", {"error": str(exc)})
         raise
+
+    # _start_and_prime_copilot may set FAILED on startup health checks
+    # (timeout, not-at-prompt) without raising — bail out before callers
+    # print success or replay prompts.
+    if task.status == TaskStatus.FAILED:
+        if created:
+            kill_pane(pane_id)
+        return
 
     # Also start Claude Code CLI as commander (non-blocking, best-effort)
     if get_config("auto_claude_commander"):

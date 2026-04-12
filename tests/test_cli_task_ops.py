@@ -647,6 +647,36 @@ class TestResume:
         assert result.exit_code == 0
         assert "could not replay prompt" in result.output
 
+    def test_resume_corrupt_prompt_falls_back_to_build(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        make_task,
+    ):
+        """If persisted prompt is unreadable, falls back to build_task_prompt."""
+        task = make_task("resume-corrupt")
+        task.status = TaskStatus.RUNNING
+        save_task(task)
+        # Write corrupt prompt (invalid UTF-8)
+        prompt_path = task.prompt_path(task.current_step, task.current_attempt)
+        prompt_path.parent.mkdir(parents=True, exist_ok=True)
+        prompt_path.write_bytes(b"\x80\x81\x82\xff")
+
+        monkeypatch.setattr("duo.transport.is_process_alive", lambda label: False)
+        mock_start = MagicMock()
+        monkeypatch.setattr("duo.commander.start_session", mock_start)
+        mock_send = MagicMock()
+        monkeypatch.setattr("duo.commander.send_task_prompt", mock_send)
+        mock_build = MagicMock(return_value="fallback prompt")
+        monkeypatch.setattr("duo.commander.build_task_prompt", mock_build)
+        result = runner.invoke(main, ["resume", "resume-corrupt"])
+        assert result.exit_code == 0
+        # Should fall back to built prompt
+        mock_build.assert_called_once()
+        sent_prompt = mock_send.call_args[0][1]
+        assert sent_prompt == "fallback prompt"
+
     def test_resume_restart_session_error_continues(
         self,
         runner: CliRunner,

@@ -68,7 +68,7 @@ def _make_subtask(step_id: int = 1, **overrides) -> Subtask:
 
 
 def _make_task(task_id: str = "t1", subtasks: list[Subtask] | None = None):
-    return create_task(
+    task = create_task(
         task_id=task_id,
         description="test task",
         worktree="/fake/worktree",
@@ -76,6 +76,9 @@ def _make_task(task_id: str = "t1", subtasks: list[Subtask] | None = None):
         base_commit="abc123",
         subtasks=subtasks or [_make_subtask()],
     )
+    # Use existing task dir as worktree so os.path.isdir() passes
+    task.worktree = str(task.dir)
+    return task
 
 
 def _advance_to_prompt_sent(task):
@@ -675,6 +678,7 @@ class TestStartSession:
             patch("duo.commander.send_bootstrap"),
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+            patch("os.path.isdir", return_value=True),
         ):
             split_result = MagicMock()
             split_result.returncode = 0
@@ -714,6 +718,7 @@ class TestStartSession:
             patch("duo.commander.send_bootstrap") as mock_bootstrap,
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+            patch("duo.commander.kill_pane") as mock_kill,
         ):
             split_result = MagicMock()
             split_result.returncode = 0
@@ -736,6 +741,8 @@ class TestStartSession:
             timeout_events = [e for e in events if e.get("event") == "startup_timeout"]
             assert len(timeout_events) == 1
             assert timeout_events[0]["data"]["phase"] == "copilot_start"
+            # Pane should be cleaned up on startup failure
+            mock_kill.assert_called_once_with("%42")
 
     def test_start_session_not_at_prompt_fails(self):
         """When Copilot stabilizes but is not at main prompt, task fails."""
@@ -760,6 +767,7 @@ class TestStartSession:
             patch("duo.commander.send_bootstrap") as mock_bootstrap,
             patch("duo.commander.time.sleep"),
             patch("duo.commander.get_config", side_effect=lambda k: config_values[k]),
+            patch("duo.commander.kill_pane") as mock_kill,
         ):
             split_result = MagicMock()
             split_result.returncode = 0
@@ -772,6 +780,8 @@ class TestStartSession:
 
             assert task.status == TaskStatus.FAILED
             mock_bootstrap.assert_not_called()
+            # Pane should be cleaned up on startup failure
+            mock_kill.assert_called_once_with("%42")
             events = [
                 json.loads(line)
                 for line in task.journal_path.read_text().strip().split("\n")
@@ -1013,6 +1023,36 @@ class TestStartSessionReusePane:
             start_session(task, reuse_pane="%99")
             assert task.status == TaskStatus.FAILED
 
+    def test_worktree_missing_reuse_pane_not_killed(self):
+        """Missing worktree with reused pane does not kill the pane."""
+        task = _make_task()
+        task.worktree = "/nonexistent/path"
+
+        with (
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.kill_pane") as mock_kill,
+            patch("duo.commander.time.sleep"),
+        ):
+            start_session(task, reuse_pane="%99")
+            assert task.status == TaskStatus.FAILED
+            mock_kill.assert_not_called()
+
+    def test_startup_failure_reuse_pane_not_killed(self):
+        """Startup health failure with reused pane does not kill the pane."""
+        task = _make_task()
+
+        with (
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command"),
+            patch("duo.commander.wait_for_idle", return_value=False),
+            patch("duo.commander.kill_pane") as mock_kill,
+            patch("duo.commander.time.sleep"),
+            patch("duo.commander.get_config", return_value=False),
+        ):
+            start_session(task, reuse_pane="%99")
+            assert task.status == TaskStatus.FAILED
+            mock_kill.assert_not_called()
+
     def test_reuse_pane_empty_string_creates_new(self):
         """Empty reuse_pane string creates a new pane (default behavior)."""
         from unittest.mock import MagicMock
@@ -1042,6 +1082,86 @@ class TestStartSessionReusePane:
             # Should have called split-window
             first_call_args = mock_run.call_args_list[0][0][0]
             assert "split-window" in first_call_args
+
+    def test_reuse_pane_not_killed_on_transport_error(self):
+        """Reused pane is NOT killed on transport error (only created panes are)."""
+        task = _make_task()
+
+        with (
+            patch("duo.commander.name_pane"),
+            patch(
+                "duo.commander.send_shell_command",
+                side_effect=RuntimeError("send failed"),
+            ),
+            patch("duo.commander.kill_pane") as mock_kill,
+            patch("duo.commander.time.sleep"),
+        ):
+            with pytest.raises(RuntimeError, match="send failed"):
+                start_session(task, reuse_pane="%99")
+            # Reused pane must NOT be killed
+            mock_kill.assert_not_called()
+            assert task.status == TaskStatus.FAILED
+
+    def test_worktree_missing_fails_before_copilot_start(self):
+        """Missing worktree directory fails task before sending tmux commands."""
+        from unittest.mock import MagicMock
+
+        task = _make_task()
+        task.worktree = "/nonexistent/path/worktree"
+
+        with (
+            patch("duo.commander.subprocess.run") as mock_run,
+            patch("duo.commander.name_pane"),
+            patch("duo.commander.send_shell_command") as mock_send,
+            patch("duo.commander.kill_pane") as mock_kill,
+            patch("duo.commander.time.sleep"),
+        ):
+            split_result = MagicMock()
+            split_result.returncode = 0
+            split_result.stdout = "%42\n"
+            layout_result = MagicMock()
+            layout_result.returncode = 0
+            mock_run.side_effect = [split_result, layout_result]
+
+            start_session(task)
+
+            assert task.status == TaskStatus.FAILED
+            # No shell commands should be sent (cd/copilot)
+            mock_send.assert_not_called()
+            # Created pane should be cleaned up
+            mock_kill.assert_called_once_with("%42")
+            events = [
+                json.loads(line)
+                for line in task.journal_path.read_text().strip().split("\n")
+            ]
+            fail_events = [
+                e for e in events if e.get("event") == "session_start_failed"
+            ]
+            assert len(fail_events) == 1
+            assert "does not exist" in fail_events[0]["data"]["error"]
+
+    def test_prepare_pane_tmux_session_target_failure(self):
+        """get_tmux_session_target RuntimeError fails task cleanly."""
+        task = _make_task()
+
+        with (
+            patch(
+                "duo.commander.get_tmux_session_target",
+                side_effect=RuntimeError("no tmux"),
+            ),
+            patch("duo.commander.time.sleep"),
+        ):
+            start_session(task)
+            assert task.status == TaskStatus.FAILED
+            events = [
+                json.loads(line)
+                for line in task.journal_path.read_text().strip().split("\n")
+            ]
+            fail_events = [
+                e for e in events if e.get("event") == "session_start_failed"
+            ]
+            assert len(fail_events) == 1
+            assert "tmux session target" in fail_events[0]["data"]["error"]
 
 
 class TestBypassPermissions:
@@ -1432,6 +1552,35 @@ class TestClaudeCommander:
 
                 result = start_claude_commander(task)
                 assert result is None
+
+    def test_start_claude_commander_name_pane_failure_returns_none(self) -> None:
+        """name_pane failure in start_claude_commander kills pane and returns None."""
+        import tempfile
+
+        task = _make_task()
+        with tempfile.TemporaryDirectory() as tmp:
+            task.worktree = tmp
+            with (
+                patch("duo.commander.subprocess.run") as mock_run,
+                patch(
+                    "duo.commander.name_pane",
+                    side_effect=RuntimeError("name failed"),
+                ),
+                patch("duo.commander.time.sleep"),
+            ):
+                split_result = MagicMock()
+                split_result.returncode = 0
+                split_result.stdout = "%60\n"
+                kill_result = MagicMock()
+                kill_result.returncode = 0
+                mock_run.side_effect = [split_result, kill_result]
+
+                result = start_claude_commander(task)
+                assert result is None
+                # kill_pane should clean up the leaked pane
+                kill_call = mock_run.call_args_list[1]
+                kill_args = kill_call[0][0]
+                assert "kill-pane" in kill_args
 
     def test_start_claude_commander_transport_failure(self) -> None:
         """start_claude_commander cleans up pane on transport error."""
