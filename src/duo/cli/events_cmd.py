@@ -84,14 +84,14 @@ def events_show(name: str) -> None:
     if not _WATCH_EVENTS_DIR.exists():
         raise DuoUserError(
             "No events directory",
-            fix="Run a task with 'duo ceo-loop' to generate events.",
+            fix="Run a task with 'duo watch' to generate events.",
         )
     if name == "latest":
         files = sorted(_WATCH_EVENTS_DIR.glob("*.json"), reverse=True)
         if not files:
             raise DuoUserError(
                 "No events found",
-                fix="Run a task with 'duo ceo-loop' to generate events.",
+                fix="Run a task with 'duo watch' to generate events.",
             )
         target = files[0]
     else:
