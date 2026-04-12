@@ -1799,6 +1799,20 @@ def _watch_loop(
             if not is_process_alive(label):
                 _log_monitor("·", task.id, "pane gone, stopping watch")
                 break
+            # Check if Copilot went idle at main ❯ prompt (stopped working)
+            try:
+                idle_content = read_pane(label, 5)
+                if is_at_main_prompt(idle_content):
+                    _log_monitor("⚠", task.id, "Copilot IDLE at main prompt — needs new task")
+                    pane_content = read_pane(label, 40)
+                    click.echo(f"\n[duo:watch] Copilot IDLE in '{task.id}':")
+                    click.echo(pane_content)
+                    _write_watch_signal(task.id, "idle", pane_content)
+                    if once:
+                        stop.set()
+                        break
+            except (RuntimeError, OSError):
+                pass
             continue
         # Dialog detected — read pane content for signal file
         _log_monitor("⚡", task.id, "dialog detected")
