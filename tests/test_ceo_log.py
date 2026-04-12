@@ -283,3 +283,55 @@ class TestSessionIdValidation:
         session_id = start_ceo_session()
         # Should not raise
         replay_session(session_id)
+
+
+class TestCeoLogEdgeCases:
+    """Edge case value coverage for ceo_log."""
+
+    def test_log_dialog_with_empty_content(self) -> None:
+        """Empty dialog content is accepted."""
+        sid = start_ceo_session()
+        log_dialog_detected(sid, "task-1", "", "option")
+        events = replay_session(sid)
+        dialog_events = [e for e in events if e.get("event") == "dialog_detected"]
+        assert len(dialog_events) == 1
+        assert dialog_events[0]["content"] == ""
+
+    def test_log_decision_with_zero_elapsed(self) -> None:
+        """Zero elapsed_ms is a valid value."""
+        sid = start_ceo_session()
+        log_decision(sid, "task-1", "approve", "quick", elapsed_ms=0)
+        stats = session_stats(sid)
+        assert stats["avg_decision_ms"] == 0
+
+    def test_session_stats_multiple_decision_types(self) -> None:
+        """decision_types counter tracks each type separately."""
+        sid = start_ceo_session()
+        log_decision(sid, "t", "approve", "c1", elapsed_ms=100)
+        log_decision(sid, "t", "defer", "c2", elapsed_ms=200)
+        log_decision(sid, "t", "approve", "c3", elapsed_ms=300)
+        stats = session_stats(sid)
+        assert stats["decision_types"]["approve"] == 2
+        assert stats["decision_types"]["defer"] == 1
+        assert stats["avg_decision_ms"] == 200
+
+    def test_list_sessions_ignores_regular_files(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """list_sessions only returns directories, not files."""
+        import duo.ceo_log
+
+        monkeypatch.setattr(duo.ceo_log, "CEO_SESSIONS_DIR", tmp_path)
+        (tmp_path / "real-session").mkdir()
+        (tmp_path / "not-a-session.txt").write_text("file")
+        sessions = list_sessions()
+        assert sessions == ["real-session"]
+
+    def test_replay_empty_session(self) -> None:
+        """replay_session returns empty list for session with no events file."""
+        import duo.ceo_log
+
+        sid = "test-empty-replay"
+        (duo.ceo_log.CEO_SESSIONS_DIR / sid).mkdir(parents=True, exist_ok=True)
+        events = replay_session(sid)
+        assert events == []

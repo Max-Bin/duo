@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from duo.protocol import (
@@ -10,6 +12,7 @@ from duo.protocol import (
     TaskStatus,
     create_task,
     save_task,
+    transition,
 )
 from duo.scheduler import (
     ACTIVE_STATUSES,
@@ -487,3 +490,59 @@ class TestFifoTiebreaker:
 
         queued = _sorted_queued()
         assert [t.id for t in queued] == ["alpha", "bravo", "charlie"]
+
+
+class TestSchedulerEdgeCases:
+    """Edge case value coverage for scheduler."""
+
+    def test_enqueue_when_transition_fails(self) -> None:
+        """enqueue_or_start returns 'started' if transition to QUEUED fails."""
+        t = _make_task("queue-fail")
+        # Force into COMPLETED — transition to QUEUED is illegal
+        _force_status(t, TaskStatus.COMPLETED)
+        # Mock has_slot to return False so it tries to queue
+        with patch("duo.scheduler.has_slot", return_value=False):
+            result = enqueue_or_start(t)
+        assert result == "started"
+
+    def test_promote_skips_failed_transition(self) -> None:
+        """promote_queued silently skips tasks whose transition fails."""
+        t1 = _make_task("skip-1")
+        t2 = _make_task("skip-2")
+        _force_status(t1, TaskStatus.QUEUED)
+        _force_status(t2, TaskStatus.QUEUED)
+        # Patch transition to fail for t1 but succeed for t2
+        original_transition = transition
+
+        def selective_transition(task, status):
+            if task.id == "skip-1":
+                return False
+            return original_transition(task, status)
+
+        with (
+            patch("duo.scheduler.max_parallel", return_value=10),
+            patch("duo.scheduler.transition", side_effect=selective_transition),
+        ):
+            promoted = promote_queued()
+        assert len(promoted) == 1
+        assert promoted[0].id == "skip-2"
+
+    def test_queue_position_not_queued(self) -> None:
+        """_queue_position for a non-queued task returns len+1."""
+        t = _make_task("not-queued")
+        # Not in QUEUED status — position is 1 (empty queue len + 1 = 1)
+        pos = _queue_position(t)
+        assert pos == 1
+
+    def test_queue_status_no_tasks(self) -> None:
+        """queue_status with no tasks returns zero counts."""
+        qs = queue_status()
+        assert qs["active_count"] == 0
+        assert qs["queued_count"] == 0
+        assert qs["active_tasks"] == []
+        assert qs["queued_tasks"] == []
+
+    def test_sorted_queued_with_none_tasks(self) -> None:
+        """_sorted_queued(None) calls list_tasks internally."""
+        queued = _sorted_queued(None)
+        assert isinstance(queued, list)

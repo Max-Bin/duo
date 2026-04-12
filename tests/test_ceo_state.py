@@ -70,3 +70,28 @@ class TestCeoState:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"task_id": 123}))
         assert load_ceo_focus() is None
+
+    def test_load_focus_corrupted_json(self) -> None:
+        """load_ceo_focus returns None for corrupted JSON file."""
+        path = duo.ceo_state.CEO_STATE_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not valid json}")
+        assert load_ceo_focus() is None
+
+    def test_load_focus_array_instead_of_dict(self) -> None:
+        """load_ceo_focus returns None for JSON array (not dict)."""
+        import json
+
+        path = duo.ceo_state.CEO_STATE_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(["task_id", "val"]))
+        assert load_ceo_focus() is None
+
+    def test_save_ceo_focus_defaults(self) -> None:
+        """save_ceo_focus with minimal args uses defaults for session_id and notes."""
+        save_ceo_focus("minimal-task")
+        focus = load_ceo_focus()
+        assert focus is not None
+        assert focus["task_id"] == "minimal-task"
+        assert focus["session_id"] == ""
+        assert focus["notes"] == ""

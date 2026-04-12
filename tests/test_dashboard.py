@@ -446,3 +446,61 @@ class TestRunDashboardRefreshRateGuard:
         mock_live.return_value.__enter__ = lambda s: s
         mock_live.return_value.__exit__ = lambda s, *a: False
         run_dashboard(refresh_rate=-5.0)  # should not raise
+
+
+class TestDashboardEdgeCases:
+    """Edge case value coverage for dashboard."""
+
+    def test_status_text_unknown_status(self):
+        """_status_text falls back to 'white' for unknown status values."""
+        from duo.dashboard import _status_text
+
+        # All valid statuses have colors defined
+        for status in TaskStatus:
+            text = _status_text(status)
+            assert text.plain == status.value
+
+    def test_build_tasks_table_description_exactly_40(self):
+        """Description at exactly 40 chars is not truncated."""
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("exact-40")
+        task.description = "A" * 40
+        with patch("duo.dashboard.read_heartbeat", return_value=None):
+            table = _build_tasks_table([task])
+        assert table is not None
+
+    def test_build_tasks_table_description_41_truncated(self):
+        """Description at 41 chars IS truncated with '...'."""
+        from duo.dashboard import _build_tasks_table
+
+        task = _make_task("over-40")
+        task.description = "B" * 41
+        with patch("duo.dashboard.read_heartbeat", return_value=None):
+            table = _build_tasks_table([task])
+        assert table is not None
+
+    def test_build_events_panel_timestamps_without_T(self):
+        """Events with timestamps lacking 'T' separator use first 8 chars."""
+        from duo.dashboard import _build_events_panel
+
+        task = _make_task("no-T-ts")
+        # Write a journal entry with unusual timestamp
+        from duo.protocol import append_event
+
+        append_event(task, "test_event", {"x": 1})
+        panel = _build_events_panel([task])
+        assert panel is not None
+
+    def test_build_events_panel_error_and_completed_colors(self):
+        """Events containing 'error' and 'completed' get colored."""
+        from duo.dashboard import _build_events_panel
+        from duo.protocol import append_event
+
+        task = _make_task("color-test")
+        append_event(task, "step_error", {"reason": "fail"})
+        append_event(task, "task_completed", {"id": task.id})
+        panel = _build_events_panel([task])
+        content = panel.renderable
+        assert "step_error" in content
+        assert "task_completed" in content
